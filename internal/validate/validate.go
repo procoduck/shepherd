@@ -18,8 +18,8 @@ import (
 	"time"
 
 	"github.com/grafana/alloy/syntax/diag"
-	"github.com/grafana/alloy/syntax/parser"
 
+	"shepherd/internal/alloysyntax"
 	"shepherd/internal/config"
 	"shepherd/internal/metrics"
 )
@@ -59,6 +59,11 @@ type Result struct {
 	// caller comparing two validations (git sync's before/after check) must
 	// not read such a result as the content's own error.
 	Inconclusive bool
+	// Busy is set when the tenant lint hit its wall-clock guard
+	// (ErrLintBusy): Valid is false and Inconclusive set, but it is no
+	// verdict on the content — a write answers it with a retryable
+	// Unavailable, never a refusal.
+	Busy bool
 }
 
 // Validator holds configuration for running validation.
@@ -94,11 +99,17 @@ func Stage1(content string) (res Result) {
 	// remember is a counter that eventually misses one.
 	defer func() { metrics.ObserveValidation("1", res.Valid) }()
 
-	_, err := parser.ParseFile("<pipeline>", []byte(content))
+	_, err := alloysyntax.ParseFile("<pipeline>", []byte(content))
 	if err == nil {
 		return Result{Valid: true}
 	}
 
+	// Nesting past alloysyntax.MaxNesting is a Stage 1 refusal for every org:
+	// the parser would overflow its stack on it.
+	var nesting *alloysyntax.NestingError
+	if errors.As(err, &nesting) {
+		return Result{Diagnostics: []Diagnostic{{Line: nesting.Line, Col: nesting.Col, Message: err.Error(), Stage: 1}}}
+	}
 	var diags diag.Diagnostics
 	ok := errors.As(err, &diags)
 	if !ok {
@@ -227,7 +238,14 @@ func (v *Validator) ValidatePipeline(ctx context.Context, pipelineName, contents
 // contents itself (the visual builder's render, which has no declare
 // wrapper to undo). A no-op when tenants is not strict.
 func WithTenantLint(r Result, contents string, tenants TenantPolicy) Result {
-	lint := TenantLint(contents, tenants)
+	lint, err := TenantLintChecked(contents, tenants)
+	if err != nil {
+		// The tenant check's wall-clock guard: no verdict. Busy, not a
+		// refusal: writes answer it with a retryable Unavailable.
+		r.Valid, r.Busy, r.Inconclusive = false, true, true
+		r.Diagnostics = append(r.Diagnostics, Diagnostic{Line: 1, Col: 1, Stage: 1, Message: err.Error()})
+		return r
+	}
 	if len(lint) == 0 {
 		return r
 	}

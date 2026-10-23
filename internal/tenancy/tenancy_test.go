@@ -18,6 +18,7 @@ import (
 	"shepherd/internal/store/sqlc"
 	"shepherd/internal/tenancy"
 	"shepherd/internal/testutil"
+	"shepherd/internal/validate"
 )
 
 func TestTenancy(t *testing.T) {
@@ -142,6 +143,23 @@ var _ = Describe("CheckRequireOwned", Label("integration"), func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(covered).To(HaveLen(256))
 		Expect(warnings).To(ConsistOf(ContainSubstring(`"preflight-org"`)))
+	})
+
+	It("keeps a pipeline's previous index row when the tenant check is busy (no verdict)", func() {
+		pipeline("w", "first", true)
+		tenancy.RebuildPipelineTenants(ctx, st)
+		p, err := st.Queries.GetPipelineByOrgAndName(ctx, sqlc.GetPipelineByOrgAndNameParams{OrgID: org.ID, Name: "w"})
+		Expect(err).NotTo(HaveOccurred())
+		before, err := st.Queries.GetPipelineTenantIndex(ctx, p.ID)
+		Expect(err).NotTo(HaveOccurred())
+
+		restore := validate.SetTenantLintDeadline(0)
+		defer restore()
+		p.Contents = strings.Replace(p.Contents, "first", "second", 1)
+		Expect(tenancy.RecordPipelineTenants(ctx, st.Queries, p)).To(Succeed(), "busy is not a failed write")
+		after, err := st.Queries.GetPipelineTenantIndex(ctx, p.ID)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(after).To(Equal(before), "neither recorded as incomplete nor rewritten")
 	})
 
 	It("re-records a pipeline whose contents changed without the index (a rolling upgrade)", func() {

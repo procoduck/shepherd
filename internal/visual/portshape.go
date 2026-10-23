@@ -5,7 +5,8 @@ import (
 	"strings"
 
 	"github.com/grafana/alloy/syntax/ast"
-	"github.com/grafana/alloy/syntax/parser"
+
+	"shepherd/internal/alloysyntax"
 )
 
 // PortShapeDiagnostic is one wire whose shape Alloy is certain to refuse when
@@ -60,7 +61,7 @@ func CheckPortShapes(content string, schema SchemaPayload) []PortShapeDiagnostic
 	if len(schema.Components) == 0 {
 		return nil
 	}
-	f, err := parser.ParseFile("<pipeline>", []byte(content))
+	f, err := alloysyntax.ParseFile("<pipeline>", []byte(content))
 	if err != nil {
 		return nil
 	}

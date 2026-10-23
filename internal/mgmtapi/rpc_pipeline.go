@@ -584,7 +584,9 @@ func (s *PipelineService) validateSaveInput(ctx context.Context, in pipelineSave
 	if err != nil {
 		return nil, err
 	}
-	if result := s.validator.ValidatePipeline(ctx, in.Name, in.Contents, tenants); !result.Valid {
+	if result := s.validator.ValidatePipeline(ctx, in.Name, in.Contents, tenants); result.Busy {
+		return nil, errValidationBusy
+	} else if !result.Valid {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, &pipelineValidationError{Diagnostics: result.Diagnostics})
 	}
 	return matchersJSON, nil
@@ -726,7 +728,7 @@ func (s *PipelineService) UpdatePipeline(ctx context.Context, req *connect.Reque
 		candidate.Contents = msg.GetContents()
 		candidate.Matchers = matchersJSON
 		if err := s.stage3Check(ctx, candidate, looseUUID(msg.GetOrgId()), true); err != nil {
-			return nil, connect.NewError(connect.CodeFailedPrecondition, err)
+			return nil, stage3Error(err)
 		}
 	}
 
@@ -926,7 +928,7 @@ func (s *PipelineService) setEnabled(ctx context.Context, orgIDStr, idStr string
 	// added); false on disable (validates the remaining pipelines, covering
 	// the OLD matcher set per spec §P1.2).
 	if mergeErr := s.stage3Check(ctx, p, orgID, enable); mergeErr != nil {
-		return nil, connect.NewError(connect.CodeFailedPrecondition, mergeErr)
+		return nil, stage3Error(mergeErr)
 	}
 
 	// The enable bit is written under the shared ownership lock with the
@@ -1315,7 +1317,7 @@ func (s *PipelineService) RestoreRevision(ctx context.Context, req *connect.Requ
 	// the restore keeps), run before any write.
 	if p.Enabled {
 		if err := s.stage3Check(ctx, candidate, orgID, true); err != nil {
-			return nil, connect.NewError(connect.CodeFailedPrecondition, err)
+			return nil, stage3Error(err)
 		}
 	}
 
@@ -1674,8 +1676,12 @@ func (s *PipelineService) stage3TenantLint(ctx context.Context, orgID pgtype.UUI
 	}
 	var failures []string
 	for i := range candidates {
+		diags, err := validate.TenantLintChecked(candidates[i].Contents, tenants)
+		if err != nil {
+			return fmt.Errorf("pipeline %s: %w", candidates[i].Name, err) // ErrLintBusy: no verdict
+		}
 		var msgs []string
-		for _, d := range validate.TenantLint(candidates[i].Contents, tenants) {
+		for _, d := range diags {
 			if !d.Warning {
 				msgs = append(msgs, fmt.Sprintf("%d:%d %s", d.Line, d.Col, d.Message))
 			}

@@ -581,6 +581,8 @@ Before the role column existed, `authorizeServiceAccountProcedure` (`internal/mg
 
 **Stage 1 — Syntax.** Parse with `github.com/grafana/alloy/syntax/parser`. On error, return structured diagnostics `{line, col, message}` (the parser gives positions). This runs on: pipeline save, wizard output, every git-synced file, and the merged output.
 
+**Nesting limit (every org).** The Alloy parser recurses once per nesting level, and deep enough nesting — `x = [[[[…]]]]` at ~487 000 levels, under 1 MiB — overflows the goroutine stack, a fatal error that kills the process. Every parse in Shepherd therefore goes through `alloysyntax.ParseFile`, which first runs `alloysyntax.CheckNesting`: a linear scan that skips strings (`"…"`, `'…'` with escapes, `` `…` `` raw) and comments (`//`, `/* */`) the way Alloy's scanner does and refuses more than **512** brackets, braces and parentheses open at once, or more than 512 consecutive prefix operators (`!`, `-`), as a Stage 1 diagnostic at the offending token ("nesting deeper than 512 levels"). The deepest configuration in the repository nests 5 levels; a test fails if any file in it is refused or nests 64 or more, and another fails if any package but `alloysyntax` imports the parser.
+
 **Stage 2 — Semantic (`alloy validate`).** Write the candidate to a temp file and exec the bundled binary: `alloy validate --stability.level=experimental <file>` (stability level from viper `validate.stability_level`, default `experimental` to match the fleet). Timeout 10s. Parse stderr into diagnostics. This catches unknown components, bad attribute types, unset required attributes. Run it on the **declare-wrapped form** of the pipeline (wrap exactly as the merge engine would, §6.2) so what's validated is what ships.
 
 Stage 2 also runs an in-process **port-shape check** (`validate.PortShapes` → `visual.CheckPortShapes`, #233) against the embedded component schema for the pinned Alloy version. `alloy validate` does not evaluate references between components, so it exits 0 on wires Alloy refuses at load. The check refuses exactly two, both certain from the schema and from Alloy's value decoder:
@@ -642,8 +644,11 @@ are readable. A `|`-joined header value must be owned in every part. **The lint 
 budget per run**, enforced in one place (`budget.charge`): every unit of work charges it — each
 statement and block, each resolution and each cache hit (charged for the values it hands back),
 each `|`-separated tenant piece, each 64 bytes a concatenation builds, each diagnostic, each
-`forward_to` step — 100 000 units in all, with a 50 ms wall-clock backstop; once spent, everything
-after is unreadable. Alongside it: text over 1 MiB (the pipeline contents cap) is not parsed at
+`forward_to` step — 100 000 units in all; once spent, everything after is unreadable, a
+deterministic verdict. A 50 ms wall-clock guard backs it up but is **not** a verdict: a run that
+hits it is "busy" (`validate.ErrLintBusy`, `Result.Busy`) — a write answers `unavailable`
+("validation busy, try again"), and the pipeline tenant index keeps the row it had (stale by its
+sha, so it is read again later) rather than recording "incomplete". Alongside it: text over 1 MiB (the pipeline contents cap) is not parsed at
 all; blocks, expressions and `forward_to` chains nest at most 64 deep, declare hops and modules
 8; a concatenation builds at most 4 KiB per value and 16 KiB in all, and folds to at most 64
 values; each (declare, argument) is resolved once; at most 256 distinct tenants are recorded per

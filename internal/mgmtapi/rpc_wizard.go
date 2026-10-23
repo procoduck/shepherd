@@ -315,7 +315,9 @@ func (s *WizardService) CommitWizard(ctx context.Context, req *connect.Request[m
 	if err != nil {
 		return nil, err
 	}
-	if valResult := s.validator.ValidatePipeline(ctx, req.Msg.GetName(), result.Contents, tenants); !valResult.Valid {
+	if valResult := s.validator.ValidatePipeline(ctx, req.Msg.GetName(), result.Contents, tenants); valResult.Busy {
+		return nil, errValidationBusy
+	} else if !valResult.Valid {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, &pipelineValidationError{Diagnostics: valResult.Diagnostics})
 	}
 

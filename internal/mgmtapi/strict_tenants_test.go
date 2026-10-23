@@ -397,6 +397,30 @@ var _ = Describe("Strict tenant mode", Label("integration"), func() {
 			Expect(out["message"]).To(ContainSubstring("bytes"))
 		})
 
+		// Fifth review: deep nesting overflowed the Alloy parser's stack — a
+		// fatal crash — on every save path; it is now a Stage 1 refusal for
+		// every org.
+		It("refuses deeply nested contents at Stage 1, for any org", func() {
+			deep := "x = " + strings.Repeat("[", 487_000) + strings.Repeat("]", 487_000) + "\n"
+			code, out := createPipeline(adminB, orgB, "deep", deep)
+			Expect(code).To(Equal(http.StatusBadRequest), "%v", out)
+			Expect(out["message"]).To(Equal("pipeline failed validation"))
+			resp := ok(call(adminB, "PipelineService/ValidatePipeline", map[string]any{"orgId": orgB.String(), "contents": deep}))
+			Expect(resp["diagnostics"]).To(ConsistOf(HaveKeyWithValue("message", ContainSubstring("nesting deeper than"))))
+		})
+
+		It("answers a tenant check that ran out of time as busy (retryable), not a refusal", func() {
+			makeStrict(orgA)
+			restore := validate.SetTenantLintDeadline(0)
+			defer restore()
+			code, out := createPipeline(adminA, orgA, "timed", remoteWriteTo(`"acme"`))
+			Expect(code).To(Equal(http.StatusServiceUnavailable), "%v", out)
+			Expect(out["code"]).To(Equal("unavailable"))
+			Expect(out["message"]).To(ContainSubstring("busy"))
+			restore()
+			ok(createPipeline(adminA, orgA, "timed", remoteWriteTo(`"acme"`)))
+		})
+
 		It("refuses a request body over the management API's read cap", func() {
 			code, out := createPipeline(adminA, orgA, "huger", "// "+strings.Repeat("x", mgmtapi.MaxRequestBytes))
 			Expect(code).NotTo(Equal(http.StatusOK), "%v", out)

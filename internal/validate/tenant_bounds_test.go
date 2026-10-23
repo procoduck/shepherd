@@ -1,6 +1,7 @@
 package validate_test
 
 import (
+	"errors"
 	"fmt"
 	"math/rand/v2"
 	"runtime"
@@ -77,6 +78,21 @@ func deepMatch(depth int) string {
 	return b.String()
 }
 
+// nestedDeclares nests levels declares with labels of labelBytes bytes
+// (fifth review: 0.88 MB took 1.93 s / 4.76 GB building declare keys).
+func nestedDeclares(levels, labelBytes int) string {
+	var b strings.Builder
+	label := strings.Repeat("d", labelBytes)
+	for i := range levels {
+		fmt.Fprintf(&b, "declare \"%s%d\" {\n", label, i)
+	}
+	b.WriteString("argument \"t\" { }\n")
+	for range levels {
+		b.WriteString("}\n")
+	}
+	return b.String()
+}
+
 // structured builds a large random pipeline from the shapes above and more:
 // nested declares passing arguments, stage.match nesting, |-strings, labels
 // maps, relabel rules, push sources and import.string modules.
@@ -121,7 +137,7 @@ func measure(f func()) (time.Duration, uint64) {
 func assertBounded(t *testing.T, name, src string) {
 	t.Helper()
 	took, alloc := measure(func() { validate.TenantLint(src, strictAcme()) })
-	took2, alloc2 := measure(func() { validate.TenantLiterals(src) })
+	took2, alloc2 := measure(func() { _, _, err := validate.TenantLiterals(src); _ = err })
 	t.Logf("%s (%d bytes): TenantLint %s / %d B, TenantLiterals %s / %d B", name, len(src), took, alloc, took2, alloc2)
 	for _, m := range []struct {
 		took  time.Duration
@@ -156,16 +172,24 @@ func TestTenantLintIsBounded(t *testing.T) {
 		{"stage.match 40000 deep", deepMatch(40_000)},
 		{"stage.match 400000 deep (10x, past the contents cap)", deepMatch(400_000)},
 		{"stage.match 65000 deep (just under the contents cap)", deepMatch(65_000)},
+		{"stage.match 500 deep (under the parse limit)", deepMatch(500)},
+		{"declares 512 deep, 1700-byte labels", nestedDeclares(512, 1700)},
+		{"declares 64 deep, 14 KB labels", nestedDeclares(64, 14_000)},
 		{"| pieces 6000x64x500 (just under the contents cap)", manyPieces(6000, 64, 500)},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			assertBounded(t, c.name, c.src)
+			if len(c.src) <= 1<<20 && !validate.Stage1(c.src).Valid {
+				// Refused at Stage 1 (nesting past alloysyntax.MaxNesting):
+				// it is never saved, so the lint has nothing to say.
+				return
+			}
 			if diags := validate.TenantLint(c.src, strictAcme()); len(diags) == 0 || len(diags) > 101 {
 				t.Errorf("want between 1 and 101 refusals, got %d", len(diags))
 			}
-			if lits, complete := validate.TenantLiterals(c.src); complete || len(lits) > 256 {
-				t.Errorf("want an incomplete result of at most 256 tenants, got complete=%v with %d", complete, len(lits))
+			if lits, complete, err := validate.TenantLiterals(c.src); err != nil || complete || len(lits) > 256 {
+				t.Errorf("want an incomplete result of at most 256 tenants, got complete=%v err=%v with %d", complete, err, len(lits))
 			}
 		})
 	}
@@ -215,4 +239,29 @@ func FuzzTenantLint(f *testing.F) {
 		}
 		assertBounded(t, "fuzz", src)
 	})
+}
+
+// TestTenantLintWallClockIsNotAVerdict: running out of time (the
+// wall-clock guard) is "busy, try again" — ErrLintBusy, no refusal — while
+// running out of steps is a deterministic refusal.
+func TestTenantLintWallClockIsNotAVerdict(t *testing.T) {
+	restore := validate.SetTenantLintDeadline(0)
+	defer restore()
+	src := pathological(5, 40)
+	diags, err := validate.TenantLintChecked(src, strictAcme())
+	if !errors.Is(err, validate.ErrLintBusy) || len(diags) != 0 {
+		t.Fatalf("a timed-out lint must be busy without a verdict, got %v and %d diagnostics", err, len(diags))
+	}
+	if _, _, err := validate.TenantLiterals(src); !errors.Is(err, validate.ErrLintBusy) {
+		t.Fatalf("TenantLiterals = %v, want ErrLintBusy", err)
+	}
+	r := validate.WithTenantLint(validate.Result{Valid: true}, src, strictAcme())
+	if r.Valid || !r.Busy {
+		t.Fatalf("WithTenantLint on a timed-out lint = %+v, want busy and not valid", r)
+	}
+	restore()
+	diags, err = validate.TenantLintChecked(src, strictAcme())
+	if err != nil || len(diags) == 0 {
+		t.Fatalf("step exhaustion must stay a refusal, got %v and %d diagnostics", err, len(diags))
+	}
 }

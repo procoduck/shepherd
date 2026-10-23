@@ -9,9 +9,9 @@ import (
 	"strings"
 
 	"github.com/grafana/alloy/syntax/ast"
-	"github.com/grafana/alloy/syntax/parser"
 	"github.com/grafana/alloy/syntax/token"
 
+	"shepherd/internal/alloysyntax"
 	"shepherd/internal/netshape"
 )
 
@@ -79,7 +79,7 @@ var ErrEndpointNotAllowed = errors.New("endpoint_not_allowed")
 // regexes by the dozen. Now near-zero legitimate literals look host-shaped, and
 // the ones that do are the transform's own harness addresses.
 func CheckEndpoints(config string, allowedHosts []string) error {
-	file, err := parser.ParseFile("submitted.alloy", []byte(config))
+	file, err := alloysyntax.ParseFile("submitted.alloy", []byte(config))
 	if err != nil {
 		return fmt.Errorf("invalid_config: %w", err)
 	}

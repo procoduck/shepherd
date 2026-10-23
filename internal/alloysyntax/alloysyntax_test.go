@@ -1,0 +1,271 @@
+package alloysyntax
+
+import (
+	"errors"
+	"go/parser"
+	"go/token"
+	"io/fs"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime/debug"
+	"strconv"
+	"strings"
+	"testing"
+
+	"github.com/grafana/alloy/syntax/ast"
+	alloyparser "github.com/grafana/alloy/syntax/parser"
+)
+
+// deepList is `x = [[[[…]]]]` nested n deep, the shape that overflows the
+// parser's stack (fifth review of #388: ~487 000 levels, ~975 KB, under the
+// pipeline contents cap).
+func deepList(n int) string {
+	return "x = " + strings.Repeat("[", n) + strings.Repeat("]", n) + "\n"
+}
+
+// TestMain runs the crash reproducer in a child process when asked:
+// ALLOYSYNTAX_CRASH=raw parses with the Alloy parser directly, =guarded
+// through ParseFile. The child's stack is capped low so the overflow is
+// cheap; it is the same overflow at any cap.
+func TestMain(m *testing.M) {
+	if mode := os.Getenv("ALLOYSYNTAX_CRASH"); mode != "" {
+		debug.SetMaxStack(16 << 20)
+		n, _ := strconv.Atoi(os.Getenv("ALLOYSYNTAX_DEPTH")) //nolint:errcheck // set by the parent
+		src := []byte(deepList(n))
+		var err error
+		if mode == "raw" {
+			_, err = alloyparser.ParseFile("x", src)
+		} else {
+			_, err = ParseFile("x", src)
+		}
+		var ne *NestingError
+		if errors.As(err, &ne) {
+			os.Stdout.WriteString("refused: " + err.Error()) //nolint:errcheck // child output
+			os.Exit(0)
+		}
+		os.Stdout.WriteString("parsed") //nolint:errcheck // child output
+		os.Exit(0)
+	}
+	os.Exit(m.Run())
+}
+
+func runChild(t *testing.T, mode string, depth int) (string, error) {
+	t.Helper()
+	cmd := exec.Command(os.Args[0], "-test.run=^$")
+	cmd.Env = append(os.Environ(), "ALLOYSYNTAX_CRASH="+mode, "ALLOYSYNTAX_DEPTH="+strconv.Itoa(depth))
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
+
+// TestDeepNestingCrashesTheParserButNotParseFile: the parser itself dies
+// with a fatal stack overflow on the reproducer (the bug, as it stands in
+// Alloy); ParseFile refuses the same text cleanly.
+func TestDeepNestingCrashesTheParserButNotParseFile(t *testing.T) {
+	const depth = 487_000
+	out, err := runChild(t, "raw", depth)
+	if err == nil || !strings.Contains(out, "stack overflow") {
+		t.Fatalf("the raw parser was expected to overflow its stack; exit %v, output %.300s", err, out)
+	}
+	out, err = runChild(t, "guarded", depth)
+	if err != nil || !strings.HasPrefix(out, "refused: ") {
+		t.Fatalf("ParseFile should refuse the reproducer cleanly; exit %v, output %.300s", err, out)
+	}
+}
+
+func TestCheckNesting(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		src  string
+		ok   bool
+	}{
+		{"at the limit", deepList(MaxNesting), true},
+		{"past the limit", deepList(MaxNesting + 1), false},
+		{"blocks", strings.Repeat("a {\n", MaxNesting+1), false},
+		{"calls", "x = " + strings.Repeat("f(", MaxNesting+1), false},
+		{"prefix operators", "x = " + strings.Repeat("!", MaxNesting+1) + "true", false},
+		{"spaced prefix operators", "x = " + strings.Repeat("- ", MaxNesting+1) + "1", false},
+		{"brackets in a string", `x = "` + strings.Repeat("[", 10*MaxNesting) + `"`, true},
+		{"an escaped quote in a string", `x = "\"` + strings.Repeat("[", 10*MaxNesting) + `"`, true},
+		{"brackets in a raw string", "x = `\n" + strings.Repeat("[", 10*MaxNesting) + "\n`", true},
+		{"brackets in a line comment", "// " + strings.Repeat("[", 10*MaxNesting) + "\nx = 1", true},
+		{"brackets in a block comment", "/* " + strings.Repeat("{", 10*MaxNesting) + " */ x = 1", true},
+		{"many balanced lists", strings.Repeat("x = [[1]]\n", 10*MaxNesting), true},
+		{"a long minus chain", "x = 1" + strings.Repeat(" - 1", 10*MaxNesting), true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if err := CheckNesting([]byte(c.src)); (err == nil) != c.ok {
+				t.Fatalf("CheckNesting = %v, want ok=%v", err, c.ok)
+			}
+		})
+	}
+	var ne *NestingError
+	if err := CheckNesting([]byte("a = 1\n" + deepList(MaxNesting+1))); !errors.As(err, &ne) || ne.Line != 2 {
+		t.Fatalf("want a NestingError on line 2, got %v", err)
+	}
+}
+
+// astDepth is the deepest nesting of nodes the parser recursed on.
+func astDepth(f *ast.File) int {
+	maxD := 0
+	var walk func(n ast.Node, d int)
+	walk = func(n ast.Node, d int) {
+		if d > maxD {
+			maxD = d
+		}
+		switch v := n.(type) {
+		case *ast.File:
+			for _, s := range v.Body {
+				walk(s, d)
+			}
+		case *ast.BlockStmt:
+			for _, s := range v.Body {
+				walk(s, d+1)
+			}
+		case *ast.AttributeStmt:
+			walk(v.Value, d)
+		case *ast.ArrayExpr:
+			for _, e := range v.Elements {
+				walk(e, d+1)
+			}
+		case *ast.ObjectExpr:
+			for _, f := range v.Fields {
+				walk(f.Value, d+1)
+			}
+		case *ast.CallExpr:
+			walk(v.Value, d)
+			for _, e := range v.Args {
+				walk(e, d+1)
+			}
+		case *ast.ParenExpr:
+			walk(v.Inner, d+1)
+		case *ast.UnaryExpr:
+			walk(v.Value, d+1)
+		case *ast.BinaryExpr:
+			walk(v.Left, d)
+			walk(v.Right, d)
+		case *ast.AccessExpr:
+			walk(v.Value, d)
+		case *ast.IndexExpr:
+			walk(v.Value, d)
+			walk(v.Index, d+1)
+		}
+	}
+	walk(f, 0)
+	return maxD
+}
+
+// FuzzCheckNesting checks the prescan against the real parser: whatever it
+// accepts the parser parses without overflowing (a fatal overflow would kill
+// the fuzz worker and be reported), and a text the parser accepts with
+// nesting well under the limit is never refused.
+func FuzzCheckNesting(f *testing.F) {
+	for _, s := range []string{deepList(10), deepList(MaxNesting), "a { b { c = [1, {d = (2)}] } }", "x = `[[[`", "x = \"\\\"[[\"", "// [[[\nx = !!!true", "/* {{ */ x = -(-1)"} {
+		f.Add(s)
+	}
+	f.Fuzz(func(t *testing.T, src string) {
+		if len(src) > 1<<20 {
+			return
+		}
+		debug.SetMaxStack(256 << 20)
+		if CheckNesting([]byte(src)) != nil {
+			return
+		}
+		file, err := alloyparser.ParseFile("x", []byte(src))
+		if err == nil && astDepth(file) > MaxNesting {
+			t.Fatalf("CheckNesting accepted text the parser nests %d deep", astDepth(file))
+		}
+	})
+}
+
+// TestDeepestRepositoryConfig: no real configuration is refused, and
+// the deepest one in the repository is far under MaxNesting.
+func TestDeepestRepositoryConfig(t *testing.T) {
+	root := repoRoot(t)
+	deepest, where := 0, ""
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() && (d.Name() == "node_modules" || d.Name() == ".git" || d.Name() == ".claude") {
+			return filepath.SkipDir
+		}
+		if d.IsDir() || !strings.HasSuffix(path, ".alloy") {
+			return nil
+		}
+		src, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if err := CheckNesting(src); err != nil {
+			t.Errorf("%s: %v", path, err)
+			return nil
+		}
+		if f, err := alloyparser.ParseFile(path, src); err == nil {
+			if n := astDepth(f); n > deepest {
+				deepest, where = n, path
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("deepest repository config: %d levels (%s)", deepest, where)
+	if deepest >= 64 {
+		t.Errorf("a repository config nests %d deep; MaxNesting's headroom assumption no longer holds", deepest)
+	}
+}
+
+func repoRoot(t *testing.T) string {
+	t.Helper()
+	dir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			t.Fatal("no go.mod above the test")
+		}
+		dir = parent
+	}
+}
+
+// TestNoDirectParserImports is the guard: outside this package (and tests),
+// nothing imports github.com/grafana/alloy/syntax/parser, so no parse can
+// skip CheckNesting.
+func TestNoDirectParserImports(t *testing.T) {
+	root := repoRoot(t)
+	fset := token.NewFileSet()
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() && (d.Name() == "node_modules" || d.Name() == ".git" || d.Name() == ".claude" || d.Name() == "web") {
+			return filepath.SkipDir
+		}
+		if d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		if filepath.Dir(path) == filepath.Join(root, "internal", "alloysyntax") {
+			return nil
+		}
+		f, err := parser.ParseFile(fset, path, nil, parser.ImportsOnly)
+		if err != nil {
+			return err
+		}
+		for _, imp := range f.Imports {
+			if imp.Path.Value == `"github.com/grafana/alloy/syntax/parser"` {
+				t.Errorf("%s imports the Alloy parser directly; use alloysyntax.ParseFile", path)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}

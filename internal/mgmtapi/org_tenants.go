@@ -349,7 +349,7 @@ func (s *AdminService) RemoveOrgTenant(ctx context.Context, req *connect.Request
 		if org.StrictTenants || s.requireOwned {
 			pipes, err := tenancy.OrphanedPipelines(ctx, q, orgID, remaining)
 			if err != nil {
-				return connect.NewError(connect.CodeInternal, errors.New("failed to check what uses the tenant"))
+				return busyOr(err, connect.NewError(connect.CodeInternal, errors.New("failed to check what uses the tenant")))
 			}
 			orphaned = append(orphaned, pipes...)
 		}

@@ -1,14 +1,16 @@
 package validate
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/grafana/alloy/syntax/ast"
-	"github.com/grafana/alloy/syntax/parser"
 	"github.com/grafana/alloy/syntax/token"
+
+	"shepherd/internal/alloysyntax"
 )
 
 // TenantPolicy is strict tenant mode as the validation gate sees it. The zero
@@ -113,8 +115,6 @@ const (
 	// concatenation builds per 64, each diagnostic, each path step). Worst
 	// case about 10 ms of CPU and a few MB.
 	maxSteps = 100_000
-	// lintDeadline is the wall-clock backstop of one run.
-	lintDeadline = 50 * time.Millisecond
 	// maxContentBytes is the largest text the lint reads at all — the
 	// pipeline contents cap (mgmtapi.MaxPipelineContentsBytes), so a larger
 	// one is never saved; parsing is linear in the text.
@@ -126,6 +126,26 @@ const (
 	maxDiagnostics = 100
 )
 
+// lintDeadline is the wall-clock guard of one run. It is a crash guard, not
+// a verdict: a run that hits it is "busy" (ErrLintBusy — retry), never a
+// refusal and never an "incomplete" index row, so CPU throttling or a GC
+// pause cannot decide whether a pipeline is accepted. Step exhaustion
+// (maxSteps) is the deterministic bound.
+var lintDeadline = 50 * time.Millisecond
+
+// SetTenantLintDeadline replaces lintDeadline until the returned restore is
+// called. For tests of the busy path (a deadline of 0 times out every run).
+func SetTenantLintDeadline(d time.Duration) (restore func()) {
+	saved := lintDeadline
+	lintDeadline = d
+	return func() { lintDeadline = saved }
+}
+
+// ErrLintBusy is a tenant check that hit its wall-clock guard: no verdict.
+// A write answers it with a retryable Unavailable; the pipeline tenant index
+// keeps the row it had.
+var ErrLintBusy = errors.New("validation busy: the tenant check did not finish in time; try again")
+
 // TenantLint is strict tenant mode's pipeline check (spec §8). With p.Strict
 // it refuses, wherever Alloy sets a tenant, every tenant content can write
 // to that the org does not own, and everything there it cannot verify (see
@@ -135,14 +155,29 @@ const (
 // tenant authentication is the boundary. It is bounded (maxSteps and the
 // other caps), so no text makes it slow.
 func TenantLint(content string, p TenantPolicy) []Diagnostic {
+	diags, err := TenantLintChecked(content, p)
+	if err != nil {
+		return []Diagnostic{{Line: 1, Col: 1, Stage: 1, Message: err.Error()}}
+	}
+	return diags
+}
+
+// TenantLintChecked is TenantLint that reports a run which hit the
+// wall-clock guard as ErrLintBusy, with no diagnostics, instead of a
+// refusal: the gate turns it into a retryable "busy".
+func TenantLintChecked(content string, p TenantPolicy) ([]Diagnostic, error) {
 	if !p.Strict {
-		return nil
+		return nil, nil
 	}
-	l := newTenantLinter(content, p, nil, 0, newBudget())
+	b := newBudget()
+	l := newTenantLinter(content, p, nil, 0, b)
+	if b.timedOut {
+		return nil, ErrLintBusy
+	}
 	if l == nil {
-		return nil
+		return nil, nil
 	}
-	return l.diags
+	return l.diags, nil
 }
 
 // TenantLiterals lists every tenant content writes to that the lint can
@@ -151,12 +186,19 @@ func TenantLint(content string, p TenantPolicy) []Diagnostic {
 // something there may set a tenant the lint cannot read (a computed value, an
 // external import, a cap reached). Content that does not parse lists nothing
 // and is complete.
-func TenantLiterals(content string) (literals []string, complete bool) {
-	l := newTenantLinter(content, TenantPolicy{Strict: true, Owns: func(string) bool { return true }}, nil, 0, newBudget())
-	if l == nil {
-		return nil, true
+//
+// err is ErrLintBusy when the run hit the wall-clock guard: the result means
+// nothing, and the caller keeps what it had.
+func TenantLiterals(content string) (literals []string, complete bool, err error) {
+	b := newBudget()
+	l := newTenantLinter(content, TenantPolicy{Strict: true, Owns: func(string) bool { return true }}, nil, 0, b)
+	if b.timedOut {
+		return nil, false, ErrLintBusy
 	}
-	return l.literals, len(l.diags) == 0 && !l.incomplete
+	if l == nil {
+		return nil, true, nil
+	}
+	return l.literals, len(l.diags) == 0 && !l.incomplete, nil
 }
 
 // resolved is a value as the lint read it: its possible strings, or ok=false.
@@ -169,10 +211,13 @@ type resolved struct {
 // (maxSteps, lintDeadline). Once exhausted it stays exhausted, and every
 // value read after that is unreadable.
 type budget struct {
-	steps     int
-	calls     int
-	deadline  time.Time
+	steps    int
+	calls    int
+	deadline time.Time
+	// exhausted is maxSteps spent: deterministic, the rest is unreadable.
 	exhausted bool
+	// timedOut is the wall-clock guard: the run has no verdict at all.
+	timedOut bool
 }
 
 func newBudget() *budget {
@@ -181,15 +226,18 @@ func newBudget() *budget {
 
 // charge spends n units, reporting whether any are left.
 func (b *budget) charge(n int) bool {
-	if b.exhausted {
+	if b.exhausted || b.timedOut {
 		return false
 	}
 	b.steps -= n
 	b.calls++
-	if b.steps < 0 || (b.calls%256 == 0 && time.Now().After(b.deadline)) {
+	switch {
+	case b.steps < 0:
 		b.exhausted = true
+	case b.calls%256 == 0 && time.Now().After(b.deadline):
+		b.timedOut = true
 	}
-	return !b.exhausted
+	return !b.exhausted && !b.timedOut
 }
 
 func (b *budget) take() bool { return b.charge(1) }
@@ -206,7 +254,7 @@ func newTenantLinter(content string, p TenantPolicy, external map[string]map[str
 			len(content), maxContentBytes)})
 		return l
 	}
-	file, err := parser.ParseFile("<pipeline>", []byte(content))
+	file, err := alloysyntax.ParseFile("<pipeline>", []byte(content))
 	if err != nil {
 		return nil
 	}
@@ -214,6 +262,9 @@ func newTenantLinter(content string, p TenantPolicy, external map[string]map[str
 	l.collectComponents(file.Body, "", 0)
 	l.body(file.Body, scope{})
 	l.pushSourcePaths()
+	if depth == 0 && !b.timedOut && time.Now().After(b.deadline) {
+		b.timedOut = true
+	}
 	if depth == 0 && (b.exhausted || l.tooMany) {
 		msg := "the pipeline is too large or complex for the tenant check to verify within its limits — strict " +
 			"tenant mode refuses it; simplify the tenant settings"
@@ -289,6 +340,8 @@ type scope struct {
 	component string
 	path      *pathNode
 	declare   string
+	// declDepth is how many declares enclose the scope.
+	declDepth int
 }
 
 // pathNode is one block of a scope's path, pointing at its parent: a child
@@ -315,7 +368,7 @@ func (s scope) nesting() int {
 }
 
 func (s scope) child(name string) scope {
-	return scope{component: s.component, path: &pathNode{name: name, parent: s.path, depth: s.nesting() + 1}, declare: s.declare}
+	return scope{component: s.component, path: &pathNode{name: name, parent: s.path, depth: s.nesting() + 1}, declare: s.declare, declDepth: s.declDepth}
 }
 
 // where spells out "<component> <block>… <attr>" for a refusal.
@@ -360,6 +413,16 @@ func (l *tenantLinter) lookupDeclare(scopeKey, name string) *declareInfo {
 // then every instantiation of a declare and the attributes it sets, with the
 // declare the instantiation sits in.
 func (l *tenantLinter) collectDeclares(stmts ast.Body, parent string, external map[string]map[string][]resolved) {
+	l.collectDeclaresAt(stmts, parent, external, 0)
+}
+
+// collectDeclaresAt is collectDeclares at a nesting level: it stops at
+// maxNesting (the body walk refuses deeper blocks) and charges each key it
+// builds by its length, since a key spells out every enclosing label.
+func (l *tenantLinter) collectDeclaresAt(stmts ast.Body, parent string, external map[string]map[string][]resolved, nesting int) {
+	if nesting > maxNesting {
+		return
+	}
 	for _, st := range stmts {
 		if !l.budget.take() {
 			return
@@ -367,6 +430,9 @@ func (l *tenantLinter) collectDeclares(stmts ast.Body, parent string, external m
 		blk, ok := st.(*ast.BlockStmt)
 		if !ok || strings.Join(blk.Name, ".") != "declare" || blk.Label == "" {
 			continue
+		}
+		if !l.budget.charge(1 + (len(parent)+len(blk.Label))/64) {
+			return
 		}
 		key := declareKey(parent, blk.Label)
 		info := &declareInfo{defaults: map[string]ast.Expr{}, given: map[string][]givenValue{}}
@@ -381,7 +447,7 @@ func (l *tenantLinter) collectDeclares(stmts ast.Body, parent string, external m
 			info.defaults[arg.Label] = attrsOf(arg)["default"]
 		}
 		l.declares[key] = info
-		l.collectDeclares(blk.Body, key, nil)
+		l.collectDeclaresAt(blk.Body, key, nil, nesting+1)
 	}
 	if parent != "" {
 		return
@@ -401,8 +467,14 @@ func (l *tenantLinter) collectDeclares(stmts ast.Body, parent string, external m
 			}
 			name := strings.Join(blk.Name, ".")
 			if name == "declare" {
+				if !l.budget.charge(1 + (len(declare)+len(blk.Label))/64) {
+					return
+				}
 				inst(blk.Body, declareKey(declare, blk.Label), nesting+1)
 				continue
+			}
+			if !l.budget.charge(1 + len(declare)/64) { // lookupDeclare slices the key
+				return
 			}
 			if info := l.lookupDeclare(declare, name); info != nil {
 				for _, a := range blk.Body {
@@ -455,20 +527,23 @@ func (l *tenantLinter) body(stmts ast.Body, sc scope) {
 		case *ast.BlockStmt:
 			name := strings.Join(n.Name, ".")
 			atTop := sc.component == "" && sc.path == nil
-			if sc.nesting() >= maxNesting || strings.Count(sc.declare, "/") >= maxNesting {
+			if sc.nesting() >= maxNesting || sc.declDepth >= maxNesting {
 				l.refuse(n, fmt.Sprintf("blocks nested more than %d deep cannot be verified — strict tenant mode refuses them", maxNesting))
 				continue
 			}
 			switch {
 			case name == "declare":
-				l.body(n.Body, scope{declare: declareKey(sc.declare, n.Label)})
+				if !l.budget.charge(1 + (len(sc.declare)+len(n.Label))/64) {
+					return
+				}
+				l.body(n.Body, scope{declare: declareKey(sc.declare, n.Label), declDepth: sc.declDepth + 1})
 			case atTop && strings.HasPrefix(name, "import."):
 				l.importBlock(n, name, sc, stmts)
 			case atTop && (isTenantComponent(name) || name == "otelcol.auth.headers"):
-				l.body(n.Body, scope{component: name, declare: sc.declare})
+				l.body(n.Body, scope{component: name, declare: sc.declare, declDepth: sc.declDepth})
 			case atTop && name == "otelcol.auth.bearer":
 				l.bearer(n, sc)
-				l.body(n.Body, scope{component: name, declare: sc.declare})
+				l.body(n.Body, scope{component: name, declare: sc.declare, declDepth: sc.declDepth})
 			default:
 				if sc.component == "otelcol.auth.headers" && sc.path == nil && name == "header" {
 					l.authHeader(n, sc)
@@ -899,6 +974,9 @@ func clearsClientTenant(blk *ast.BlockStmt, b *budget) bool {
 		stage, ok := st.(*ast.BlockStmt)
 		if !ok {
 			continue
+		}
+		if !b.charge(1 + len(stage.Body)) { // attrsOf walks the stage's body
+			return false
 		}
 		attrs := attrsOf(stage)
 		switch strings.Join(stage.Name, ".") {

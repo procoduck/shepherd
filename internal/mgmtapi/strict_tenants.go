@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	mgmtv1 "shepherd/gen/shepherd/mgmt/v1"
+	"shepherd/internal/config"
 	"shepherd/internal/store/sqlc"
 	"shepherd/internal/tenancy"
 	"shepherd/internal/validate"
@@ -75,7 +76,7 @@ func checkStrictTenant(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, 
 // lint reads at most (validate maxContentBytes). Served configs run to tens
 // or a few hundred KiB even for a full k8s-monitoring module (agentapi
 // MaxRequestBytes).
-const MaxPipelineContentsBytes = 1 << 20
+const MaxPipelineContentsBytes = config.MaxPipelineContentsBytes
 
 // MaxRequestBytes is the largest management API request body read:
 // 4 MiB — a pipeline at MaxPipelineContentsBytes plus its visual graph
@@ -91,6 +92,28 @@ func errPipelineTooLarge(n int) error {
 		"pipeline contents are %d bytes; the limit is %d", n, MaxPipelineContentsBytes))
 }
 
+// errValidationBusy answers a write whose tenant check hit its wall-clock
+// guard (validate.ErrLintBusy): retryable, never a refusal.
+var errValidationBusy = connect.NewError(connect.CodeUnavailable, validate.ErrLintBusy)
+
+// busyOr maps a validate.ErrLintBusy anywhere in err's chain to
+// errValidationBusy, and anything else to fallback.
+func busyOr(err error, fallback *connect.Error) error {
+	if errors.Is(err, validate.ErrLintBusy) {
+		return errValidationBusy
+	}
+	return fallback
+}
+
+// stage3Error is a Stage 3 refusal as a connect error: failed_precondition,
+// or the retryable busy when the tenant check ran out of time.
+func stage3Error(err error) error {
+	if errors.Is(err, validate.ErrLintBusy) {
+		return errValidationBusy
+	}
+	return connect.NewError(connect.CodeFailedPrecondition, err)
+}
+
 // lintLocked is tenancy.LintLocked as a connect error: every pipeline write
 // runs it in its writing transaction, under the shared ownership lock, so a
 // write cannot commit text strict mode refuses after reading a policy the
@@ -100,6 +123,8 @@ func lintLocked(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, require
 	switch {
 	case err == nil:
 		return nil
+	case errors.Is(err, validate.ErrLintBusy):
+		return errValidationBusy
 	case errors.Is(err, tenancy.ErrPipelineNotOwned):
 		return connect.NewError(connect.CodeFailedPrecondition, err)
 	default:
@@ -168,7 +193,7 @@ func (s *AdminService) SetOrgStrictTenants(ctx context.Context, req *connect.Req
 			vs, err := tenancy.Preflight(ctx, q, org, true)
 			if err != nil {
 				s.logger.Error("strict tenants: preflight", "err", err, "org_id", orgID.String())
-				return connect.NewError(connect.CodeInternal, errors.New("failed to check the org's tenants"))
+				return busyOr(err, connect.NewError(connect.CodeInternal, errors.New("failed to check the org's tenants")))
 			}
 			if len(vs) > 0 {
 				return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf(

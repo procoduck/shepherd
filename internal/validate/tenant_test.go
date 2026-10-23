@@ -449,10 +449,12 @@ outer "o" { t = "victim" }
 	})
 
 	It("lists the literal tenants a pipeline writes to (TenantLiterals), and whether that is all of them", func() {
-		lits, complete := validate.TenantLiterals(remoteWrite(`"acme|victim"`))
+		lits, complete, err := validate.TenantLiterals(remoteWrite(`"acme|victim"`))
+		Expect(err).NotTo(HaveOccurred())
 		Expect(lits).To(ConsistOf("acme", "victim"))
 		Expect(complete).To(BeTrue())
-		lits, complete = validate.TenantLiterals(remoteWrite(`sys.env("T")`))
+		lits, complete, err = validate.TenantLiterals(remoteWrite(`sys.env("T")`))
+		Expect(err).NotTo(HaveOccurred())
 		Expect(lits).To(BeEmpty())
 		Expect(complete).To(BeFalse())
 	})

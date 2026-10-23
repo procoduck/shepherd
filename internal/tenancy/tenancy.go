@@ -158,11 +158,9 @@ func Preflight(ctx context.Context, q *sqlc.Queries, org sqlc.Org, requireTenant
 		return nil, fmt.Errorf("listing org %q's enabled pipelines: %w", org.Name, err)
 	}
 	for i := range pipelines {
-		var msgs []string
-		for _, d := range validate.TenantLint(pipelines[i].Contents, p.Validation()) {
-			if !d.Warning {
-				msgs = append(msgs, fmt.Sprintf("%d:%d %s", d.Line, d.Col, d.Message))
-			}
+		msgs, err := lintErrors(pipelines[i].Contents, p.Validation())
+		if err != nil {
+			return nil, err
 		}
 		if len(msgs) == 0 {
 			continue
@@ -256,7 +254,11 @@ func LintLocked(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, require
 	}
 	var failures []string
 	for i := range pipelines {
-		if msgs := lintErrors(pipelines[i].Contents, p.Validation()); len(msgs) > 0 {
+		msgs, err := lintErrors(pipelines[i].Contents, p.Validation())
+		if err != nil {
+			return err
+		}
+		if len(msgs) > 0 {
 			failures = append(failures, fmt.Sprintf("%s: %s", pipelines[i].Name, strings.Join(msgs, "; ")))
 		}
 	}
@@ -266,15 +268,21 @@ func LintLocked(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, require
 	return nil
 }
 
-// lintErrors is TenantLint's refusals in contents, as "line:col message".
-func lintErrors(contents string, policy validate.TenantPolicy) []string {
+// lintErrors is TenantLint's refusals in contents, as "line:col message";
+// validate.ErrLintBusy (wrapped) when the lint hit its wall-clock guard —
+// no verdict, so callers answer "busy, try again" rather than refuse.
+func lintErrors(contents string, policy validate.TenantPolicy) ([]string, error) {
+	diags, err := validate.TenantLintChecked(contents, policy)
+	if err != nil {
+		return nil, fmt.Errorf("tenant check: %w", err)
+	}
 	var msgs []string
-	for _, d := range validate.TenantLint(contents, policy) {
+	for _, d := range diags {
 		if !d.Warning {
 			msgs = append(msgs, fmt.Sprintf("%d:%d %s", d.Line, d.Col, d.Message))
 		}
 	}
-	return msgs
+	return msgs, nil
 }
 
 // OrphanedPipelines names org's enabled pipelines that would fail the tenant
@@ -289,7 +297,11 @@ func OrphanedPipelines(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, 
 	policy := validate.TenantPolicy{Strict: true, Owns: func(t string) bool { return gateway.OrgOwnsTenant(remaining, t) }}
 	var out []string
 	for i := range pipelines {
-		if msgs := lintErrors(pipelines[i].Contents, policy); len(msgs) > 0 {
+		msgs, err := lintErrors(pipelines[i].Contents, policy)
+		if err != nil {
+			return nil, err
+		}
+		if len(msgs) > 0 {
 			out = append(out, fmt.Sprintf("pipeline %q (%s)", pipelines[i].Name, strings.Join(msgs, "; ")))
 		}
 	}
@@ -352,16 +364,27 @@ func OtherOrgPipelinesCovered(ctx context.Context, q *sqlc.Queries, orgID pgtype
 // cannot all read is recorded as incomplete and logged — never a failed
 // write. Every pipeline write calls it in its writing transaction.
 func RecordPipelineTenants(ctx context.Context, q *sqlc.Queries, p sqlc.Pipeline) error {
-	if err := q.DeletePipelineTenants(ctx, p.ID); err != nil {
-		return fmt.Errorf("clearing the pipeline's tenants: %w", err)
-	}
 	if !p.Enabled {
+		if err := q.DeletePipelineTenants(ctx, p.ID); err != nil {
+			return fmt.Errorf("clearing the pipeline's tenants: %w", err)
+		}
 		if err := q.DeletePipelineTenantIndex(ctx, p.ID); err != nil {
 			return fmt.Errorf("clearing the pipeline's tenant index: %w", err)
 		}
 		return nil
 	}
-	lits, complete := validate.TenantLiterals(p.Contents)
+	lits, complete, err := validate.TenantLiterals(p.Contents)
+	if err != nil {
+		// The lint's wall-clock guard (validate.ErrLintBusy): no verdict.
+		// The previous rows stay, now stale by their sha, so AddOrgTenant
+		// or the next boot records the pipeline again.
+		slog.Warn("strict tenants: the tenant check was busy; the pipeline's tenant index stays stale until it is re-read",
+			"pipeline_id", p.ID.String(), "org_id", p.OrgID.String(), "err", err)
+		return nil
+	}
+	if err := q.DeletePipelineTenants(ctx, p.ID); err != nil {
+		return fmt.Errorf("clearing the pipeline's tenants: %w", err)
+	}
 	if !complete {
 		slog.Warn("strict tenants: the pipeline sets a tenant the lint cannot read; recorded as incomplete",
 			"pipeline_id", p.ID.String(), "org_id", p.OrgID.String())

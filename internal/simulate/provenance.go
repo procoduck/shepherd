@@ -7,9 +7,9 @@ import (
 	"strings"
 
 	"github.com/grafana/alloy/syntax/ast"
-	"github.com/grafana/alloy/syntax/parser"
 	"github.com/grafana/alloy/syntax/token"
 
+	"shepherd/internal/alloysyntax"
 	"shepherd/internal/schema"
 	"shepherd/internal/visual"
 )
@@ -58,7 +58,7 @@ import (
 // limit — the alternative is failing legitimate runs, which is the most likely
 // source of churn in a check that gates every real simulation.
 func checkProvenance(rendered string, req TransformRequest, stubbed map[string]bool) TransformErrors {
-	file, err := parser.ParseFile("transformed.alloy", []byte(rendered))
+	file, err := alloysyntax.ParseFile("transformed.alloy", []byte(rendered))
 	if err != nil {
 		return TransformErrors{{
 			Code:    CodeContainmentViolated,

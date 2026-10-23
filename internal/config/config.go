@@ -280,6 +280,13 @@ type AgentConfig struct {
 	OutageCacheTTL time.Duration `mapstructure:"outage_cache_ttl"`
 }
 
+// MaxPipelineContentsBytes is the largest pipeline text Shepherd saves
+// (mgmtapi refuses more on every write) and the most the tenant check reads.
+// gitsync.max_file_bytes may not exceed it: a repository file larger than
+// this could be fetched but never stored, so Load refuses such a setting
+// rather than clamping it silently.
+const MaxPipelineContentsBytes = 1 << 20
+
 // MaxOutageCacheTTL caps agent.outage_cache_ttl: past it, a revoked token
 // could outlive a long outage by more than an operator would expect.
 const MaxOutageCacheTTL = time.Hour
@@ -666,6 +673,10 @@ func Load(file string) (*Config, error) {
 		if u, err := url.Parse(raw); err != nil || u.Scheme != "https" || u.Host == "" {
 			return nil, fmt.Errorf("configuration errors:\n  - gateway.routes.public_base_url %q must be an https URL with a host", raw)
 		}
+	}
+	if n := c.GitSync.MaxFileBytes; n > MaxPipelineContentsBytes {
+		return nil, fmt.Errorf("configuration errors:\n  - gitsync.max_file_bytes %d is more than %d, the largest "+
+			"pipeline Shepherd saves; a larger synced file could never be stored", n, MaxPipelineContentsBytes)
 	}
 	if ttl := c.Agent.OutageCacheTTL; ttl < 0 || ttl > MaxOutageCacheTTL {
 		return nil, fmt.Errorf("configuration errors:\n  - agent.outage_cache_ttl %s must be between 0 (disabled) and %s", ttl, MaxOutageCacheTTL)
