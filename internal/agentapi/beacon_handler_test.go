@@ -56,16 +56,25 @@ var _ = Describe("BeaconHandler", Label("integration"), func() {
 		return snappy.Encode(nil, raw)
 	}
 
-	componentSeries := func(instance, path, healthType string) []prompb.Label {
+	// controllerSeries is the label shape the pinned Alloy really emits (see
+	// internal/beacon/project_test.go's ctrlSeries): controller_path is the
+	// PARENT loader's path, controller_id the loader's own id.
+	controllerSeries := func(instance, controllerPath, controllerID, healthType string) []prompb.Label {
 		return []prompb.Label{
 			{Name: "__name__", Value: "alloy_component_controller_running_components"},
-			{Name: "controller_path", Value: path},
+			{Name: "controller_id", Value: controllerID},
+			{Name: "controller_path", Value: controllerPath},
 			{Name: "health_type", Value: healthType},
 			{Name: "instance", Value: instance},
 		}
 	}
-	healthySeries := func(instance, path string) []prompb.Label {
-		return componentSeries(instance, path, "healthy")
+	// componentSeries is a series from the loader inside declare-wrapped
+	// pipeline pipe under remotecfg.
+	componentSeries := func(instance, pipe, healthType string) []prompb.Label {
+		return controllerSeries(instance, "/remotecfg", pipe+".default", healthType)
+	}
+	healthySeries := func(instance, pipe string) []prompb.Label {
+		return componentSeries(instance, pipe, "healthy")
 	}
 
 	startServer := func(limits beacon.Limits) {
@@ -318,6 +327,30 @@ var _ = Describe("BeaconHandler", Label("integration"), func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(rows).To(HaveLen(1))
 		Expect(rows[0].ComponentName).To(Equal("pipe_mine"))
+	})
+
+	// #378: before the fix every pipeline collapsed onto one "/remotecfg" row
+	// (Project read controller_path alone, which all pipelines share).
+	It("stores one row per pipeline, rolls nested modules up, and drops the remotecfg root", func() {
+		const inst = "10.0.0.6:12345"
+		body := encodeWrite([][]prompb.Label{
+			controllerSeries(inst, "/", "remotecfg", "healthy"),
+			controllerSeries(inst, "/", "", "healthy"),
+			healthySeries(inst, "pipe_app_logs"),
+			healthySeries(inst, "pipe_k8s"),
+			controllerSeries(inst, "/remotecfg/pipe_k8s.default", "feat.pods", "unhealthy"),
+		}, 1)
+
+		resp := postRaw(body, authHeader)
+		Expect(resp.StatusCode).To(Equal(http.StatusNoContent))
+
+		rows, err := st.Queries.ListBeaconInventoryByPrincipal(ctx, tokenID)
+		Expect(err).NotTo(HaveOccurred())
+		got := map[string]bool{}
+		for _, r := range rows {
+			got[r.ComponentName] = r.Healthy
+		}
+		Expect(got).To(Equal(map[string]bool{"pipe_app_logs": true, "pipe_k8s": false}))
 	})
 
 	It("marks a component unhealthy when its unhealthy count is nonzero", func() {

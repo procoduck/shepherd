@@ -102,6 +102,17 @@ collector we know nothing about is precisely the one that would never opt in.
   `internal/agentapi/auth.go`) and Alloy's `remote_write` speaks basic auth.
 - It carries **component names and health, never config text** — no secret ever crosses the
   wire, which is a materially easier security conversation than "upload your config".
+- Inventory is keyed **per pipeline**. The one forwarded metric,
+  `alloy_component_controller_running_components{health_type}`, is emitted once per Alloy
+  loader with two constant labels: `controller_path` (the *parent's* path, leading `/`) and
+  `controller_id` (the loader's own id). Under remotecfg a declare-wrapped pipeline reports as
+  `controller_path="/remotecfg" controller_id="pipe_x.default"`, a module nested inside it as
+  `controller_path="/remotecfg/pipe_x.default" controller_id="feat.y"`. The projection joins the
+  two, takes the first `pipe_*` segment up to its `.` as the row's `component_name`, and sums
+  health buckets across every loader under that pipeline (unhealthy if any is). The remotecfg root
+  (where the baseline runs) and the local bootstrap config (`controller_path="/"`) are dropped.
+  Until #378's fix the projection read `controller_path` alone, so every pipeline collapsed onto
+  one `/remotecfg` row and reconciliation never observed a pipeline.
 - Shepherd is not a TSDB: the ingest endpoint parses, projects to inventory + health, and
   discards. Body-size capped, and rate-limited per **authenticated agent token** — not per
   instance, as this line originally said. The token is the only identity the ingest layer can

@@ -16,6 +16,11 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/prometheus/common/expfmt"
+	"github.com/prometheus/common/model"
+	"github.com/prometheus/prometheus/prompb"
+
+	"shepherd/internal/beacon"
 )
 
 func TestE2E(t *testing.T) {
@@ -303,6 +308,49 @@ var _ = Describe("Shepherd E2E", Ordered, func() {
 				}
 				return false
 			}).WithTimeout(90 * time.Second).WithPolling(2 * time.Second).Should(BeTrue())
+		})
+
+		// #378 at the consumed layer: the beacon's projection is fed what a REAL
+		// Alloy running Shepherd's served (declare-wrapped) config exposes on
+		// /metrics — the series the baseline's prometheus.exporter.self ->
+		// relabel(keep) forwards. Fixtures had invented controller_path="pipe_x";
+		// real Alloy reports controller_path="/remotecfg" +
+		// controller_id="pipe_x.default", and Project once collapsed every
+		// pipeline onto "/remotecfg".
+		It("the beacon projects a real Alloy's /metrics per pipeline", func() {
+			Eventually(func(g Gomega) {
+				resp, err := http.Get(alloyURL + "/metrics")
+				g.Expect(err).NotTo(HaveOccurred())
+				defer resp.Body.Close() //nolint:errcheck // test cleanup
+				g.Expect(resp.StatusCode).To(Equal(http.StatusOK))
+				parser := expfmt.NewTextParser(model.UTF8Validation)
+				families, err := parser.TextToMetricFamilies(resp.Body)
+				g.Expect(err).NotTo(HaveOccurred())
+				fam, ok := families["alloy_component_controller_running_components"]
+				g.Expect(ok).To(BeTrue(), "Alloy must expose alloy_component_controller_running_components")
+
+				wr := &prompb.WriteRequest{}
+				for _, m := range fam.GetMetric() {
+					labels := []prompb.Label{
+						{Name: "__name__", Value: fam.GetName()},
+						// prometheus.scrape stamps instance on every series it scrapes.
+						{Name: "instance", Value: "alloy:12345"},
+					}
+					for _, lp := range m.GetLabel() {
+						labels = append(labels, prompb.Label{Name: lp.GetName(), Value: lp.GetValue()})
+					}
+					wr.Timeseries = append(wr.Timeseries, prompb.TimeSeries{
+						Labels:  labels,
+						Samples: []prompb.Sample{{Value: m.GetGauge().GetValue(), Timestamp: 1}},
+					})
+				}
+				_, _, obs, err := beacon.Project(wr)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(obs).To(ContainElement(beacon.ComponentObservation{ComponentName: "pipe_e2e_pipe", Healthy: true}))
+				for _, o := range obs {
+					g.Expect(o.ComponentName).To(HavePrefix("pipe_"), "root/bootstrap loaders must not be projected")
+				}
+			}).WithTimeout(60 * time.Second).WithPolling(2 * time.Second).Should(Succeed())
 		})
 
 		It("disabling the pipeline returns header-only config", func() {

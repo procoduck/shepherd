@@ -139,7 +139,9 @@ A local lab evaluation of 0.18.0 (Alloy 1.18.1/1.20.1, local Kubernetes) was che
   only the collectors the old or new matchers select, once per distinct merged config (collector
   identity normalised to a placeholder), and exposes `config.validate.stage3_timeout` in the chart.
 - #377 — restore keeps the enabled state.
-- #378 — module pipelines.
+- #378 — module pipelines. The beacon half is fixed (beacon keyed by `controller_path` +
+  `controller_id`, nested modules rolled up to their `pipe_*` pipeline; no served-bytes change).
+  The role-enforcement half (module instances counted as Unknown) stays open.
 
 Notes, not issues:
 

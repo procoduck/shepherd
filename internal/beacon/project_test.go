@@ -47,20 +47,42 @@ func series(labels []prompb.Label, value float64) prompb.TimeSeries {
 	}
 }
 
+// ctrlSeries builds one alloy_component_controller_running_components series
+// in the label shape the pinned Alloy really emits (v1.20.1, identical in
+// v1.18.1): internal/runtime/internal/controller/metrics.go's
+// newControllerCollector stamps two CONSTANT labels per loader —
+// controller_path (the parent's path, always with a leading "/", from
+// loader.go's splitPath) and controller_id (the loader's own id) — plus the
+// health_type variable label. Under remotecfg, Shepherd's declare-wrapped
+// served config (`declare "pipe_x" {...}` + `pipe_x "default" { }`) reports:
+//
+//	remotecfg root loader:      controller_path="/"                         controller_id="remotecfg"
+//	inside pipe_x:              controller_path="/remotecfg"                controller_id="pipe_x.default"
+//	module feat "y" in pipe_x:  controller_path="/remotecfg/pipe_x.default" controller_id="feat.y"
+//	local bootstrap config:     controller_path="/"                         controller_id=""
+//
+// Earlier fixtures invented controller_path="pipe_x", a shape Alloy never
+// emits — which is how Project shipped reading only controller_path, and
+// every pipeline collapsed onto "/remotecfg".
+func ctrlSeries(instance, controllerPath, controllerID, healthType string, value float64) prompb.TimeSeries {
+	return series([]prompb.Label{
+		lbl("__name__", runningComponentsMetric),
+		lbl("controller_id", controllerID),
+		lbl("controller_path", controllerPath),
+		lbl("health_type", healthType),
+		lbl("instance", instance),
+	}, value)
+}
+
+// pipeSeries is a series from the loader directly inside pipeline pipe.
+func pipeSeries(instance, pipe, healthType string, value float64) prompb.TimeSeries {
+	return ctrlSeries(instance, "/remotecfg", pipe+".default", healthType, value)
+}
+
 func TestProject_HealthyComponent(t *testing.T) {
 	wr := &prompb.WriteRequest{Timeseries: []prompb.TimeSeries{
-		series([]prompb.Label{
-			lbl("__name__", runningComponentsMetric),
-			lbl("controller_path", "pipe_minimal_scrape"),
-			lbl("health_type", "healthy"),
-			lbl("instance", "10.0.0.1:12345"),
-		}, 3),
-		series([]prompb.Label{
-			lbl("__name__", runningComponentsMetric),
-			lbl("controller_path", "pipe_minimal_scrape"),
-			lbl("health_type", "unhealthy"),
-			lbl("instance", "10.0.0.1:12345"),
-		}, 0),
+		pipeSeries("10.0.0.1:12345", "pipe_minimal_scrape", "healthy", 3),
+		pipeSeries("10.0.0.1:12345", "pipe_minimal_scrape", "unhealthy", 0),
 	}}
 
 	instance, _, obs, err := Project(wr)
@@ -77,26 +99,123 @@ func TestProject_HealthyComponent(t *testing.T) {
 
 func TestProject_UnhealthyComponent(t *testing.T) {
 	wr := &prompb.WriteRequest{Timeseries: []prompb.TimeSeries{
-		series([]prompb.Label{
-			lbl("__name__", runningComponentsMetric),
-			lbl("controller_path", "pipe_logs_chain"),
-			lbl("health_type", "healthy"),
-			lbl("instance", "10.0.0.2:12345"),
-		}, 1),
-		series([]prompb.Label{
-			lbl("__name__", runningComponentsMetric),
-			lbl("controller_path", "pipe_logs_chain"),
-			lbl("health_type", "unhealthy"),
-			lbl("instance", "10.0.0.2:12345"),
-		}, 1),
+		pipeSeries("10.0.0.2:12345", "pipe_logs_chain", "healthy", 1),
+		pipeSeries("10.0.0.2:12345", "pipe_logs_chain", "unhealthy", 1),
 	}}
 
 	_, _, obs, err := Project(wr)
 	if err != nil {
 		t.Fatalf("Project: %v", err)
 	}
-	if len(obs) != 1 || obs[0].Healthy {
+	if len(obs) != 1 || obs[0].ComponentName != "pipe_logs_chain" || obs[0].Healthy {
 		t.Fatalf("obs = %+v, want one unhealthy pipe_logs_chain", obs)
+	}
+}
+
+// TestProject_TwoPipelinesReportedSeparately is the #378 regression: every
+// declare-wrapped pipeline's loader shares controller_path="/remotecfg", so a
+// projection keyed on controller_path alone collapsed them all onto one
+// "/remotecfg" row (last write wins) and reconciliation never saw a pipe_*
+// component at all.
+func TestProject_TwoPipelinesReportedSeparately(t *testing.T) {
+	wr := &prompb.WriteRequest{Timeseries: []prompb.TimeSeries{
+		pipeSeries("i", "pipe_app_logs", "healthy", 2),
+		pipeSeries("i", "pipe_app_metrics", "healthy", 1),
+		pipeSeries("i", "pipe_app_metrics", "unhealthy", 1),
+	}}
+	_, _, obs, err := Project(wr)
+	if err != nil {
+		t.Fatalf("Project: %v", err)
+	}
+	want := []ComponentObservation{
+		{ComponentName: "pipe_app_logs", Healthy: true},
+		{ComponentName: "pipe_app_metrics", Healthy: false},
+	}
+	if !reflect.DeepEqual(obs, want) {
+		t.Fatalf("obs = %+v, want %+v", obs, want)
+	}
+}
+
+// TestProject_NestedModuleRolledUp: a module instantiated inside a pipeline
+// runs its own loader one level deeper; its components belong to the
+// pipeline, so it reports under the pipeline's key, not its own.
+func TestProject_NestedModuleRolledUp(t *testing.T) {
+	wr := &prompb.WriteRequest{Timeseries: []prompb.TimeSeries{
+		pipeSeries("i", "pipe_k8s", "healthy", 1),
+		ctrlSeries("i", "/remotecfg/pipe_k8s.default", "feat.pods", "healthy", 4),
+		ctrlSeries("i", "/remotecfg/pipe_k8s.default/feat.pods", "inner.x", "healthy", 2),
+	}}
+	_, _, obs, err := Project(wr)
+	if err != nil {
+		t.Fatalf("Project: %v", err)
+	}
+	want := []ComponentObservation{{ComponentName: "pipe_k8s", Healthy: true}}
+	if !reflect.DeepEqual(obs, want) {
+		t.Fatalf("obs = %+v, want %+v", obs, want)
+	}
+}
+
+// TestProject_UnhealthyNestedControllerMakesPipelineUnhealthy: health
+// aggregates across every controller under a pipeline — one non-healthy
+// component in a nested module is enough, even when the pipeline's own
+// loader is all healthy, and regardless of series order.
+func TestProject_UnhealthyNestedControllerMakesPipelineUnhealthy(t *testing.T) {
+	wr := &prompb.WriteRequest{Timeseries: []prompb.TimeSeries{
+		ctrlSeries("i", "/remotecfg/pipe_k8s.default", "feat.pods", "exited", 1),
+		ctrlSeries("i", "/remotecfg/pipe_k8s.default", "feat.pods", "healthy", 4),
+		pipeSeries("i", "pipe_k8s", "healthy", 3),
+	}}
+	_, _, obs, err := Project(wr)
+	if err != nil {
+		t.Fatalf("Project: %v", err)
+	}
+	want := []ComponentObservation{{ComponentName: "pipe_k8s", Healthy: false}}
+	if !reflect.DeepEqual(obs, want) {
+		t.Fatalf("obs = %+v, want %+v", obs, want)
+	}
+}
+
+// TestProject_RootAndBootstrapDropped: the remotecfg root loader (where the
+// baseline itself and the pipe_x.default nodes run) and the local bootstrap
+// config are not pipelines and are not projected; their `instance` label
+// still identifies the write.
+func TestProject_RootAndBootstrapDropped(t *testing.T) {
+	wr := &prompb.WriteRequest{Timeseries: []prompb.TimeSeries{
+		ctrlSeries("10.0.0.7:12345", "/", "", "healthy", 1),
+		ctrlSeries("10.0.0.7:12345", "/", "remotecfg", "healthy", 5),
+		ctrlSeries("10.0.0.7:12345", "/", "remotecfg", "unhealthy", 1),
+	}}
+	instance, _, obs, err := Project(wr)
+	if err != nil {
+		t.Fatalf("Project: %v", err)
+	}
+	if instance != "10.0.0.7:12345" {
+		t.Fatalf("instance = %q", instance)
+	}
+	if len(obs) != 0 {
+		t.Fatalf("obs = %+v, want none (root/bootstrap are not pipelines)", obs)
+	}
+}
+
+func TestPipelineKey(t *testing.T) {
+	cases := []struct{ path, id, want string }{
+		{"/remotecfg", "pipe_x.default", "pipe_x"},
+		{"/remotecfg/pipe_x.default", "feat.y", "pipe_x"},
+		{"/remotecfg/pipe_x.default/feat.y", "pipe_z.default", "pipe_x"},
+		{"/remotecfg", "pipe_9lives.default", "pipe_9lives"},
+		// Scraped verbatim from a real grafana/alloy:v1.20.1 running the same
+		// declare-wrapped shape from a LOCAL config (no remotecfg prefix):
+		{"/", "pipe_app_logs.default", "pipe_app_logs"},
+		{"/pipe_k8s.default", "feat.pods", "pipe_k8s"},
+		{"/", "remotecfg", ""},
+		{"/", "", ""},
+		{"/", "mod.local", ""},
+		{"", "", ""},
+	}
+	for _, c := range cases {
+		if got := pipelineKey(c.path, c.id); got != c.want {
+			t.Errorf("pipelineKey(%q, %q) = %q, want %q", c.path, c.id, got, c.want)
+		}
 	}
 }
 
@@ -110,12 +229,7 @@ func TestProject_IgnoresEverythingElse(t *testing.T) {
 			lbl("__name__", "alloy_build_info"),
 			lbl("instance", "10.0.0.3:12345"),
 		}, 1),
-		series([]prompb.Label{
-			lbl("__name__", runningComponentsMetric),
-			lbl("controller_path", "pipe_kitchen_sink"),
-			lbl("health_type", "healthy"),
-			lbl("instance", "10.0.0.3:12345"),
-		}, 2),
+		pipeSeries("10.0.0.3:12345", "pipe_kitchen_sink", "healthy", 2),
 	}}
 
 	instance, _, obs, err := Project(wr)
@@ -134,7 +248,8 @@ func TestProject_NoInstanceLabel(t *testing.T) {
 	wr := &prompb.WriteRequest{Timeseries: []prompb.TimeSeries{
 		series([]prompb.Label{
 			lbl("__name__", runningComponentsMetric),
-			lbl("controller_path", "pipe_x"),
+			lbl("controller_path", "/remotecfg"),
+			lbl("controller_id", "pipe_x.default"),
 			lbl("health_type", "healthy"),
 		}, 1),
 	}}
@@ -147,14 +262,8 @@ func TestProject_NoInstanceLabel(t *testing.T) {
 
 func TestProject_DeterministicOrder(t *testing.T) {
 	wr := &prompb.WriteRequest{Timeseries: []prompb.TimeSeries{
-		series([]prompb.Label{
-			lbl("__name__", runningComponentsMetric), lbl("controller_path", "pipe_zzz"),
-			lbl("health_type", "healthy"), lbl("instance", "i"),
-		}, 1),
-		series([]prompb.Label{
-			lbl("__name__", runningComponentsMetric), lbl("controller_path", "pipe_aaa"),
-			lbl("health_type", "healthy"), lbl("instance", "i"),
-		}, 1),
+		pipeSeries("i", "pipe_zzz", "healthy", 1),
+		pipeSeries("i", "pipe_aaa", "healthy", 1),
 	}}
 	_, _, obs, err := Project(wr)
 	if err != nil {
@@ -166,15 +275,9 @@ func TestProject_DeterministicOrder(t *testing.T) {
 }
 
 func TestProject_ExtractsCollectorID(t *testing.T) {
-	wr := &prompb.WriteRequest{Timeseries: []prompb.TimeSeries{
-		series([]prompb.Label{
-			lbl("__name__", runningComponentsMetric),
-			lbl("controller_path", "pipe_x"),
-			lbl("health_type", "healthy"),
-			lbl("instance", "10.0.0.1:12345"),
-			lbl(CollectorIDLabel, "col-abc-123"),
-		}, 1),
-	}}
+	ts := pipeSeries("10.0.0.1:12345", "pipe_x", "healthy", 1)
+	ts.Labels = append(ts.Labels, lbl(CollectorIDLabel, "col-abc-123"))
+	wr := &prompb.WriteRequest{Timeseries: []prompb.TimeSeries{ts}}
 	instance, collectorID, obs, err := Project(wr)
 	if err != nil {
 		t.Fatalf("Project: %v", err)
@@ -194,12 +297,7 @@ func TestProject_NoCollectorIDLabelIsEmpty(t *testing.T) {
 	// A pre-#110 baseline write carries no shepherd_collector_id; Project must
 	// still succeed and just report an empty collector id.
 	wr := &prompb.WriteRequest{Timeseries: []prompb.TimeSeries{
-		series([]prompb.Label{
-			lbl("__name__", runningComponentsMetric),
-			lbl("controller_path", "pipe_x"),
-			lbl("health_type", "healthy"),
-			lbl("instance", "10.0.0.1:12345"),
-		}, 1),
+		pipeSeries("10.0.0.1:12345", "pipe_x", "healthy", 1),
 	}}
 	_, collectorID, _, err := Project(wr)
 	if err != nil {
