@@ -230,7 +230,9 @@ export function WizardRunnerPage() {
   const missing = isReview ? [] : missingRequiredFields(currentFields, form);
   const canContinue = missing.length === 0;
   const diagnostics = renderQuery.data?.diagnostics ?? [];
-  const hasErrors = diagnostics.length > 0;
+  // A warning (strict tenant mode's "cannot be verified") never blocks.
+  const problems = diagnostics.filter((d) => !d.warning);
+  const hasErrors = problems.length > 0;
   const nameTaken = !!name && isNameTaken(name, takenNames);
   // The pipeline it collides with, as that one is named: "Pod Logs" takes
   // "pod-logs" too, and the message should say which pipeline that is.
@@ -394,8 +396,8 @@ export function WizardRunnerPage() {
                         <span className='text-muted'>Validating…</span>
                       ) : hasErrors ? (
                         <span className='flex items-center gap-1 text-red-400'>
-                          <XCircle size={14} /> {diagnostics.length} problem
-                          {diagnostics.length > 1 ? 's' : ''}
+                          <XCircle size={14} /> {problems.length} problem
+                          {problems.length > 1 ? 's' : ''}
                         </span>
                       ) : (
                         <span className='flex items-center gap-1 text-emerald-500'>

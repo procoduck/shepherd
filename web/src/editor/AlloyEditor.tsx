@@ -82,7 +82,9 @@ export function toCmDiagnostics(doc: Text, diagnostics: readonly Diagnostic[]): 
     const line = doc.line(Math.max(1, Math.min(d.line, doc.lines)));
     const from = Math.min(line.from + Math.max(0, d.col - 1), line.to);
     const to = Math.min(from + 1, line.to);
-    cmDiags.push({ from, to, severity: 'error', message: d.message });
+    // A warning (strict tenant mode's "cannot be verified" note) does not
+    // fail validation and is drawn as one.
+    cmDiags.push({ from, to, severity: d.warning ? 'warning' : 'error', message: d.message });
   }
   return cmDiags;
 }

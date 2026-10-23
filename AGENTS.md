@@ -39,6 +39,8 @@ React 19 / TypeScript 7 / Vite 8 SPA embedded via go:embed, PostgreSQL 16. Spec:
 - `internal/signals/` — derives a pipeline's signal set from Alloy syntax + the schema; holds the role→allowed-signals policy `internal/merge` enforces
 - `internal/gateway/` — Gateway API contract (version/channel), HTTPRoute rendering, route segments, tenant-id rule, in-cluster apply with attachment verification
 - `internal/receiver/` — receiver-tier Alloy pipelines (OTLP/Faro), including D10 pass-through tenancy
+- `internal/alloysyntax/` — the one way to parse Alloy text: `ParseFile` = nesting prescan (the parser stack-overflows on deep nesting) + `parser.ParseFile`; a guard test fails if anything else imports the parser
+- `internal/tenancy/` — strict tenant mode (an org may only use tenants it owns): the per-org policy every write path asks, and the preflight behind `SetOrgStrictTenants`, `tenants.require_owned` at boot and `shepherd admin tenant-preflight`; the pipeline lint itself is `validate.TenantLint`
 - `internal/routeapply/` — tenant-route reconciler: applies/removes each route's HTTPRoute via `gateway.ApplyRoute` (client-go dynamic client, in-cluster only), records `apply_status` on the row
 - `internal/beacon/` — remote_write ingest projection, baseline pipeline, inventory (D6)
 - `internal/reconcile/` — declared vs served vs observed collector state

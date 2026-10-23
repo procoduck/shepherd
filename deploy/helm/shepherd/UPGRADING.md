@@ -5,7 +5,7 @@
 First published as the release candidate **0.23.0-rc.1** (Shepherd v0.19.0-rc.1); install it
 with `--version 0.23.0-rc.1`, or `--devel`. Everything below applies to the rc and to 0.23.0.
 
-An ordinary `helm upgrade` with five migrations (0035–0039), one recompute per collector, a short burst of
+An ordinary `helm upgrade` with six migrations (0035–0040), one recompute per collector, a short burst of
 collector errors during the rollout, and management-API breaks. Update API scripts first.
 
 ### Migrations 0035–0037
@@ -153,6 +153,46 @@ once it has dropped `orgs.tenant_id`, every query an old pod makes on `orgs` (or
 creating routes and destinations, and the agent API's org lookups) answers `Internal` until that
 pod is replaced. This fails closed — nothing is written with a missing tenant — and collectors keep
 their last loaded config and retry. Finish the rollout promptly.
+
+### Strict tenant mode (not in 0.23.0-rc.1)
+
+Additive and **off by default**: nothing changes until you turn it on. In strict tenant mode an
+organisation's destinations, destination bindings, tenant routes and pipelines may only use
+tenants it owns, and pipeline text that sets a tenant it does not own, or that it cannot verify
+(a tenant from `sys.env`, from the log data, an `import.git`/`import.http`/`import.file` module),
+fails validation; see the docs' *Destinations* page for exactly what is refused.
+
+- **Per organisation:** an application administrator ticks *Strict tenant mode* on **Admin →
+  Organisations** (Edit), or calls `AdminService.SetOrgStrictTenants`. It is refused, with the
+  list of what to fix, while the org owns no tenant or anything of it breaks the rule;
+  `AdminService.TenantPreflight` returns that list on its own.
+- **Every organisation:** `config.tenants.require_owned: true`. Before setting it, run
+  `shepherd admin tenant-preflight` (same database config as the server) and clear what it lists:
+  with the setting on, **Shepherd refuses to start** while anything stored breaks the rule, and
+  the error names each object. Setting it back to `false` undoes it.
+
+New API fields, all additive: `Org.strict_tenants` / `Org.tenants_required` / `Org.warnings`
+(caveats of an `AddOrgTenant`), `OrgMembership.tenants_required`, and `Diagnostic.warning` /
+`VisualNodeDiagnostic.warning` (a diagnostic that does not fail validation).
+
+**New limits for every organisation:** pipeline contents are capped at 1 MiB on every API write
+(`invalid_argument`) — the `gitsync.max_file_bytes` default, far above any real pipeline — and a
+management API request body at 4 MiB (`resource_exhausted`). `config.gitsync.max_file_bytes` may
+no longer be set above 1 MiB: the chart's schema and Shepherd's config loading refuse it, since a
+larger synced file could never be stored. Configuration nested more than 512 levels deep, or an
+expression chaining more than 4096 operators or field accesses, is a Stage 1 error everywhere
+(the Alloy parser would crash, or build a tree too deep to walk, on far more); no real
+configuration comes close.
+
+#### Migration 0040
+
+Adds `orgs.strict_tenants boolean NOT NULL DEFAULT false` and the `pipeline_tenants` and
+`pipeline_tenant_index` tables (the tenants each enabled pipeline writes to, and which contents
+they describe, so assigning a tenant is one indexed check) — quick, and old pods keep working
+against them (they name the columns they read). The server fills the tables at every start, which
+is also their backfill; a pipeline it cannot read is logged, never a failed start. Rows an old pod
+leaves stale during the rollout are re-read when a tenant is next assigned. Its down migration
+drops all three, turning strict mode off for every org.
 
 ## 0.21.x → 0.22.0
 

@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file shepherd/mgmt/v1/common.proto.
  */
 export const file_shepherd_mgmt_v1_common: GenFile = /*@__PURE__*/
-  fileDesc("Ch1zaGVwaGVyZC9tZ210L3YxL2NvbW1vbi5wcm90bxIQc2hlcGhlcmQubWdtdC52MSJHCgpEaWFnbm9zdGljEgwKBGxpbmUYASABKAUSCwoDY29sGAIgASgFEg8KB21lc3NhZ2UYAyABKAkSDQoFc3RhZ2UYBCABKAUiogEKCU9yZ1RlbmFudBIOCgZ0ZW5hbnQYASABKAkSLQoEa2luZBgCIAEoDjIfLnNoZXBoZXJkLm1nbXQudjEuT3JnVGVuYW50S2luZBISCgppc19kZWZhdWx0GAMgASgIEi4KCmNyZWF0ZWRfYXQYBCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhIKCmNyZWF0ZWRfYnkYBSABKAkqTgoEUm9sZRIUChBST0xFX1VOU1BFQ0lGSUVEEAASDwoLUk9MRV9WSUVXRVIQARIPCgtST0xFX0VESVRPUhACEg4KClJPTEVfQURNSU4QAypnCg1PcmdUZW5hbnRLaW5kEh8KG09SR19URU5BTlRfS0lORF9VTlNQRUNJRklFRBAAEhkKFU9SR19URU5BTlRfS0lORF9FWEFDVBABEhoKFk9SR19URU5BTlRfS0lORF9QUkVGSVgQAkImWiRzaGVwaGVyZC9nZW4vc2hlcGhlcmQvbWdtdC92MTttZ210djFiBnByb3RvMw", [file_google_protobuf_timestamp]);
+  fileDesc("Ch1zaGVwaGVyZC9tZ210L3YxL2NvbW1vbi5wcm90bxIQc2hlcGhlcmQubWdtdC52MSJYCgpEaWFnbm9zdGljEgwKBGxpbmUYASABKAUSCwoDY29sGAIgASgFEg8KB21lc3NhZ2UYAyABKAkSDQoFc3RhZ2UYBCABKAUSDwoHd2FybmluZxgFIAEoCCKiAQoJT3JnVGVuYW50Eg4KBnRlbmFudBgBIAEoCRItCgRraW5kGAIgASgOMh8uc2hlcGhlcmQubWdtdC52MS5PcmdUZW5hbnRLaW5kEhIKCmlzX2RlZmF1bHQYAyABKAgSLgoKY3JlYXRlZF9hdBgEIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASEgoKY3JlYXRlZF9ieRgFIAEoCSpOCgRSb2xlEhQKEFJPTEVfVU5TUEVDSUZJRUQQABIPCgtST0xFX1ZJRVdFUhABEg8KC1JPTEVfRURJVE9SEAISDgoKUk9MRV9BRE1JThADKmcKDU9yZ1RlbmFudEtpbmQSHwobT1JHX1RFTkFOVF9LSU5EX1VOU1BFQ0lGSUVEEAASGQoVT1JHX1RFTkFOVF9LSU5EX0VYQUNUEAESGgoWT1JHX1RFTkFOVF9LSU5EX1BSRUZJWBACQiZaJHNoZXBoZXJkL2dlbi9zaGVwaGVyZC9tZ210L3YxO21nbXR2MWIGcHJvdG8z", [file_google_protobuf_timestamp]);
 
 /**
  * Diagnostic is a structured error/warning from the Alloy validation gate
@@ -48,6 +48,15 @@ export type Diagnostic = Message<"shepherd.mgmt.v1.Diagnostic"> & {
    * @generated from field: int32 stage = 4;
    */
   stage: number;
+
+  /**
+   * warning marks a diagnostic that does not fail validation (valid stays
+   * true): today only strict tenant mode's "tenant set from a non-literal
+   * expression" note. false is an error, the only kind before it.
+   *
+   * @generated from field: bool warning = 5;
+   */
+  warning: boolean;
 };
 
 /**

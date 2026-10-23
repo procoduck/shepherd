@@ -38,3 +38,12 @@ DELETE FROM orgs WHERE id = $1;
 -- Resolve an org by its unique slug (orgs.name), the external identifier an
 -- operator uses when creating an agent-identity binding.
 SELECT * FROM orgs WHERE name = $1;
+
+-- name: SetOrgStrictTenants :one
+-- Strict tenant mode (0040_org_strict_tenants), changed only by an app admin
+-- (AdminService.SetOrgStrictTenants) once its preflight passes.
+UPDATE orgs
+SET strict_tenants = sqlc.arg('strict_tenants'),
+    updated_at     = now()
+WHERE id = sqlc.arg('id')
+RETURNING *;

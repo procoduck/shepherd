@@ -50,6 +50,12 @@ const (
 	// AdminServiceSetDefaultOrgTenantProcedure is the fully-qualified name of the AdminService's
 	// SetDefaultOrgTenant RPC.
 	AdminServiceSetDefaultOrgTenantProcedure = "/shepherd.mgmt.v1.AdminService/SetDefaultOrgTenant"
+	// AdminServiceSetOrgStrictTenantsProcedure is the fully-qualified name of the AdminService's
+	// SetOrgStrictTenants RPC.
+	AdminServiceSetOrgStrictTenantsProcedure = "/shepherd.mgmt.v1.AdminService/SetOrgStrictTenants"
+	// AdminServiceTenantPreflightProcedure is the fully-qualified name of the AdminService's
+	// TenantPreflight RPC.
+	AdminServiceTenantPreflightProcedure = "/shepherd.mgmt.v1.AdminService/TenantPreflight"
 	// AdminServiceListClustersProcedure is the fully-qualified name of the AdminService's ListClusters
 	// RPC.
 	AdminServiceListClustersProcedure = "/shepherd.mgmt.v1.AdminService/ListClusters"
@@ -120,6 +126,20 @@ type AdminServiceClient interface {
 	// SetDefaultOrgTenant makes one of the org's exact tenants its default.
 	// App admin only.
 	SetDefaultOrgTenant(context.Context, *connect.Request[v1.SetDefaultOrgTenantRequest]) (*connect.Response[v1.Org], error)
+	// SetOrgStrictTenants turns an org's strict tenant mode on or off. App
+	// admin only. In strict mode every destination, destination binding and
+	// tenant route of the org must use a tenant the org owns, and pipeline text
+	// that sets a literal tenant the org does not own fails validation.
+	// Turning it on is refused (failed_precondition) when the org owns no
+	// tenant, or while a destination, binding, live route or enabled pipeline
+	// of the org would break the rule — the message lists each one, and
+	// TenantPreflight returns them as data.
+	SetOrgStrictTenants(context.Context, *connect.Request[v1.SetOrgStrictTenantsRequest]) (*connect.Response[v1.Org], error)
+	// TenantPreflight reports what would break the strict tenant rule. App
+	// admin only, read-only. With org_id set it checks that org (what
+	// SetOrgStrictTenants would refuse over); empty checks every org, as the
+	// server-wide tenants.require_owned setting would at boot.
+	TenantPreflight(context.Context, *connect.Request[v1.TenantPreflightRequest]) (*connect.Response[v1.TenantPreflightResponse], error)
 	ListClusters(context.Context, *connect.Request[v1.ListClustersRequest]) (*connect.Response[v1.ListClustersResponse], error)
 	ClaimCluster(context.Context, *connect.Request[v1.ClaimClusterRequest]) (*connect.Response[v1.ClaimClusterResponse], error)
 	UnclaimCluster(context.Context, *connect.Request[v1.UnclaimClusterRequest]) (*connect.Response[v1.UnclaimClusterResponse], error)
@@ -210,6 +230,18 @@ func NewAdminServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			httpClient,
 			baseURL+AdminServiceSetDefaultOrgTenantProcedure,
 			connect.WithSchema(adminServiceMethods.ByName("SetDefaultOrgTenant")),
+			connect.WithClientOptions(opts...),
+		),
+		setOrgStrictTenants: connect.NewClient[v1.SetOrgStrictTenantsRequest, v1.Org](
+			httpClient,
+			baseURL+AdminServiceSetOrgStrictTenantsProcedure,
+			connect.WithSchema(adminServiceMethods.ByName("SetOrgStrictTenants")),
+			connect.WithClientOptions(opts...),
+		),
+		tenantPreflight: connect.NewClient[v1.TenantPreflightRequest, v1.TenantPreflightResponse](
+			httpClient,
+			baseURL+AdminServiceTenantPreflightProcedure,
+			connect.WithSchema(adminServiceMethods.ByName("TenantPreflight")),
 			connect.WithClientOptions(opts...),
 		),
 		listClusters: connect.NewClient[v1.ListClustersRequest, v1.ListClustersResponse](
@@ -320,6 +352,8 @@ type adminServiceClient struct {
 	addOrgTenant            *connect.Client[v1.AddOrgTenantRequest, v1.Org]
 	removeOrgTenant         *connect.Client[v1.RemoveOrgTenantRequest, v1.Org]
 	setDefaultOrgTenant     *connect.Client[v1.SetDefaultOrgTenantRequest, v1.Org]
+	setOrgStrictTenants     *connect.Client[v1.SetOrgStrictTenantsRequest, v1.Org]
+	tenantPreflight         *connect.Client[v1.TenantPreflightRequest, v1.TenantPreflightResponse]
 	listClusters            *connect.Client[v1.ListClustersRequest, v1.ListClustersResponse]
 	claimCluster            *connect.Client[v1.ClaimClusterRequest, v1.ClaimClusterResponse]
 	unclaimCluster          *connect.Client[v1.UnclaimClusterRequest, v1.UnclaimClusterResponse]
@@ -371,6 +405,16 @@ func (c *adminServiceClient) RemoveOrgTenant(ctx context.Context, req *connect.R
 // SetDefaultOrgTenant calls shepherd.mgmt.v1.AdminService.SetDefaultOrgTenant.
 func (c *adminServiceClient) SetDefaultOrgTenant(ctx context.Context, req *connect.Request[v1.SetDefaultOrgTenantRequest]) (*connect.Response[v1.Org], error) {
 	return c.setDefaultOrgTenant.CallUnary(ctx, req)
+}
+
+// SetOrgStrictTenants calls shepherd.mgmt.v1.AdminService.SetOrgStrictTenants.
+func (c *adminServiceClient) SetOrgStrictTenants(ctx context.Context, req *connect.Request[v1.SetOrgStrictTenantsRequest]) (*connect.Response[v1.Org], error) {
+	return c.setOrgStrictTenants.CallUnary(ctx, req)
+}
+
+// TenantPreflight calls shepherd.mgmt.v1.AdminService.TenantPreflight.
+func (c *adminServiceClient) TenantPreflight(ctx context.Context, req *connect.Request[v1.TenantPreflightRequest]) (*connect.Response[v1.TenantPreflightResponse], error) {
+	return c.tenantPreflight.CallUnary(ctx, req)
 }
 
 // ListClusters calls shepherd.mgmt.v1.AdminService.ListClusters.
@@ -473,6 +517,20 @@ type AdminServiceHandler interface {
 	// SetDefaultOrgTenant makes one of the org's exact tenants its default.
 	// App admin only.
 	SetDefaultOrgTenant(context.Context, *connect.Request[v1.SetDefaultOrgTenantRequest]) (*connect.Response[v1.Org], error)
+	// SetOrgStrictTenants turns an org's strict tenant mode on or off. App
+	// admin only. In strict mode every destination, destination binding and
+	// tenant route of the org must use a tenant the org owns, and pipeline text
+	// that sets a literal tenant the org does not own fails validation.
+	// Turning it on is refused (failed_precondition) when the org owns no
+	// tenant, or while a destination, binding, live route or enabled pipeline
+	// of the org would break the rule — the message lists each one, and
+	// TenantPreflight returns them as data.
+	SetOrgStrictTenants(context.Context, *connect.Request[v1.SetOrgStrictTenantsRequest]) (*connect.Response[v1.Org], error)
+	// TenantPreflight reports what would break the strict tenant rule. App
+	// admin only, read-only. With org_id set it checks that org (what
+	// SetOrgStrictTenants would refuse over); empty checks every org, as the
+	// server-wide tenants.require_owned setting would at boot.
+	TenantPreflight(context.Context, *connect.Request[v1.TenantPreflightRequest]) (*connect.Response[v1.TenantPreflightResponse], error)
 	ListClusters(context.Context, *connect.Request[v1.ListClustersRequest]) (*connect.Response[v1.ListClustersResponse], error)
 	ClaimCluster(context.Context, *connect.Request[v1.ClaimClusterRequest]) (*connect.Response[v1.ClaimClusterResponse], error)
 	UnclaimCluster(context.Context, *connect.Request[v1.UnclaimClusterRequest]) (*connect.Response[v1.UnclaimClusterResponse], error)
@@ -559,6 +617,18 @@ func NewAdminServiceHandler(svc AdminServiceHandler, opts ...connect.HandlerOpti
 		AdminServiceSetDefaultOrgTenantProcedure,
 		svc.SetDefaultOrgTenant,
 		connect.WithSchema(adminServiceMethods.ByName("SetDefaultOrgTenant")),
+		connect.WithHandlerOptions(opts...),
+	)
+	adminServiceSetOrgStrictTenantsHandler := connect.NewUnaryHandler(
+		AdminServiceSetOrgStrictTenantsProcedure,
+		svc.SetOrgStrictTenants,
+		connect.WithSchema(adminServiceMethods.ByName("SetOrgStrictTenants")),
+		connect.WithHandlerOptions(opts...),
+	)
+	adminServiceTenantPreflightHandler := connect.NewUnaryHandler(
+		AdminServiceTenantPreflightProcedure,
+		svc.TenantPreflight,
+		connect.WithSchema(adminServiceMethods.ByName("TenantPreflight")),
 		connect.WithHandlerOptions(opts...),
 	)
 	adminServiceListClustersHandler := connect.NewUnaryHandler(
@@ -673,6 +743,10 @@ func NewAdminServiceHandler(svc AdminServiceHandler, opts ...connect.HandlerOpti
 			adminServiceRemoveOrgTenantHandler.ServeHTTP(w, r)
 		case AdminServiceSetDefaultOrgTenantProcedure:
 			adminServiceSetDefaultOrgTenantHandler.ServeHTTP(w, r)
+		case AdminServiceSetOrgStrictTenantsProcedure:
+			adminServiceSetOrgStrictTenantsHandler.ServeHTTP(w, r)
+		case AdminServiceTenantPreflightProcedure:
+			adminServiceTenantPreflightHandler.ServeHTTP(w, r)
 		case AdminServiceListClustersProcedure:
 			adminServiceListClustersHandler.ServeHTTP(w, r)
 		case AdminServiceClaimClusterProcedure:
@@ -740,6 +814,14 @@ func (UnimplementedAdminServiceHandler) RemoveOrgTenant(context.Context, *connec
 
 func (UnimplementedAdminServiceHandler) SetDefaultOrgTenant(context.Context, *connect.Request[v1.SetDefaultOrgTenantRequest]) (*connect.Response[v1.Org], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.AdminService.SetDefaultOrgTenant is not implemented"))
+}
+
+func (UnimplementedAdminServiceHandler) SetOrgStrictTenants(context.Context, *connect.Request[v1.SetOrgStrictTenantsRequest]) (*connect.Response[v1.Org], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.AdminService.SetOrgStrictTenants is not implemented"))
+}
+
+func (UnimplementedAdminServiceHandler) TenantPreflight(context.Context, *connect.Request[v1.TenantPreflightRequest]) (*connect.Response[v1.TenantPreflightResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.AdminService.TenantPreflight is not implemented"))
 }
 
 func (UnimplementedAdminServiceHandler) ListClusters(context.Context, *connect.Request[v1.ListClustersRequest]) (*connect.Response[v1.ListClustersResponse], error) {

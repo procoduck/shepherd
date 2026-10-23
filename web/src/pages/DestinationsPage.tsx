@@ -151,7 +151,10 @@ function destinationColumns(
 export function DestinationsPage() {
   const { orgId, orgs } = useOrg();
   // A new destination starts from the org's default tenant (#261).
-  const orgTenant = defaultTenant(orgs.find((o) => o.id === orgId)?.tenants);
+  const currentOrg = orgs.find((o) => o.id === orgId);
+  const orgTenant = defaultTenant(currentOrg?.tenants);
+  // Strict tenant mode: the form offers only the org's own tenants.
+  const strictTenants = currentOrg?.tenantsRequired ? (currentOrg.tenants ?? []) : undefined;
   // Destinations decide where telemetry ships, so the server requires org
   // admin. Offering the form to an editor or viewer only produces a rejection
   // after they have filled it in. Edit is gated exactly like create.
@@ -337,6 +340,7 @@ export function DestinationsPage() {
             createMut.reset();
           }}
           onSubmit={(form) => createMut.mutate(form)}
+          strictTenants={strictTenants}
         />
       )}
 
@@ -362,6 +366,7 @@ export function DestinationsPage() {
             updateMut.error,
           )}
           onEdit={() => updateMut.reset()}
+          strictTenants={strictTenants}
           onCancel={() => {
             setEditing(null);
             updateMut.reset();

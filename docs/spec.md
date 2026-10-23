@@ -285,6 +285,8 @@ orgs(id, name text UNIQUE, display_name text,
 --   0037 orgs.reader_group_id renamed viewer_group_id (one role vocabulary; §7.2)
 --   0039 org_tenants — an org owns several tenants and tenant prefixes; replaces
 --        orgs.tenant_id (each org's tenant became its default exact tenant; §11.4)
+--   0040 orgs.strict_tenants boolean NOT NULL DEFAULT false — strict tenant mode, set
+--        by an app admin only (§11.4 "Strict tenant mode")
 
 org_tenants(org_id uuid REFERENCES orgs ON DELETE CASCADE,       -- 0039; app admin writes only
            tenant text, kind text CHECK (kind IN ('exact','prefix')),
@@ -579,6 +581,8 @@ Before the role column existed, `authorizeServiceAccountProcedure` (`internal/mg
 
 **Stage 1 — Syntax.** Parse with `github.com/grafana/alloy/syntax/parser`. On error, return structured diagnostics `{line, col, message}` (the parser gives positions). This runs on: pipeline save, wizard output, every git-synced file, and the merged output.
 
+**Nesting limit (every org).** The Alloy parser recurses once per nesting level, and deep enough nesting — `x = [[[[…]]]]` at ~487 000 levels, under 1 MiB — overflows the goroutine stack, a fatal error that kills the process. Every parse in Shepherd therefore goes through `alloysyntax.ParseFile`, which first runs `alloysyntax.CheckNesting` over the tokens of **Alloy's own scanner** (`syntax/scanner`, iterative — the tokens the parser will see, so strings, raw strings, escapes and comments are read exactly as it reads them; an earlier hand-written mirror diverged on `'\'`). It refuses, as a Stage 1 diagnostic at the offending token, more than **512** brackets, braces and parentheses open at once or consecutive prefix operators (`!`, `-`) ("nesting deeper than 512 levels"); an expression chaining more than **4096** binary operators or field accesses, counting the chains of the expressions it sits inside (the parser builds a chain as a left-leaning tree as deep as the chain, and every recursive AST walk follows it: a 1 MiB `a+a+…` is 500 000 levels); and text the scanner itself refuses (at its first error). Postfix calls and indexes (`f()()…`, `a[0][0]…`) count as chain links too — the parser builds them as left-deep trees as well. As a structural backstop, `ParseFile` measures every parsed tree's depth with an iterative (explicit-stack) walk and refuses one deeper than **1024** (`alloysyntax.MaxTreeDepth`; the deepest real configuration is under 10) before any caller sees it, so no recursive walker — the printer, the visual builder, signal derivation, the tenant lint — is ever handed a deeper tree. The deepest configuration in the repository nests 5 levels; a test fails if any file in it is refused or nests 64 or more, a differential fuzz checks the prescan against the scanner's own nesting, and a guard test fails if any package but `alloysyntax` imports an Alloy package that can parse text (anything but `syntax/ast`, `token`, `printer`, `diag`).
+
 **Stage 2 — Semantic (`alloy validate`).** Write the candidate to a temp file and exec the bundled binary: `alloy validate --stability.level=experimental <file>` (stability level from viper `validate.stability_level`, default `experimental` to match the fleet). Timeout 10s. Parse stderr into diagnostics. This catches unknown components, bad attribute types, unset required attributes. Run it on the **declare-wrapped form** of the pipeline (wrap exactly as the merge engine would, §6.2) so what's validated is what ships.
 
 Stage 2 also runs an in-process **port-shape check** (`validate.PortShapes` → `visual.CheckPortShapes`, #233) against the embedded component schema for the pinned Alloy version. `alloy validate` does not evaluate references between components, so it exits 0 on wires Alloy refuses at load. The check refuses exactly two, both certain from the schema and from Alloy's value decoder:
@@ -588,6 +592,84 @@ Stage 2 also runs an in-process **port-shape check** (`validate.PortShapes` → 
 The check flags a reference only when it resolves to a component block declared in scope that is not behind an `import.*` namespace. Anything the schema cannot type precisely produces no diagnostic: function calls such as `array.concat`, `argument.*`, indexing, and cross-signal OTel wiring (`otel.any` is polymorphic). A false positive would block a save or a git sync. A spec runs the check over every Alloy text in the repository and allows no diagnostics except a short list of legacy list-of-lists configs, each of which it asserts *is* flagged. The check needs no binary, so it runs even where `validate.alloy_binary` is empty. Its diagnostics carry `stage: 2` and are returned alongside `alloy validate`'s. Every Stage 2 caller runs it: pipeline save/update/validate, wizard and visual saves, Stage 3, git sync, the sandbox worker and `shepherd validate`. The served-config recompute (`serve.ComputeServed`) runs Stage 1 only, as before.
 
 **Stage 3 — Merge dry-run.** For a pipeline save/toggle: compute the set of logical collectors the new matcher set would affect (plus those affected by the *old* version; for a disable or delete, only the old), assemble each collector's full merged config with the candidate change applied, and run stages 1–2 on each merged result. Affected uses the serve path's own matching (cluster, role, admin labels and `local_attributes` gated by the org's flags, with the same precedence; a repo-sourced pipeline by its link's collector); no other collector's merged config changes, so none other is validated. Merged configs are de-duplicated by content with the collector's identity — the header's `Collector:` comment and the D6 baseline's `shepherd_collector_id` string literal — replaced by a fixed placeholder, so collectors whose merged configs differ only by identity cost one `alloy validate`; the identity is only ever a comment or a string literal, so the placeholder cannot change a verdict, and a failure is reported against every collector that shared the content. If ANY merged config fails, **reject the save** with a response listing the failing collectors and diagnostics. The whole check runs within `validate.stage3_timeout` (default 30s, chart `config.validate.stage3_timeout`) and fails closed past it. This prevents the "one bad pipeline poisons the whole merge" failure mode.
+
+**Tenant lint (strict tenant mode, §11.4).** The lint is **defence in depth**: the boundary is the
+backend's own tenant authentication (a Mimir/Loki gateway that ties credentials to tenants). For an
+org in strict tenant mode the gate also runs `validate.TenantLint` on the pipeline text as written
+(positions in that text, `stage: 1`), parsed with the Alloy syntax parser. Its rule is **refuse
+what it cannot verify**: every refusal is an error, and a non-strict org is not linted at all.
+Strict mode refuses:
+
+- a tenant the org does not own, and any tenant value it cannot read, in: an `X-Scope-OrgID` key
+  (any case) of any headers map — every attribute whose name ends in `headers` (`headers`,
+  `http_headers`, …) or is `proxy_connect_header`, each list element; a headers value that is not
+  an object literal; `loki.write`'s endpoint `tenant_id`; `loki.rules.kubernetes`' and
+  `mimir.rules.kubernetes`' `tenant_id`; `loki.process` `stage.tenant`'s `value` at any nesting;
+  Loki's reserved `__tenant_id__` label (it overrides `loki.write`'s `tenant_id` per entry, Alloy
+  v1.20.1 `common/loki/client.getTenantID`) in any labels map; a relabel `rule` whose
+  `replacement` writes `__tenant_id__`; an `otelcol.auth.headers` header whose key is
+  `X-Scope-OrgID`; an `otelcol.auth.bearer` with `header = "X-Scope-OrgID"` and an empty `scheme`
+  (its `token` is the tenant);
+- tenants taken from the data, which a client can set: `stage.tenant`'s `label`/`source`,
+  `stage.labels` setting `__tenant_id__`, a relabel rule writing `__tenant_id__` from a regex
+  reference, its default replacement, or `lowercase`/`uppercase`/`hashmod`, a replace rule whose
+  `target_label` contains `$` (Alloy expands it), every `labelmap` whose replacement is not a
+  literal without `$` that is not `__tenant_id__` (the default `$1` included), and
+  `otelcol.auth.headers`' `from_context`/`from_attribute` for the tenant header;
+- a **push source that forwards the client's tenant**: `loki.source.api`, `loki.source.heroku`,
+  `loki.source.awsfirehose` and `loki.source.gcplog` turn the request's `X-Scope-OrgID` into
+  `__tenant_id__` (Alloy v1.20.1), so a `loki.write` would send under the client's tenant. Allowed
+  only when, on every path through `forward_to` to every `loki.write`, a `loki.process` or
+  `loki.relabel` overwrites or drops the label unconditionally first: a top-level (not in
+  `stage.match`) `stage.static_labels` setting it, `stage.tenant` with a `value`,
+  `stage.label_drop` listing it or `stage.label_keep` not listing it, or a relabel rule replacing it
+  with no `source_labels`/`regex` or a `labeldrop` of exactly `__tenant_id__` (the value written is
+  checked where it is set). A path it cannot follow — a `forward_to` that is not a list of
+  receivers of components in the same scope, or any component other than `loki.process`,
+  `loki.relabel`, `loki.write` and `loki.echo` — is refused;
+- anything that may set a tenant and cannot be read: a header key, a relabel `target_label` or
+  `action` (matched exactly, as Alloy v1.20.1's `relabel.Action.UnmarshalText` does), or an
+  `otelcol.auth.bearer` `header` it cannot resolve; a tenant-header bearer with a non-empty
+  `scheme`;
+- every `import.file`, `import.git` and `import.http` block (what they load cannot be verified),
+  and an `import.string` whose `content` it cannot read or that does not parse. A readable
+  `import.string` module is linted with the same rules (up to 8 levels), including the values the
+  importing text gives its declares.
+
+A value is *readable* when it is a string literal, a `+` concatenation of readable values, or a
+declare argument (`argument.<name>.value`) whose default and every value an instantiation gives it
+— read in the declare that instantiation sits in, so a value passed down several declare levels is
+followed; declares are keyed by scope, so a nested declare of the same name is a different one —
+are readable. A `|`-joined header value must be owned in every part. **The lint is bounded by one
+budget per run**, enforced in one place (`budget.charge`): every unit of work charges it — each
+statement and block, each resolution and each cache hit (charged for the values it hands back),
+each `|`-separated tenant piece, each 64 bytes a concatenation builds, each diagnostic, each
+`forward_to` step — 100 000 units in all; once spent, everything after is unreadable, a
+deterministic verdict. A 50 ms wall-clock guard — started after the parse, which is bounded on its own (the prescan and
+the 1 MiB cap) — backs it up but is **not** a verdict: a run that
+hits it is "busy" (`validate.ErrLintBusy`, `Result.Busy`) — a write answers `unavailable`
+("validation busy, try again"), and the pipeline tenant index keeps the row it had (stale by its
+sha, so it is read again later) rather than recording "incomplete". Alongside it: text over 1 MiB (the pipeline contents cap) is not parsed at
+all; blocks, expressions and `forward_to` chains nest at most 64 deep, declare hops and modules
+8; a concatenation builds at most 4 KiB per value and 16 KiB in all, and folds to at most 64
+values; each (declare, argument) is resolved once; at most 256 distinct tenants are recorded per
+pipeline and 100 refusals reported (plus one summary). Past any bound the pipeline is refused for
+a strict org and recorded as incomplete in the tenant index otherwise. Parsing is linear in the
+text; specs, a benchmark and a fuzz target driving a generator of large structured pipelines (up
+to 1 MiB) pin time and allocation, including every shape a review found and ten times it (the
+worst, a 1 MiB nesting of `stage.match`, is the parser's ~40 ms / ~25 MB).
+`prometheus.remote_write` has no tenant label (Mimir reads the header only). Azure AD `tenant_id`
+attributes name an identity tenant and are not checked; a spec walks every schema attribute named
+like a header or a tenant and fails until each is classified. `Diagnostic.warning` stays on the
+wire for diagnostics that do not fail validation, but the tenant lint emits none.
+
+It runs through `ValidatePipeline` (pipeline create/update/restore, the `ValidatePipeline` RPC and
+the MCP tools built on it, wizard render/commit, destination re-renders, `rerender-destinations`,
+git sync's per-file check, where one refused file refuses the commit), the visual builder's
+Validate, and Stage 3 for every candidate; every pipeline write re-runs it in its writing
+transaction under the shared ownership lock. **What it still cannot see:** a tenant added by a
+proxy or gateway in front of the backend, a backend that takes the tenant another way (basic-auth
+username, URL path), and anything a collector runs that Shepherd does not serve.
 
 API: `PipelineService.ValidatePipeline` (§12) runs stages 1–2 only (fast, used by the editor's Validate button and on-type debounce); the actual save/update/enable endpoints run all three stages server-side regardless of what the client did. With no Alloy binary configured, the `alloy validate` half of Stage 2 is skipped and reported, not passed: `ValidatePipelineResponse.skipped_stages` lists `2` (#209), the editor shows *Syntax checked — alloy validate skipped*, and `shepherd validate` prints the same.
 
@@ -743,6 +825,68 @@ tenant is refused. Rotating a route re-checks its tenant under the same lock. Ev
 writing — a destination, a destination binding, a tenant route — takes the same lock shared
 (`LockOrgTenantsShared`), so no check and write can race past an ownership change.
 `Org.tenants` and `MeService.GetMe`'s `OrgMembership.tenants` (read-only) carry the rows.
+
+**Strict tenant mode (0040).** In strict tenant mode, destinations, destination bindings,
+tenant routes and pipelines may only use the organisation's own tenants (`gateway.OrgOwnsTenant`
+over its `org_tenants`). It applies to an org when its `orgs.strict_tenants` flag is on, or to
+every org when the server-wide config `tenants.require_owned` is true (chart
+`config.tenants.require_owned`, default false); `internal/tenancy` is the one definition
+(`tenancy.Policy`). Off, everything is exactly as without it. On, for org O:
+
+- every destination create and update, and every destination binding create and update, with a
+  non-empty tenant O does not own is refused (`invalid_argument`, "strict tenant mode: …"),
+  checked inside the writing transaction under the shared ownership lock, after the cross-org
+  check. A destination with no tenant is unaffected, so an org that owns no tenant can still have
+  destinations, just none that send one;
+- the render-time re-check (`wizardDestinations`) refuses a destination whose tenant O no longer
+  owns, so no wizard render or commit, destination re-render or `shepherd admin
+  rerender-destinations` run writes it;
+- tenant routes already use only an owned tenant (below);
+- the validation gate's tenant lint (§8) refuses pipeline text that sets a literal tenant O does
+  not own, on every save path, and Stage 3 lints every pipeline a change would enable, replace or
+  restore — so a pipeline saved before the org became strict is refused when it is enabled.
+
+Only an app admin changes the flag: `AdminService.SetOrgStrictTenants` (audited as
+`org.strict_tenants`). Turning it on takes the **exclusive** ownership lock and runs the
+preflight (`tenancy.Preflight`): it is refused (`failed_precondition`, listing each) when O owns no
+tenant, or while any live tenant route, destination or destination binding of O is on a tenant O
+does not own, or any **enabled** pipeline of O fails the tenant lint (disabled ones are linted when
+enabled). Turning it off always succeeds. `AdminService.TenantPreflight` (app admin, read-only)
+returns the same list as data — for one org, or with `org_id` empty for every org, as
+`tenants.require_owned` would see it. With `tenants.require_owned` on, `shepherd serve` runs that
+all-org preflight at boot and **refuses to start** while anything is listed (fail closed), naming
+each object and how to clear it (assign the tenant to its org, or edit, disable or delete the
+object); `shepherd admin tenant-preflight` prints the same list without starting the server and
+exits non-zero while anything is listed. `Org.strict_tenants` is the flag, `Org.tenants_required`
+and `OrgMembership.tenants_required` the effective state; the destination form then offers only
+the org's tenants. Every pipeline write (create, update, restore, enable, wizard commit, a
+destination re-render, `rerender-destinations`, a git sync's apply) re-runs the lint in its writing
+transaction under the shared ownership lock (`tenancy.LintLocked`), so it serialises with the
+toggle and with ownership changes. Each enabled pipeline's literal tenants are kept in `pipeline_tenants` (0040) with a
+`pipeline_tenant_index` row naming the contents' sha256 and whether the lint could read them all;
+every pipeline write records them in its transaction, and the server brings the table up to date
+at every boot (its backfill). Recording **fails soft**: a pipeline whose tenants the lint cannot
+read within its bounds is recorded as incomplete and logged, never a failed write or boot (an
+enabled pipeline of a strict org is fully readable, or the gate would have refused it).
+`AddOrgTenant` first re-records every other org's enabled pipeline whose index row is missing or
+names other contents (a pod that predates the index wrote it), then asks one indexed query; it
+returns, in `Org.warnings`, each other org with enabled pipelines whose tenants the lint could not
+all read, with how many — the check cannot see what those write to, so the app admin is told
+rather than refused, and so is each org with a pipeline still stale after the re-record (its check
+was busy). At most 256 tenants are recorded per pipeline. Pipeline contents are capped
+at 1 MiB on every API write (`mgmtapi.MaxPipelineContentsBytes`, the `gitsync.max_file_bytes`
+default), and every management API request at 4 MiB (`mgmtapi.MaxRequestBytes`,
+`connect.WithReadMaxBytes`). Every procedure whose request carries Alloy text or a visual graph
+(`CreatePipeline`, `UpdatePipeline`, `ValidatePipeline`, `FormatPipeline`, visual `Render` /
+`Validate` / `UpgradeCheck`, `SimulateService.CreateRun`) refuses one over 1 MiB with
+`invalid_argument` before parsing or rendering it; `RenderWizard` refuses a rendered result over
+it; a test fails when a request message gains such a field and its procedure is not capped.
+Ownership changes see pipelines too: `RemoveOrgTenant` on an org
+in strict mode refuses while an **enabled** pipeline would be left writing to a tenant the org no
+longer owns, and `AddOrgTenant` (for any org) refuses a rule covering a tenant another org's
+enabled pipeline writes to (`validate.TenantLiterals`), naming each. Strict mode covers what
+Shepherd writes and renders; it is not containment against a collector configured outside
+Shepherd, nor against a tenant computed at run time — see the lint's limits in §8.
 
 **Tenant routes.** `CreateTenantRouteRequest.tenant` (field 8; field 2, the old free-form
 `tenant_id`, stays reserved) must be a tenant the org owns (`invalid_argument` otherwise); empty

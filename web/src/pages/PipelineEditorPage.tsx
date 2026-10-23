@@ -212,7 +212,7 @@ export function PipelineEditorPage() {
     saveMutation.reset();
   };
 
-  const hasErrors = diagnostics.length > 0;
+  const hasDiagnostics = diagnostics.length > 0;
   // Read-only for whoever may not write this pipeline (canEdit above) and for
   // git-managed pipelines (git is the source of truth).
   const readOnly = !canEdit || pipeline?.source === 'git';
@@ -375,7 +375,7 @@ export function PipelineEditorPage() {
             <PipelineEditorToolbar
               showStatus={canEdit}
               validating={validating}
-              problems={diagnostics.length}
+              problems={diagnostics.filter((d) => !d.warning).length}
               alloyValidateSkipped={skippedStages.includes(2)}
               wrapLines={wrapLines}
               onWrapLines={setWrapLines}
@@ -411,11 +411,16 @@ export function PipelineEditorPage() {
             </div>
 
             {/* Problems panel */}
-            {hasErrors && (
+            {hasDiagnostics && (
               <div className='max-h-40 overflow-y-auto border-t border-border bg-background p-2 space-y-1'>
                 {diagnostics.map((d, i) => (
-                  <p key={i} className='font-mono text-xs text-red-400'>
-                    {d.line}:{d.col} &nbsp; {d.message}
+                  <p
+                    key={i}
+                    className={`font-mono text-xs ${d.warning ? 'text-warn' : 'text-red-400'}`}
+                    data-testid={d.warning ? 'editor-warning' : 'editor-problem'}
+                  >
+                    {d.line}:{d.col} &nbsp; {d.warning ? 'warning: ' : ''}
+                    {d.message}
                   </p>
                 ))}
               </div>

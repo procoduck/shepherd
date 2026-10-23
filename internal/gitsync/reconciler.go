@@ -33,6 +33,7 @@ import (
 	"shepherd/internal/serve"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
+	"shepherd/internal/tenancy"
 	"shepherd/internal/validate"
 )
 
@@ -48,9 +49,12 @@ type Reconciler struct {
 	// and so by the dry run too (serve.Assemble).
 	beaconBaseline beacon.BaselineConfig
 	cfg            *config.GitSyncConfig
-	limits         gitrepo.Limits
-	tokenCache     *gitrepo.TokenCache
-	logger         *slog.Logger
+	// requireOwned is the server-wide tenants.require_owned setting: strict
+	// tenant mode's pipeline lint for every org.
+	requireOwned bool
+	limits       gitrepo.Limits
+	tokenCache   *gitrepo.TokenCache
+	logger       *slog.Logger
 	// locker, when set, limits passes to one replica at a time (see Locker).
 	locker Locker
 	// recompute, when set, refreshes the link's collector's served config
@@ -102,6 +106,7 @@ func New(st *store.Store, enc *crypto.Encryptor, v *validate.Validator, reg *sch
 		schema:         reg,
 		beaconBaseline: serve.BeaconBaseline(cfg),
 		cfg:            &cfg.GitSync,
+		requireOwned:   cfg.Tenants.RequireOwned,
 		limits: gitrepo.Limits{
 			MaxRepoBytes: cfg.GitSync.MaxRepoBytes,
 			MaxFileBytes: cfg.GitSync.MaxFileBytes,
@@ -591,6 +596,16 @@ func (r *Reconciler) apply(ctx context.Context, link sqlc.RepoLink, commit strin
 		}
 		return false, fmt.Errorf("locking the repo link: %w", err)
 	}
+	// Strict tenant mode, again under the shared ownership lock: the
+	// per-file lint ran before this transaction, and the org may have turned
+	// strict (or lost a tenant) since.
+	lint := make([]tenancy.Pipeline, len(plans))
+	for i := range plans {
+		lint[i] = tenancy.Pipeline{Name: plans[i].path, Contents: plans[i].contents}
+	}
+	if err := tenancy.LintLocked(ctx, q, link.OrgID, r.requireOwned, lint...); err != nil {
+		return false, err
+	}
 
 	changed := false
 	if len(removed) > 0 {
@@ -658,6 +673,9 @@ func (r *Reconciler) apply(ctx context.Context, link sqlc.RepoLink, commit strin
 			if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "pipelines_org_sanitized_name_key" {
 				return false, fmt.Errorf("%s: pipeline %q has the same sanitised name as another pipeline in this org; rename the file", plan.path, plan.name)
 			}
+			return false, fmt.Errorf("%s pipeline %s: %w", action, plan.name, err)
+		}
+		if err := tenancy.RecordPipelineTenants(ctx, q, p); err != nil {
 			return false, fmt.Errorf("%s pipeline %s: %w", action, plan.name, err)
 		}
 		// The revision goes in with the row, so no reader ever sees the new
@@ -926,7 +944,15 @@ func (r *Reconciler) planFile(ctx context.Context, link sqlc.RepoLink, file gitr
 	// construction (New) but never referenced here before this change —
 	// every synced file passed on Stage 1 syntax alone, regardless of
 	// whether it would actually validate.
-	if result := r.validator.ValidatePipeline(ctx, name, contents); !result.Valid {
+	//
+	// In strict tenant mode the gate's tenant lint runs too, against the
+	// org's tenants as they stand now: one file setting a tenant the org
+	// does not own refuses the whole commit, like any other invalid file.
+	policy, err := tenancy.Load(ctx, r.store.Queries, link.OrgID, r.requireOwned)
+	if err != nil {
+		return nil, fmt.Errorf("loading the org's tenant policy: %w", err)
+	}
+	if result := r.validator.ValidatePipeline(ctx, name, contents, policy.Validation()); !result.Valid {
 		return nil, fmt.Errorf("validation errors in %s: %v", file.Path, result.Diagnostics)
 	}
 

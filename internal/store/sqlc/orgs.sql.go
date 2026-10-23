@@ -36,7 +36,7 @@ func (q *Queries) CountOrgContent(ctx context.Context, targetOrgID pgtype.UUID) 
 const createOrg = `-- name: CreateOrg :one
 INSERT INTO orgs (name, display_name, admin_group_id, viewer_group_id, editor_group_id)
 VALUES ($1, $2, $3, $4, $5)
-RETURNING id, name, display_name, admin_group_id, viewer_group_id, created_at, updated_at, editor_group_id, allow_experimental_components, allow_label_matching, allow_local_attribute_matching
+RETURNING id, name, display_name, admin_group_id, viewer_group_id, created_at, updated_at, editor_group_id, allow_experimental_components, allow_label_matching, allow_local_attribute_matching, strict_tenants
 `
 
 type CreateOrgParams struct {
@@ -68,6 +68,7 @@ func (q *Queries) CreateOrg(ctx context.Context, arg CreateOrgParams) (Org, erro
 		&i.AllowExperimentalComponents,
 		&i.AllowLabelMatching,
 		&i.AllowLocalAttributeMatching,
+		&i.StrictTenants,
 	)
 	return i, err
 }
@@ -82,7 +83,7 @@ func (q *Queries) DeleteOrg(ctx context.Context, id pgtype.UUID) error {
 }
 
 const getOrgByID = `-- name: GetOrgByID :one
-SELECT id, name, display_name, admin_group_id, viewer_group_id, created_at, updated_at, editor_group_id, allow_experimental_components, allow_label_matching, allow_local_attribute_matching FROM orgs WHERE id = $1
+SELECT id, name, display_name, admin_group_id, viewer_group_id, created_at, updated_at, editor_group_id, allow_experimental_components, allow_label_matching, allow_local_attribute_matching, strict_tenants FROM orgs WHERE id = $1
 `
 
 func (q *Queries) GetOrgByID(ctx context.Context, id pgtype.UUID) (Org, error) {
@@ -100,12 +101,13 @@ func (q *Queries) GetOrgByID(ctx context.Context, id pgtype.UUID) (Org, error) {
 		&i.AllowExperimentalComponents,
 		&i.AllowLabelMatching,
 		&i.AllowLocalAttributeMatching,
+		&i.StrictTenants,
 	)
 	return i, err
 }
 
 const getOrgByName = `-- name: GetOrgByName :one
-SELECT id, name, display_name, admin_group_id, viewer_group_id, created_at, updated_at, editor_group_id, allow_experimental_components, allow_label_matching, allow_local_attribute_matching FROM orgs WHERE name = $1
+SELECT id, name, display_name, admin_group_id, viewer_group_id, created_at, updated_at, editor_group_id, allow_experimental_components, allow_label_matching, allow_local_attribute_matching, strict_tenants FROM orgs WHERE name = $1
 `
 
 // Resolve an org by its unique slug (orgs.name), the external identifier an
@@ -125,12 +127,13 @@ func (q *Queries) GetOrgByName(ctx context.Context, name string) (Org, error) {
 		&i.AllowExperimentalComponents,
 		&i.AllowLabelMatching,
 		&i.AllowLocalAttributeMatching,
+		&i.StrictTenants,
 	)
 	return i, err
 }
 
 const listOrgs = `-- name: ListOrgs :many
-SELECT id, name, display_name, admin_group_id, viewer_group_id, created_at, updated_at, editor_group_id, allow_experimental_components, allow_label_matching, allow_local_attribute_matching FROM orgs ORDER BY name
+SELECT id, name, display_name, admin_group_id, viewer_group_id, created_at, updated_at, editor_group_id, allow_experimental_components, allow_label_matching, allow_local_attribute_matching, strict_tenants FROM orgs ORDER BY name
 `
 
 func (q *Queries) ListOrgs(ctx context.Context) ([]Org, error) {
@@ -154,6 +157,7 @@ func (q *Queries) ListOrgs(ctx context.Context) ([]Org, error) {
 			&i.AllowExperimentalComponents,
 			&i.AllowLabelMatching,
 			&i.AllowLocalAttributeMatching,
+			&i.StrictTenants,
 		); err != nil {
 			return nil, err
 		}
@@ -163,6 +167,41 @@ func (q *Queries) ListOrgs(ctx context.Context) ([]Org, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+const setOrgStrictTenants = `-- name: SetOrgStrictTenants :one
+UPDATE orgs
+SET strict_tenants = $1,
+    updated_at     = now()
+WHERE id = $2
+RETURNING id, name, display_name, admin_group_id, viewer_group_id, created_at, updated_at, editor_group_id, allow_experimental_components, allow_label_matching, allow_local_attribute_matching, strict_tenants
+`
+
+type SetOrgStrictTenantsParams struct {
+	StrictTenants bool        `json:"strict_tenants"`
+	ID            pgtype.UUID `json:"id"`
+}
+
+// Strict tenant mode (0040_org_strict_tenants), changed only by an app admin
+// (AdminService.SetOrgStrictTenants) once its preflight passes.
+func (q *Queries) SetOrgStrictTenants(ctx context.Context, arg SetOrgStrictTenantsParams) (Org, error) {
+	row := q.db.QueryRow(ctx, setOrgStrictTenants, arg.StrictTenants, arg.ID)
+	var i Org
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.DisplayName,
+		&i.AdminGroupID,
+		&i.ViewerGroupID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.EditorGroupID,
+		&i.AllowExperimentalComponents,
+		&i.AllowLabelMatching,
+		&i.AllowLocalAttributeMatching,
+		&i.StrictTenants,
+	)
+	return i, err
 }
 
 const updateOrg = `-- name: UpdateOrg :one
@@ -176,7 +215,7 @@ SET display_name    = $2,
     allow_local_attribute_matching = $8,
     updated_at      = now()
 WHERE id = $1
-RETURNING id, name, display_name, admin_group_id, viewer_group_id, created_at, updated_at, editor_group_id, allow_experimental_components, allow_label_matching, allow_local_attribute_matching
+RETURNING id, name, display_name, admin_group_id, viewer_group_id, created_at, updated_at, editor_group_id, allow_experimental_components, allow_label_matching, allow_local_attribute_matching, strict_tenants
 `
 
 type UpdateOrgParams struct {
@@ -214,6 +253,7 @@ func (q *Queries) UpdateOrg(ctx context.Context, arg UpdateOrgParams) (Org, erro
 		&i.AllowExperimentalComponents,
 		&i.AllowLabelMatching,
 		&i.AllowLocalAttributeMatching,
+		&i.StrictTenants,
 	)
 	return i, err
 }

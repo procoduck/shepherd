@@ -7,9 +7,10 @@ import (
 	"strings"
 
 	"github.com/grafana/alloy/syntax/ast"
-	"github.com/grafana/alloy/syntax/parser"
 	"github.com/grafana/alloy/syntax/printer"
 	"github.com/grafana/alloy/syntax/token"
+
+	"shepherd/internal/alloysyntax"
 )
 
 // ParseResult is the output of ParseAlloy.
@@ -103,7 +104,7 @@ func ParseAlloyWithOptions(content, schemaVersion string, opts ParseOptions, sch
 	if len(schema) > 0 && len(schema[0].Components) > 0 {
 		gp.schema, gp.hasSchema = schema[0], true
 	}
-	f, err := parser.ParseFile("<pipeline>", []byte(content))
+	f, err := alloysyntax.ParseFile("<pipeline>", []byte(content))
 	if err != nil {
 		return ParseResult{
 			Doc: GraphDocument{

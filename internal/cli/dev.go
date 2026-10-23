@@ -34,6 +34,7 @@ import (
 	"shepherd/internal/schema"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
+	"shepherd/internal/tenancy"
 	"shepherd/internal/version"
 	"shepherd/internal/visual"
 )
@@ -520,6 +521,10 @@ func seedPipelines(ctx context.Context, st *store.Store, orgID pgtype.UUID, item
 			// WizardState left nil (-> NULL): seed pipelines carry no wizard_state.
 		}); err != nil {
 			return fmt.Errorf("creating revision 1 for %s: %w", item.name, err)
+		}
+		// pipeline_tenants (0040), as every API write records it.
+		if err := tenancy.RecordPipelineTenants(ctx, st.Queries, p); err != nil {
+			return fmt.Errorf("recording tenants of %s: %w", item.name, err)
 		}
 		if err := st.Queries.InsertAuditLog(ctx, sqlc.InsertAuditLogParams{
 			Actor: "seed", ActorType: "user", OrgID: orgID, Action: "pipeline.create",

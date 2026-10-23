@@ -83,6 +83,10 @@ function orgToWire(o: Obj) {
     allowExperimentalComponents: b(o, 'allow_experimental_components'),
     allowLabelMatching: b(o, 'allow_label_matching'),
     allowLocalAttributeMatching: b(o, 'allow_local_attribute_matching'),
+    // Strict tenant mode; the mock has no server-wide setting, so the
+    // effective state is the org's own flag.
+    strictTenants: b(o, 'strict_tenants'),
+    tenantsRequired: b(o, 'strict_tenants'),
   };
 }
 
@@ -638,7 +642,10 @@ export function installDefaultHandlers(router: Router) {
       orgs: (me.orgs ?? []).map((m) => {
         const o = (st.orgs as Obj[]).find((x) => x['id'] === m['id']);
         const tenants = o ? tenantsToWire(o) : [];
-        return tenants.length > 0 ? { ...m, tenants } : m;
+        const withTenants = tenants.length > 0 ? { ...m, tenants } : m;
+        return o && b(o, 'strict_tenants')
+          ? { ...withTenants, tenantsRequired: true }
+          : withTenants;
       }),
     });
   });
@@ -1037,6 +1044,49 @@ export function installDefaultHandlers(router: Router) {
       );
     o['tenants'] = orgTenants(o).filter((t) => t !== held);
     return json(r, 200, orgToWire(o));
+  });
+  // Strict tenant mode (internal/mgmtapi/strict_tenants.go): app admin
+  // only; turning it on is refused while the org owns no tenant or the
+  // fixture's strict_violations (what the server's preflight would find)
+  // are non-empty.
+  type FixtureViolation = { kind: string; name: string; tenant?: string; message: string };
+  const violationsOf = (o: Obj): FixtureViolation[] => {
+    const out = [...((o['strict_violations'] as FixtureViolation[] | undefined) ?? [])];
+    if (orgTenants(o).length === 0)
+      out.unshift({
+        kind: 'org',
+        name: s(o, 'name'),
+        message:
+          'the organisation owns no tenant; an application administrator assigns one before strict tenant mode can be turned on',
+      });
+    return out.map((v) => ({ orgId: s(o, 'id'), orgName: s(o, 'name'), tenant: '', ...v }));
+  };
+  router.register('POST', '/shepherd.mgmt.v1.AdminService/SetOrgStrictTenants', async (r) => {
+    const denied = requireAppAdmin(r);
+    if (denied) return denied;
+    const req = await body(r);
+    const o = (st.orgs as Obj[]).find((org) => org['id'] === req['orgId']);
+    if (!o) return connectError(r, 404, 'not_found', 'org not found');
+    const on = !!req['strictTenants'];
+    if (on && !b(o, 'strict_tenants')) {
+      const vs = violationsOf(o);
+      if (vs.length > 0)
+        return connectError(
+          r,
+          400,
+          'failed_precondition',
+          `strict tenant mode cannot be turned on for org "${s(o, 'name')}" until ${vs.length} thing(s) are fixed: ${vs.map((v) => v.message).join('; ')}`,
+        );
+    }
+    o['strict_tenants'] = on;
+    return json(r, 200, orgToWire(o));
+  });
+  router.register('POST', '/shepherd.mgmt.v1.AdminService/TenantPreflight', async (r) => {
+    const denied = requireAppAdmin(r);
+    if (denied) return denied;
+    const req = await body(r);
+    const orgs = (st.orgs as Obj[]).filter((org) => !req['orgId'] || org['id'] === req['orgId']);
+    return json(r, 200, { violations: orgs.flatMap(violationsOf) });
   });
   router.register('POST', '/shepherd.mgmt.v1.AdminService/SetDefaultOrgTenant', async (r) => {
     const denied = requireAppAdmin(r);

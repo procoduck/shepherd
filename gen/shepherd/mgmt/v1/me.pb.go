@@ -82,9 +82,14 @@ type OrgMembership struct {
 	// tenants are the tenants and tenant prefixes the org owns (set by an app
 	// admin — D11). Read-only: the destination form pre-fills a destination's
 	// tenant from the default one, and the tenant-route form offers them.
-	Tenants       []*OrgTenant `protobuf:"bytes,10,rep,name=tenants,proto3" json:"tenants,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Tenants []*OrgTenant `protobuf:"bytes,10,rep,name=tenants,proto3" json:"tenants,omitempty"`
+	// tenants_required is true when the org is in strict tenant mode (its own
+	// flag or the server-wide tenants.require_owned setting): destinations,
+	// bindings and routes may then only use one of tenants, so the forms offer
+	// only those.
+	TenantsRequired bool `protobuf:"varint,11,opt,name=tenants_required,json=tenantsRequired,proto3" json:"tenants_required,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *OrgMembership) Reset() {
@@ -171,6 +176,13 @@ func (x *OrgMembership) GetTenants() []*OrgTenant {
 		return x.Tenants
 	}
 	return nil
+}
+
+func (x *OrgMembership) GetTenantsRequired() bool {
+	if x != nil {
+		return x.TenantsRequired
+	}
+	return false
 }
 
 // GetMeResponse is the caller's identity and the orgs they can see.
@@ -264,7 +276,7 @@ var File_shepherd_mgmt_v1_me_proto protoreflect.FileDescriptor
 const file_shepherd_mgmt_v1_me_proto_rawDesc = "" +
 	"\n" +
 	"\x19shepherd/mgmt/v1/me.proto\x12\x10shepherd.mgmt.v1\x1a\x1dshepherd/mgmt/v1/common.proto\"\x0e\n" +
-	"\fGetMeRequest\"\x8b\x03\n" +
+	"\fGetMeRequest\"\xb6\x03\n" +
 	"\rOrgMembership\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12!\n" +
@@ -274,7 +286,8 @@ const file_shepherd_mgmt_v1_me_proto_rawDesc = "" +
 	"\x14allow_label_matching\x18\x06 \x01(\bR\x12allowLabelMatching\x12C\n" +
 	"\x1eallow_local_attribute_matching\x18\a \x01(\bR\x1ballowLocalAttributeMatching\x125\n" +
 	"\atenants\x18\n" +
-	" \x03(\v2\x1b.shepherd.mgmt.v1.OrgTenantR\atenantsJ\x04\b\x04\x10\x05J\x04\b\b\x10\tR\ttenant_id\"\xdb\x01\n" +
+	" \x03(\v2\x1b.shepherd.mgmt.v1.OrgTenantR\atenants\x12)\n" +
+	"\x10tenants_required\x18\v \x01(\bR\x0ftenantsRequiredJ\x04\b\x04\x10\x05J\x04\b\b\x10\tR\ttenant_id\"\xdb\x01\n" +
 	"\rGetMeResponse\x12\x19\n" +
 	"\buser_oid\x18\x01 \x01(\tR\auserOid\x12\x14\n" +
 	"\x05email\x18\x02 \x01(\tR\x05email\x12!\n" +

@@ -174,6 +174,8 @@ message VisualNodeDiagnostic {
   int32 line = 3;
   int32 col = 4;
   string message = 5;
+  // warning marks a diagnostic that does not fail validation (Diagnostic.warning).
+  bool warning = 6;
 }
 
 // ValidateVisualResponse carries a visual graph's validation diagnostics.

@@ -61,6 +61,9 @@ const (
 // internal/simulate/worker.RunWorker, with the run recorded as failed rather than
 // synchronously rejected — see the run-API spec's decision 13.
 func (s *SimulateService) CreateRun(ctx context.Context, req *connect.Request[mgmtv1.CreateRunRequest]) (*connect.Response[mgmtv1.CreateRunResponse], error) {
+	if err := capGraph(req.Msg.GetGraph()); err != nil {
+		return nil, err
+	}
 	if !s.cfg.Enabled {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, errSimulatorNotConfigured)
 	}

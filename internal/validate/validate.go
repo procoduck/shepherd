@@ -18,8 +18,8 @@ import (
 	"time"
 
 	"github.com/grafana/alloy/syntax/diag"
-	"github.com/grafana/alloy/syntax/parser"
 
+	"shepherd/internal/alloysyntax"
 	"shepherd/internal/config"
 	"shepherd/internal/metrics"
 )
@@ -34,6 +34,9 @@ type Diagnostic struct {
 	Message string `json:"message"`
 	// Stage identifies which validation stage produced this diagnostic (1, 2, or 3).
 	Stage int `json:"stage"`
+	// Warning marks a diagnostic that does not fail validation: today only
+	// TenantLint's notes on a tenant it cannot read.
+	Warning bool `json:"warning,omitempty"`
 }
 
 // Result is returned by all validation functions.
@@ -56,6 +59,11 @@ type Result struct {
 	// caller comparing two validations (git sync's before/after check) must
 	// not read such a result as the content's own error.
 	Inconclusive bool
+	// Busy is set when the tenant lint hit its wall-clock guard
+	// (ErrLintBusy): Valid is false and Inconclusive set, but it is no
+	// verdict on the content — a write answers it with a retryable
+	// Unavailable, never a refusal.
+	Busy bool
 }
 
 // Validator holds configuration for running validation.
@@ -91,11 +99,17 @@ func Stage1(content string) (res Result) {
 	// remember is a counter that eventually misses one.
 	defer func() { metrics.ObserveValidation("1", res.Valid) }()
 
-	_, err := parser.ParseFile("<pipeline>", []byte(content))
+	_, err := alloysyntax.ParseFile("<pipeline>", []byte(content))
 	if err == nil {
 		return Result{Valid: true}
 	}
 
+	// Nesting past alloysyntax.MaxNesting is a Stage 1 refusal for every org:
+	// the parser would overflow its stack on it.
+	var nesting *alloysyntax.NestingError
+	if errors.As(err, &nesting) {
+		return Result{Diagnostics: []Diagnostic{{Line: nesting.Line, Col: nesting.Col, Message: err.Error(), Stage: 1}}}
+	}
 	var diags diag.Diagnostics
 	ok := errors.As(err, &diags)
 	if !ok {
@@ -209,10 +223,36 @@ func (v *Validator) Stages12(ctx context.Context, content string) Result {
 // two columns right (walkthrough F2).
 //
 // Only the positions change: the verdict, Skipped and every message are
-// exactly those of Stages12 on the wrapped document.
-func (v *Validator) ValidatePipeline(ctx context.Context, pipelineName, contents string) Result {
+// exactly those of Stages12 on the wrapped document — plus, when tenants is
+// strict, TenantLint's on contents itself: a refusal fails the result, a
+// warning rides along with Valid unchanged. Every caller states the org's
+// policy; the zero TenantPolicy is "not strict".
+func (v *Validator) ValidatePipeline(ctx context.Context, pipelineName, contents string, tenants TenantPolicy) Result {
 	r := v.Stages12(ctx, WrapForValidation(pipelineName, contents))
 	r.Diagnostics = UnwrapDiagnostics(contents, r.Diagnostics)
+	return WithTenantLint(r, contents, tenants)
+}
+
+// WithTenantLint adds TenantLint(contents, tenants) to r: its diagnostics
+// appended, and r failed when one is a refusal. For a caller that validated
+// contents itself (the visual builder's render, which has no declare
+// wrapper to undo). A no-op when tenants is not strict.
+func WithTenantLint(r Result, contents string, tenants TenantPolicy) Result {
+	lint, err := TenantLintChecked(contents, tenants)
+	if err != nil {
+		// The tenant check's wall-clock guard: no verdict. Busy, not a
+		// refusal: writes answer it with a retryable Unavailable.
+		r.Valid, r.Busy, r.Inconclusive = false, true, true
+		r.Diagnostics = append(r.Diagnostics, Diagnostic{Line: 1, Col: 1, Stage: 1, Message: err.Error()})
+		return r
+	}
+	if len(lint) == 0 {
+		return r
+	}
+	r.Diagnostics = append(r.Diagnostics, lint...)
+	if hasErrors(lint) {
+		r.Valid = false
+	}
 	return r
 }
 

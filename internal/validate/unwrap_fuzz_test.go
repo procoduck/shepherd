@@ -83,7 +83,7 @@ func FuzzValidatePipeline(f *testing.F) {
 
 	v := validate.New(&config.ValidateConfig{AlloyBinary: "", StabilityLevel: "experimental", Timeout: 10 * time.Second})
 	f.Fuzz(func(t *testing.T, contents string) {
-		r := v.ValidatePipeline(context.Background(), "fuzz", contents)
+		r := v.ValidatePipeline(context.Background(), "fuzz", contents, validate.TenantPolicy{})
 		n := len(strings.Split(contents, "\n"))
 		for _, d := range r.Diagnostics {
 			if d.Line < 0 || d.Line > n || d.Col < 0 {

@@ -17,6 +17,10 @@ export interface OrgSummary {
   // .tenants). The destination form pre-fills a new destination's tenant from
   // the default one (#261); the tenant-route form offers them.
   tenants?: OrgTenantLike[];
+  // tenantsRequired: the org is in strict tenant mode (its own flag or the
+  // server-wide tenants.require_owned), so destinations may only use one of
+  // tenants. The server enforces it regardless.
+  tenantsRequired?: boolean;
 }
 
 export const ORG_STORAGE_KEY = 'shepherd.orgId';

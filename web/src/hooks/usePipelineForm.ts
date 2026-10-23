@@ -192,7 +192,9 @@ export function usePipelineForm({
     setMatchers,
     diagnostics,
     // Problems that block Save: those reported for the text as it is now.
-    blockingErrors: diagnostics.length > 0 && diagnosticsFor === contents,
+    // Warnings (Diagnostic.warning) never block a save: the server saves
+    // them too.
+    blockingErrors: diagnostics.some((d) => !d.warning) && diagnosticsFor === contents,
     replaceIsEdit,
     skippedStages,
     validating,

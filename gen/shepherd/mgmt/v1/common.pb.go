@@ -142,7 +142,11 @@ type Diagnostic struct {
 	// Message is the human-readable error text.
 	Message string `protobuf:"bytes,3,opt,name=message,proto3" json:"message,omitempty"`
 	// Stage identifies which validation stage produced this diagnostic (1, 2, or 3).
-	Stage         int32 `protobuf:"varint,4,opt,name=stage,proto3" json:"stage,omitempty"`
+	Stage int32 `protobuf:"varint,4,opt,name=stage,proto3" json:"stage,omitempty"`
+	// warning marks a diagnostic that does not fail validation (valid stays
+	// true): today only strict tenant mode's "tenant set from a non-literal
+	// expression" note. false is an error, the only kind before it.
+	Warning       bool `protobuf:"varint,5,opt,name=warning,proto3" json:"warning,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -203,6 +207,13 @@ func (x *Diagnostic) GetStage() int32 {
 		return x.Stage
 	}
 	return 0
+}
+
+func (x *Diagnostic) GetWarning() bool {
+	if x != nil {
+		return x.Warning
+	}
+	return false
 }
 
 // OrgTenant is one tenant (or tenant prefix) an org owns. An org owns a
@@ -292,13 +303,14 @@ var File_shepherd_mgmt_v1_common_proto protoreflect.FileDescriptor
 
 const file_shepherd_mgmt_v1_common_proto_rawDesc = "" +
 	"\n" +
-	"\x1dshepherd/mgmt/v1/common.proto\x12\x10shepherd.mgmt.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"b\n" +
+	"\x1dshepherd/mgmt/v1/common.proto\x12\x10shepherd.mgmt.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"|\n" +
 	"\n" +
 	"Diagnostic\x12\x12\n" +
 	"\x04line\x18\x01 \x01(\x05R\x04line\x12\x10\n" +
 	"\x03col\x18\x02 \x01(\x05R\x03col\x12\x18\n" +
 	"\amessage\x18\x03 \x01(\tR\amessage\x12\x14\n" +
-	"\x05stage\x18\x04 \x01(\x05R\x05stage\"\xd1\x01\n" +
+	"\x05stage\x18\x04 \x01(\x05R\x05stage\x12\x18\n" +
+	"\awarning\x18\x05 \x01(\bR\awarning\"\xd1\x01\n" +
 	"\tOrgTenant\x12\x16\n" +
 	"\x06tenant\x18\x01 \x01(\tR\x06tenant\x123\n" +
 	"\x04kind\x18\x02 \x01(\x0e2\x1f.shepherd.mgmt.v1.OrgTenantKindR\x04kind\x12\x1d\n" +

@@ -37,6 +37,7 @@ import (
 	"shepherd/internal/spa"
 	"shepherd/internal/store"
 	"shepherd/internal/telemetry"
+	"shepherd/internal/tenancy"
 	"shepherd/internal/validate"
 	"shepherd/internal/version"
 )
@@ -139,6 +140,23 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	st, err := store.New(context.Background(), &cfg.Database, logger)
 	if err != nil {
 		return nil, fmt.Errorf("connecting to database: %w", err)
+	}
+
+	// pipeline_tenants (0040) is derived from pipeline text, which SQL cannot
+	// parse: bring it up to date at every boot, which is also its backfill.
+	// It never fails the boot: a pipeline it cannot record is logged, and
+	// AddOrgTenant re-records it on demand.
+	tenancy.RebuildPipelineTenants(context.Background(), st)
+
+	// Server-wide strict tenant mode fails closed: with tenants.require_owned
+	// on, nothing that already uses a tenant its org does not own may keep
+	// being served under a setting that says it cannot exist.
+	if cfg.Tenants.RequireOwned {
+		if err := tenancy.CheckRequireOwned(context.Background(), st.Queries); err != nil {
+			st.Close()
+			return nil, fmt.Errorf("refusing to start: %w", err)
+		}
+		logger.Info("strict tenant mode is on for every organisation (tenants.require_owned)")
 	}
 
 	// Build encryptor for secret-at-rest (may be nil if key not configured yet).
@@ -442,7 +460,8 @@ func (s *Server) Run(ctx context.Context) error {
 		// The same eager recompute the API runs after a pipeline write,
 		// built the way mgmtapi.MountRPC builds its PipelineService.
 		ps := mgmtapi.NewPipelineService(s.store, s.validator, s.schema, s.logger,
-			mgmtapi.WithBeaconBaseline(serve.BeaconBaseline(s.cfg)))
+			mgmtapi.WithBeaconBaseline(serve.BeaconBaseline(s.cfg)),
+			mgmtapi.WithRequireOwnedTenants(s.cfg.Tenants.RequireOwned))
 		syncOpts = append(syncOpts, gitsync.WithRecompute(ps.RecomputeCollectorCache))
 		reconciler := gitsync.New(s.store, s.enc, s.validator, s.schema, s.cfg, s.logger, syncOpts...)
 		reconciler.Start(ctx)

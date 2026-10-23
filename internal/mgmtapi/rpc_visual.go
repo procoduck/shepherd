@@ -30,11 +30,17 @@ type VisualService struct {
 	validator *validate.Validator
 	schema    *schema.Registry
 	logger    *slog.Logger
+	// requireOwned is the server-wide tenants.require_owned setting.
+	requireOwned bool
 }
 
 // NewVisualService constructs a VisualService.
-func NewVisualService(st *store.Store, v *validate.Validator, reg *schema.Registry, logger *slog.Logger) *VisualService {
-	return &VisualService{store: st, validator: v, schema: reg, logger: logger}
+func NewVisualService(st *store.Store, v *validate.Validator, reg *schema.Registry, logger *slog.Logger, opts ...VisualServiceOption) *VisualService {
+	s := &VisualService{store: st, validator: v, schema: reg, logger: logger}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 var _ mgmtv1connect.VisualServiceHandler = (*VisualService)(nil)
@@ -183,6 +189,9 @@ func (s *VisualService) Render(ctx context.Context, req *connect.Request[mgmtv1.
 	if err := s.authorizeGraph(ctx, req.Msg.GetOrgId(), req.Msg.GetPipelineId()); err != nil {
 		return nil, err
 	}
+	if err := capGraph(req.Msg.GetGraph()); err != nil {
+		return nil, err
+	}
 	result, doc, payload, err := s.renderGraph(req.Msg.GetGraph())
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
@@ -203,6 +212,9 @@ func (s *VisualService) Render(ctx context.Context, req *connect.Request[mgmtv1.
 // from either layer ride in the response rather than as a connect error.
 func (s *VisualService) Validate(ctx context.Context, req *connect.Request[mgmtv1.ValidateVisualRequest]) (*connect.Response[mgmtv1.ValidateVisualResponse], error) {
 	if err := s.authorizeGraph(ctx, req.Msg.GetOrgId(), req.Msg.GetPipelineId()); err != nil {
+		return nil, err
+	}
+	if err := capGraph(req.Msg.GetGraph()); err != nil {
 		return nil, err
 	}
 	result, doc, payload, err := s.renderGraph(req.Msg.GetGraph())
@@ -227,6 +239,13 @@ func (s *VisualService) Validate(ctx context.Context, req *connect.Request[mgmtv
 	}
 
 	vr := s.validator.Stages12(ctx, result.Content)
+	// Strict tenant mode's lint on the rendered text, as a save of it
+	// (CreatePipeline/UpdatePipeline's gate) would run it.
+	tenants, err := lintPolicy(ctx, s.store.Queries, looseUUID(req.Msg.GetOrgId()), s.requireOwned)
+	if err != nil {
+		return nil, err
+	}
+	vr = validate.WithTenantLint(vr, result.Content, tenants)
 	out := make([]*mgmtv1.VisualNodeDiagnostic, 0, len(vr.Diagnostics))
 	for _, d := range vr.Diagnostics {
 		id := ""
@@ -241,6 +260,7 @@ func (s *VisualService) Validate(ctx context.Context, req *connect.Request[mgmtv
 			Line:    int32(d.Line), //nolint:gosec // G115: line/col from a rendered Alloy file, well within int32
 			Col:     int32(d.Col),  //nolint:gosec // G115: line/col from a rendered Alloy file, well within int32
 			Message: d.Message,
+			Warning: d.Warning,
 		})
 	}
 	return connect.NewResponse(&mgmtv1.ValidateVisualResponse{Diagnostics: out}), nil
@@ -249,6 +269,9 @@ func (s *VisualService) Validate(ctx context.Context, req *connect.Request[mgmtv
 // UpgradeCheck reports whether a visual graph document needs a schema upgrade.
 func (s *VisualService) UpgradeCheck(ctx context.Context, req *connect.Request[mgmtv1.UpgradeCheckRequest]) (*connect.Response[mgmtv1.UpgradeCheckResponse], error) {
 	if err := s.authorizeGraph(ctx, req.Msg.GetOrgId(), req.Msg.GetPipelineId()); err != nil {
+		return nil, err
+	}
+	if err := capGraph(req.Msg.GetGraph()); err != nil {
 		return nil, err
 	}
 	if s.schema == nil {

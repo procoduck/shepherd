@@ -304,6 +304,18 @@ asks). What changes and what holds:
 - Destinations keep their rule (any valid tenant another org does not own); destination bindings
   now get the same check. A stricter "only the org's own" mode is a separate, later decision.
 
+**Amendment (2026-10-23): strict tenant mode.** That stricter mode is now built, opt-in: with an
+org's `strict_tenants` flag (`0040_org_strict_tenants`, app admin only, `SetOrgStrictTenants`) or
+the server-wide `tenants.require_owned` setting, the org's destinations, destination bindings and
+tenant routes may only use tenants it owns, and pipeline text setting a literal `X-Scope-OrgID` or
+tenant attribute it does not own fails the validation gate (`validate.TenantLint`, which also
+refuses whatever it cannot verify: computed tenants, tenants from the data, external `import.*`
+modules). Turning it on is refused until nothing of the org breaks the rule
+(`TenantPreflight`); the server-wide setting refuses to boot until nothing anywhere does
+(`shepherd admin tenant-preflight`). D10's pass-through receiver tenancy is unaffected: it takes
+the tenant from the gateway-injected header at run time, which no text check sees, and the route
+that injects it already uses only an owned tenant. Spec §11.4 and §8 state the lint's limits.
+
 ## 3. The model
 
 ```

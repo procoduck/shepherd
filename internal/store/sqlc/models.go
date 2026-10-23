@@ -189,6 +189,7 @@ type Org struct {
 	AllowExperimentalComponents bool               `json:"allow_experimental_components"`
 	AllowLabelMatching          bool               `json:"allow_label_matching"`
 	AllowLocalAttributeMatching bool               `json:"allow_local_attribute_matching"`
+	StrictTenants               bool               `json:"strict_tenants"`
 }
 
 type OrgMember struct {
@@ -241,6 +242,19 @@ type PipelineRevision struct {
 	ChangeNote         string             `json:"change_note"`
 	WizardState        json.RawMessage    `json:"wizard_state"`
 	WizardRenderSha256 pgtype.Text        `json:"wizard_render_sha256"`
+}
+
+type PipelineTenant struct {
+	PipelineID pgtype.UUID `json:"pipeline_id"`
+	OrgID      pgtype.UUID `json:"org_id"`
+	Tenant     string      `json:"tenant"`
+}
+
+type PipelineTenantIndex struct {
+	PipelineID     pgtype.UUID `json:"pipeline_id"`
+	OrgID          pgtype.UUID `json:"org_id"`
+	ContentsSha256 string      `json:"contents_sha256"`
+	Complete       bool        `json:"complete"`
 }
 
 type RepoLink struct {

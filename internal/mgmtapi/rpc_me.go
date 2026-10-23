@@ -17,11 +17,27 @@ import (
 type MeService struct {
 	store  *store.Store
 	logger *slog.Logger
+	// requireOwned is the server-wide tenants.require_owned setting
+	// (OrgMembership.tenants_required).
+	requireOwned bool
+}
+
+// MeServiceOption configures optional MeService behaviour.
+type MeServiceOption func(*MeService)
+
+// WithMeRequireOwnedTenants passes the server-wide tenants.require_owned
+// setting, which OrgMembership.tenants_required reports.
+func WithMeRequireOwnedTenants(on bool) MeServiceOption {
+	return func(s *MeService) { s.requireOwned = on }
 }
 
 // NewMeService constructs a MeService.
-func NewMeService(st *store.Store, logger *slog.Logger) *MeService {
-	return &MeService{store: st, logger: logger}
+func NewMeService(st *store.Store, logger *slog.Logger, opts ...MeServiceOption) *MeService {
+	s := &MeService{store: st, logger: logger}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 var _ mgmtv1connect.MeServiceHandler = (*MeService)(nil)
@@ -62,7 +78,7 @@ func (s *MeService) GetMe(ctx context.Context, _ *connect.Request[mgmtv1.GetMeRe
 	for i := range allOrgs {
 		org := &allOrgs[i]
 		if sess.IsAppAdmin {
-			orgEntries = append(orgEntries, &mgmtv1.OrgMembership{Id: org.ID.String(), Name: org.Name, DisplayName: org.DisplayName, Role: mgmtv1.Role_ROLE_ADMIN, AllowExperimentalComponents: org.AllowExperimentalComponents, AllowLabelMatching: org.AllowLabelMatching, AllowLocalAttributeMatching: org.AllowLocalAttributeMatching, Tenants: toOrgTenantProtos(tenantsByOrg[org.ID])})
+			orgEntries = append(orgEntries, &mgmtv1.OrgMembership{Id: org.ID.String(), Name: org.Name, DisplayName: org.DisplayName, Role: mgmtv1.Role_ROLE_ADMIN, AllowExperimentalComponents: org.AllowExperimentalComponents, AllowLabelMatching: org.AllowLabelMatching, AllowLocalAttributeMatching: org.AllowLocalAttributeMatching, Tenants: toOrgTenantProtos(tenantsByOrg[org.ID]), TenantsRequired: org.StrictTenants || s.requireOwned})
 			continue
 		}
 		// Both sign-in paths resolve to the SAME Role here, because this
@@ -70,7 +86,7 @@ func (s *MeService) GetMe(ctx context.Context, _ *connect.Request[mgmtv1.GetMeRe
 		// would hide the pipeline editor from someone who can in fact use it
 		// — the server would allow the write the UI never offered.
 		if role, ok := auth.ResolveOrgRole(ctx, s.store, sess, *org); ok {
-			orgEntries = append(orgEntries, &mgmtv1.OrgMembership{Id: org.ID.String(), Name: org.Name, DisplayName: org.DisplayName, Role: roleToProto(role), AllowExperimentalComponents: org.AllowExperimentalComponents, AllowLabelMatching: org.AllowLabelMatching, AllowLocalAttributeMatching: org.AllowLocalAttributeMatching, Tenants: toOrgTenantProtos(tenantsByOrg[org.ID])})
+			orgEntries = append(orgEntries, &mgmtv1.OrgMembership{Id: org.ID.String(), Name: org.Name, DisplayName: org.DisplayName, Role: roleToProto(role), AllowExperimentalComponents: org.AllowExperimentalComponents, AllowLabelMatching: org.AllowLabelMatching, AllowLocalAttributeMatching: org.AllowLocalAttributeMatching, Tenants: toOrgTenantProtos(tenantsByOrg[org.ID]), TenantsRequired: org.StrictTenants || s.requireOwned})
 		}
 	}
 

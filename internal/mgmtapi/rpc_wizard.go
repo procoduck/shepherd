@@ -21,6 +21,7 @@ import (
 	"shepherd/internal/schema"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
+	"shepherd/internal/tenancy"
 	"shepherd/internal/validate"
 	"shepherd/internal/wizard"
 	// Blank imports are what put a wizard in the registry: each package
@@ -52,6 +53,8 @@ type WizardService struct {
 	// collector whose role refuses the pipeline's signals (M2). Nil means no
 	// such warning, never a guessed one.
 	schema *schema.Registry
+	// requireOwned is the server-wide tenants.require_owned setting.
+	requireOwned bool
 }
 
 // WizardServiceOption configures optional WizardService dependencies.
@@ -121,7 +124,7 @@ func (s *WizardService) RenderWizard(ctx context.Context, req *connect.Request[m
 	// The org's destinations are what the wizard's `*_dest_name` fields
 	// resolve against — the same load CommitWizard does, so the preview
 	// shows exactly the writer, auth block included, a commit would store.
-	dests, err := wizardDestinations(ctx, s.store.Queries, orgID)
+	dests, err := wizardDestinations(ctx, s.store.Queries, orgID, s.requireOwned)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, err)
 	}
@@ -130,11 +133,18 @@ func (s *WizardService) RenderWizard(ctx context.Context, req *connect.Request[m
 		return nil, connect.NewError(connect.CodeFailedPrecondition, err)
 	}
 
+	if err := capContents(result.Contents); err != nil {
+		return nil, err
+	}
 	name := req.Msg.GetName()
 	if name == "" {
 		name = "preview"
 	}
-	valResult := s.validator.ValidatePipeline(ctx, name, result.Contents)
+	tenants, err := lintPolicy(ctx, s.store.Queries, orgID, s.requireOwned)
+	if err != nil {
+		return nil, err
+	}
+	valResult := s.validator.ValidatePipeline(ctx, name, result.Contents, tenants)
 
 	candidate := merge.Pipeline{
 		ID:       name,
@@ -285,7 +295,7 @@ func (s *WizardService) CommitWizard(ctx context.Context, req *connect.Request[m
 	// The org's destinations are what the wizard's `*_dest_name` fields
 	// resolve against — the same load RenderWizard does, so the preview and
 	// the stored pipeline render the same writer, auth block included.
-	dests, err := wizardDestinations(ctx, s.store.Queries, orgID)
+	dests, err := wizardDestinations(ctx, s.store.Queries, orgID, s.requireOwned)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, err)
 	}
@@ -301,7 +311,16 @@ func (s *WizardService) CommitWizard(ctx context.Context, req *connect.Request[m
 	// field value that breaks Alloy syntax, like a quote in a scrape URL)
 	// could be committed straight through. The wizard stays disabled-on-create
 	// (Enabled: false below), so Stage 3 is EnablePipeline's job, same as today.
-	if valResult := s.validator.ValidatePipeline(ctx, req.Msg.GetName(), result.Contents); !valResult.Valid {
+	if len(result.Contents) > MaxPipelineContentsBytes {
+		return nil, errPipelineTooLarge(len(result.Contents))
+	}
+	tenants, err := lintPolicy(ctx, s.store.Queries, orgID, s.requireOwned)
+	if err != nil {
+		return nil, err
+	}
+	if valResult := s.validator.ValidatePipeline(ctx, req.Msg.GetName(), result.Contents, tenants); valResult.Busy {
+		return nil, errValidationBusy
+	} else if !valResult.Valid {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, &pipelineValidationError{Diagnostics: valResult.Diagnostics})
 	}
 
@@ -323,6 +342,9 @@ func (s *WizardService) CommitWizard(ctx context.Context, req *connect.Request[m
 	}
 	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck // no-op once committed
 	txQ := s.store.Queries.WithTx(tx)
+	if err := lintLocked(ctx, txQ, orgID, s.requireOwned, tenancy.Pipeline{Name: req.Msg.GetName(), Contents: result.Contents}); err != nil {
+		return nil, err
+	}
 	p, err := txQ.CreatePipeline(ctx, sqlc.CreatePipelineParams{
 		OrgID:       orgID,
 		Name:        req.Msg.GetName(),
@@ -342,6 +364,9 @@ func (s *WizardService) CommitWizard(ctx context.Context, req *connect.Request[m
 		if isUniqueViolation(err) {
 			return nil, connect.NewError(connect.CodeAlreadyExists, errors.New("pipeline name already exists"))
 		}
+		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to create pipeline"))
+	}
+	if err := tenancy.RecordPipelineTenants(ctx, txQ, p); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to create pipeline"))
 	}
 

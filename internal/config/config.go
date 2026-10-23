@@ -26,6 +26,7 @@ type Config struct {
 	Simulator SimulatorConfig `mapstructure:"simulator"`
 	GitSync   GitSyncConfig   `mapstructure:"gitsync"`
 	Gateway   GatewayConfig   `mapstructure:"gateway"`
+	Tenants   TenantsConfig   `mapstructure:"tenants"`
 	ADO       ADOConfig       `mapstructure:"ado"`
 	Security  SecurityConfig  `mapstructure:"security"`
 	Tracing   TracingConfig   `mapstructure:"tracing"`
@@ -279,6 +280,13 @@ type AgentConfig struct {
 	OutageCacheTTL time.Duration `mapstructure:"outage_cache_ttl"`
 }
 
+// MaxPipelineContentsBytes is the largest pipeline text Shepherd saves
+// (mgmtapi refuses more on every write) and the most the tenant check reads.
+// gitsync.max_file_bytes may not exceed it: a repository file larger than
+// this could be fetched but never stored, so Load refuses such a setting
+// rather than clamping it silently.
+const MaxPipelineContentsBytes = 1 << 20
+
 // MaxOutageCacheTTL caps agent.outage_cache_ttl: past it, a revoked token
 // could outlive a long outage by more than an operator would expect.
 const MaxOutageCacheTTL = time.Hour
@@ -458,6 +466,18 @@ type TracingConfig struct {
 	ServiceVersion string `mapstructure:"service_version"`
 }
 
+// TenantsConfig holds server-wide tenancy settings.
+type TenantsConfig struct {
+	// RequireOwned applies strict tenant mode to every organisation, whatever
+	// its own strict_tenants flag says: every destination, destination
+	// binding and tenant route that carries a tenant must use one the org
+	// owns, and pipeline text that sets a literal tenant the org does not own
+	// fails validation. A destination with no tenant is unaffected. Off by
+	// default. When on, the server refuses to start while anything in any
+	// org breaks the rule (`shepherd admin tenant-preflight` lists what).
+	RequireOwned bool `mapstructure:"require_owned"`
+}
+
 // LogConfig holds structured logging settings.
 type LogConfig struct {
 	Level  string `mapstructure:"level"`
@@ -613,6 +633,7 @@ func Load(file string) (*Config, error) {
 		{"gateway.routes.apply.backend_port", "SHEPHERD_GATEWAY_ROUTES_APPLY_BACKEND_PORT"},
 		{"gateway.routes.apply.interval", "SHEPHERD_GATEWAY_ROUTES_APPLY_INTERVAL"},
 		{"gateway.routes.apply.attach_timeout", "SHEPHERD_GATEWAY_ROUTES_APPLY_ATTACH_TIMEOUT"},
+		{"tenants.require_owned", "SHEPHERD_TENANTS_REQUIRE_OWNED"},
 		{"log.level", "SHEPHERD_LOG_LEVEL"},
 		{"log.format", "SHEPHERD_LOG_FORMAT"},
 	} {
@@ -652,6 +673,10 @@ func Load(file string) (*Config, error) {
 		if u, err := url.Parse(raw); err != nil || u.Scheme != "https" || u.Host == "" {
 			return nil, fmt.Errorf("configuration errors:\n  - gateway.routes.public_base_url %q must be an https URL with a host", raw)
 		}
+	}
+	if n := c.GitSync.MaxFileBytes; n > MaxPipelineContentsBytes {
+		return nil, fmt.Errorf("configuration errors:\n  - gitsync.max_file_bytes %d is more than %d, the largest "+
+			"pipeline Shepherd saves; a larger synced file could never be stored", n, MaxPipelineContentsBytes)
 	}
 	if ttl := c.Agent.OutageCacheTTL; ttl < 0 || ttl > MaxOutageCacheTTL {
 		return nil, fmt.Errorf("configuration errors:\n  - agent.outage_cache_ttl %s must be between 0 (disabled) and %s", ttl, MaxOutageCacheTTL)

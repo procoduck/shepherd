@@ -122,13 +122,68 @@
         same rule. The other way round, an administrator cannot give an organisation a tenant or
         prefix covering a tenant another organisation&rsquo;s destination or binding already
         sends.</p>
-      <p>This guards a <em>destination&rsquo;s</em> tenant only. A pipeline you write by hand can
-        set any header, <code>X-Scope-OrgID</code> included; Shepherd does not inspect it.</p>
+      <p>This guards a <em>destination&rsquo;s</em> tenant only. Unless the organisation is in
+        <a href="#strict-tenant-mode">strict tenant mode</a>, a pipeline you write by hand can set
+        any header, <code>X-Scope-OrgID</code> included, and Shepherd does not inspect it.</p>
       <p>A pipeline picks up a tenant change when it is regenerated: saving a destination
         regenerates every wizard pipeline that names it. Until then the configuration collectors
         are served keeps the tenant it was generated with. A pipeline that ships to more than one
         destination is regenerated as a whole, so saving any one of them also starts sending a
         tenant already stored on the others.</p>
+
+      <h2 id="strict-tenant-mode">Strict tenant mode</h2>
+      <p>In <strong>strict tenant mode</strong>, destinations, destination bindings, tenant routes
+        and pipelines may only use the organisation&rsquo;s <em>own</em> tenants &mdash; one of its
+        exact tenants, or a tenant under one of its prefixes. A destination with no tenant is
+        still allowed. An application administrator turns it on for an organisation on
+        <strong>Admin &rarr; Organisations</strong> (Edit &rarr; <em>Strict tenant mode</em>), or
+        for every organisation with the server setting <code>tenants.require_owned</code> (chart
+        <code>config.tenants.require_owned</code>). Organisation admins cannot change it.</p>
+      <p>Turning it on is refused while the organisation owns no tenant, or while one of its
+        destinations, bindings, live tenant routes or <em>enabled</em> pipelines uses a tenant it
+        does not own; the refusal lists each one to fix. With
+        <code>tenants.require_owned</code> on, Shepherd refuses to start while anything in any
+        organisation breaks the rule, naming each object. Run
+        <code>shepherd admin tenant-preflight</code> before turning the setting on: it prints the
+        same list without starting the server.</p>
+      <p>Once it is on, the destination form offers only the organisation&rsquo;s tenants, and a
+        destination whose tenant the organisation stops owning is refused when a wizard pipeline is
+        generated from it. Pipeline text is checked when it is saved, synced from git or enabled,
+        and the rule is <strong>refuse what cannot be verified</strong>. Strict tenant mode
+        refuses:</p>
+      <ul>
+        <li>a tenant the organisation does not own, or any tenant written as something other than
+          a literal (concatenated literals and module arguments with literal values are worked
+          out), wherever Alloy sets one: an <code>X-Scope-OrgID</code> key in a
+          <code>headers</code>, <code>http_headers</code> or <code>proxy_connect_header</code> map;
+          <code>loki.write</code>&rsquo;s and the rules components&rsquo; <code>tenant_id</code>;
+          <code>loki.process</code>&rsquo;s <code>stage.tenant</code> value (also inside
+          <code>stage.match</code>); Loki&rsquo;s <code>__tenant_id__</code> label (which overrides
+          <code>loki.write</code>&rsquo;s tenant per log line) in a labels map or a relabel rule;
+          an <code>otelcol.auth.headers</code> or <code>otelcol.auth.bearer</code> header named
+          <code>X-Scope-OrgID</code>;</li>
+        <li>a tenant taken from the data, which a client could set: <code>stage.tenant</code>
+          reading a label or field, <code>stage.labels</code> or a relabel rule computing
+          <code>__tenant_id__</code>, an OpenTelemetry header copied from the request;</li>
+        <li>a header name, relabel target or action it cannot read, a relabel target containing
+          <code>$</code>, and any <code>labelmap</code> rule unless its replacement is a plain
+          label name other than <code>__tenant_id__</code>;</li>
+        <li>a <code>loki.source.api</code>, <code>loki.source.heroku</code>,
+          <code>loki.source.awsfirehose</code> or <code>loki.source.gcplog</code> &mdash; which pass
+          on the tenant the sending client names &mdash; unless every path from it to a
+          <code>loki.write</code> first overwrites <code>__tenant_id__</code>
+          (<code>stage.static_labels</code>, outside <code>stage.match</code>) or drops it
+          (<code>stage.label_drop</code>);</li>
+        <li><code>import.file</code>, <code>import.git</code> and <code>import.http</code>
+          modules &mdash; inline the module as a <code>declare</code> or an
+          <code>import.string</code> with literal content, which is checked the same way;</li>
+        <li>anything too large or too deeply nested to work out within the check&rsquo;s limits
+          (values built from more than 4 KiB, more than 8 levels of modules).</li>
+      </ul>
+      <p>This is defence in depth, not the boundary: your backend&rsquo;s own tenant
+        authentication is. The check cannot see a tenant a proxy in front of the backend adds, or
+        one passed some other way, such as a basic-auth username. What holds regardless is the rule
+        on destinations, bindings and tenant routes.</p>
 
       <h2 id="auth">Authentication from a Kubernetes Secret</h2>
       <p>Shepherd never holds a telemetry backend&rsquo;s credentials. For an authenticated
@@ -365,6 +420,7 @@ subjects:
       <ul>
         <li><a href="#url">The URL</a></li>
         <li><a href="#tenant">Tenant</a></li>
+        <li><a href="#strict-tenant-mode">Strict tenant mode</a></li>
         <li><a href="#auth">Authentication from a Kubernetes Secret</a></li>
         <li><a href="#tls">TLS from a Secret or ConfigMap</a></li>
         <li><a href="#rbac">What the collector needs to read Secrets and ConfigMaps</a></li>

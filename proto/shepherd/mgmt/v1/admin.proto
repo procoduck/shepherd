@@ -29,6 +29,20 @@ service AdminService {
   // SetDefaultOrgTenant makes one of the org's exact tenants its default.
   // App admin only.
   rpc SetDefaultOrgTenant(SetDefaultOrgTenantRequest) returns (Org) {}
+  // SetOrgStrictTenants turns an org's strict tenant mode on or off. App
+  // admin only. In strict mode every destination, destination binding and
+  // tenant route of the org must use a tenant the org owns, and pipeline text
+  // that sets a literal tenant the org does not own fails validation.
+  // Turning it on is refused (failed_precondition) when the org owns no
+  // tenant, or while a destination, binding, live route or enabled pipeline
+  // of the org would break the rule — the message lists each one, and
+  // TenantPreflight returns them as data.
+  rpc SetOrgStrictTenants(SetOrgStrictTenantsRequest) returns (Org) {}
+  // TenantPreflight reports what would break the strict tenant rule. App
+  // admin only, read-only. With org_id set it checks that org (what
+  // SetOrgStrictTenants would refuse over); empty checks every org, as the
+  // server-wide tenants.require_owned setting would at boot.
+  rpc TenantPreflight(TenantPreflightRequest) returns (TenantPreflightResponse) {}
 
   rpc ListClusters(ListClustersRequest) returns (ListClustersResponse) {}
   rpc ClaimCluster(ClaimClusterRequest) returns (ClaimClusterResponse) {}
@@ -113,6 +127,19 @@ message Org {
   // them (AddOrgTenant, RemoveOrgTenant, SetDefaultOrgTenant). Empty means
   // the org cannot have tenant routes yet.
   repeated OrgTenant tenants = 13;
+  // strict_tenants is the org's strict tenant mode (SetOrgStrictTenants):
+  // its destinations, destination bindings, tenant routes and pipelines may
+  // only use tenants the org owns. The server-wide tenants.require_owned
+  // setting applies the same rule to every org whatever this says;
+  // tenants_required reports the effective state.
+  bool strict_tenants = 14;
+  // tenants_required is true when the strict tenant rule applies to the
+  // org: strict_tenants, or the server-wide tenants.require_owned setting.
+  bool tenants_required = 15;
+  // warnings are caveats of the change that produced this response, for the
+  // app admin who made it: today only AddOrgTenant's, naming other orgs whose
+  // enabled pipelines set tenants its check cannot read. Empty elsewhere.
+  repeated string warnings = 16;
 }
 
 message ListOrgsRequest {}
@@ -176,6 +203,37 @@ message RemoveOrgTenantRequest {
 message SetDefaultOrgTenantRequest {
   string org_id = 1;
   string tenant = 2;
+}
+
+message SetOrgStrictTenantsRequest {
+  string org_id = 1;
+  bool strict_tenants = 2;
+}
+
+message TenantPreflightRequest {
+  // org_id limits the check to one org; empty checks every org.
+  string org_id = 1;
+}
+
+// TenantViolation is one object that uses a tenant its org does not own.
+message TenantViolation {
+  string org_id = 1;
+  string org_name = 2;
+  // kind is "destination", "destination binding", "tenant route",
+  // "pipeline" or "org" (an org that owns no tenant yet, when the check
+  // cannot pass at all).
+  string kind = 3;
+  // name identifies the object within its org.
+  string name = 4;
+  // tenant is the offending tenant value; empty for "org".
+  string tenant = 5;
+  // message says what is wrong and how to fix it.
+  string message = 6;
+}
+
+message TenantPreflightResponse {
+  // violations is empty when strict tenant mode could be turned on.
+  repeated TenantViolation violations = 1;
 }
 
 message DeleteOrgRequest {

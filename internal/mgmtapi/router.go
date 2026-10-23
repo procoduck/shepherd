@@ -151,6 +151,9 @@ func MountRPC(r chi.Router, st *store.Store, cfg *config.Config, enc *crypto.Enc
 	// gate is wrapped by telemetry.RequestGate.
 	saLimiter := newSARateLimiter(cfg.Auth.ServiceAccountRateLimit, cfg.Auth.ServiceAccountRateBurst)
 	authz := []connect.HandlerOption{
+		// Every management request is read into memory whole; MaxRequestBytes
+		// bounds it (see there).
+		connect.WithReadMaxBytes(MaxRequestBytes),
 		connect.WithRequestGate(telemetry.RequestGate(newServiceAccountAuthGate(st, saLimiter))),
 		connect.WithInterceptors(telemetry.Interceptor(), newAuthzInterceptor(st)),
 	}
@@ -161,14 +164,15 @@ func MountRPC(r chi.Router, st *store.Store, cfg *config.Config, enc *crypto.Enc
 		routeApplyOn = func() bool { return enabled }
 	}
 
-	pipelineSvc := NewPipelineService(st, v, schemaReg, logger, WithBeaconBaseline(serve.BeaconBaseline(cfg)))
+	requireOwned := cfg.Tenants.RequireOwned
+	pipelineSvc := NewPipelineService(st, v, schemaReg, logger, WithBeaconBaseline(serve.BeaconBaseline(cfg)), WithRequireOwnedTenants(requireOwned))
 
 	mounts := []func() (string, http.Handler){
 		func() (string, http.Handler) {
-			return mgmtv1connect.NewMeServiceHandler(NewMeService(st, logger), authz...)
+			return mgmtv1connect.NewMeServiceHandler(NewMeService(st, logger, WithMeRequireOwnedTenants(requireOwned)), authz...)
 		},
 		func() (string, http.Handler) {
-			return mgmtv1connect.NewAdminServiceHandler(NewAdminService(st, logger, WithOIDCHandler(mc.oidc), WithTokenChangedHook(mc.tokenChanged), WithIdentityChangedHook(mc.identityChanged)), authz...)
+			return mgmtv1connect.NewAdminServiceHandler(NewAdminService(st, logger, WithOIDCHandler(mc.oidc), WithTokenChangedHook(mc.tokenChanged), WithIdentityChangedHook(mc.identityChanged), WithAdminRequireOwnedTenants(requireOwned)), authz...)
 		},
 		func() (string, http.Handler) {
 			var users *auth.UserStore
@@ -193,10 +197,10 @@ func MountRPC(r chi.Router, st *store.Store, cfg *config.Config, enc *crypto.Enc
 			return mgmtv1connect.NewGitOpsServiceHandler(NewGitOpsService(st, enc, pipelineSvc, logger), authz...)
 		},
 		func() (string, http.Handler) {
-			return mgmtv1connect.NewWizardServiceHandler(NewWizardService(st, v, logger, WithWizardSchema(schemaReg)), authz...)
+			return mgmtv1connect.NewWizardServiceHandler(NewWizardService(st, v, logger, WithWizardSchema(schemaReg), WithWizardRequireOwnedTenants(requireOwned)), authz...)
 		},
 		func() (string, http.Handler) {
-			return mgmtv1connect.NewVisualServiceHandler(NewVisualService(st, v, schemaReg, logger), authz...)
+			return mgmtv1connect.NewVisualServiceHandler(NewVisualService(st, v, schemaReg, logger, WithVisualRequireOwnedTenants(requireOwned)), authz...)
 		},
 		func() (string, http.Handler) {
 			return mgmtv1connect.NewSimulateServiceHandler(NewSimulateService(st, cfg.Simulator, logger), authz...)

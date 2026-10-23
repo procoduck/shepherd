@@ -13,6 +13,7 @@ import (
 	"shepherd/internal/advisorylock"
 	"shepherd/internal/gateway"
 	"shepherd/internal/store/sqlc"
+	"shepherd/internal/tenancy"
 )
 
 // An organisation owns several tenants and tenant prefixes (org_tenants,
@@ -154,8 +155,10 @@ type orgTenantDetail struct {
 // that overlaps any other org's tenants or prefixes (gateway.TenantsOverlap)
 // or covers a tenant another org's destination or binding sends. q must be
 // a transaction holding lockOrgTenantsExclusive; the caller writes the audit
-// row (auditOrgTenantChange). rule has already been validated.
-func assignOrgTenant(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, rule gateway.OrgTenant, makeDefault bool, actor string) error {
+// row (auditOrgTenantChange). rule has already been validated. Caveats the
+// app admin should see (other orgs' pipelines the check cannot read) are
+// appended to warnings when it is non-nil.
+func assignOrgTenant(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, rule gateway.OrgTenant, makeDefault bool, actor string, warnings *[]string) error {
 	others, err := q.ListOrgTenantsOfOtherOrgs(ctx, orgID)
 	if err != nil {
 		return connect.NewError(connect.CodeInternal, errors.New("failed to check tenant ownership"))
@@ -178,6 +181,22 @@ func assignOrgTenant(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, ru
 		if gateway.RuleCovers(rule, t) {
 			return connect.NewError(connect.CodeFailedPrecondition, errTenantUsedByOtherDestination)
 		}
+	}
+	// And no other org's enabled pipeline may already write to a tenant the
+	// rule covers (a literal X-Scope-OrgID, tenant_id or __tenant_id__): the
+	// new owner's tenant would then carry that org's data. Named, since only
+	// an app admin reaches this.
+	covered, caveats, err := tenancy.OtherOrgPipelinesCovered(ctx, q, orgID, rule)
+	if err != nil {
+		return connect.NewError(connect.CodeInternal, errors.New("failed to check tenant ownership"))
+	}
+	if warnings != nil {
+		*warnings = append(*warnings, caveats...)
+	}
+	if len(covered) > 0 {
+		return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf(
+			"%s %q covers a tenant another organisation's enabled pipeline writes to: %s; change or disable it first",
+			describeKind(rule.Kind), rule.Tenant, strings.Join(covered, "; ")))
 	}
 	if makeDefault {
 		if err := q.ClearOrgDefaultTenant(ctx, orgID); err != nil {
@@ -215,13 +234,14 @@ func describeKind(k gateway.TenantKind) string {
 	return "tenant"
 }
 
-// orgProtoWithTenants loads the org's tenants through q and builds its proto.
-func orgProtoWithTenants(ctx context.Context, q *sqlc.Queries, o sqlc.Org) (*mgmtv1.Org, error) {
+// orgProtoWithTenants loads the org's tenants through q and builds its proto
+// (requireOwned: see toOrgProto).
+func orgProtoWithTenants(ctx context.Context, q *sqlc.Queries, o sqlc.Org, requireOwned bool) (*mgmtv1.Org, error) {
 	rows, err := q.ListOrgTenants(ctx, o.ID)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to load org tenants"))
 	}
-	return toOrgProto(o, rows), nil
+	return toOrgProto(o, rows, requireOwned), nil
 }
 
 // parseOrgTenantRule reads and validates a (tenant, kind) pair from a request.
@@ -253,13 +273,19 @@ func (s *AdminService) AddOrgTenant(ctx context.Context, req *connect.Request[mg
 	if req.Msg.GetMakeDefault() && rule.Kind != gateway.TenantExact {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("only an exact tenant can be the default"))
 	}
-	return s.inOrgTenantTx(ctx, orgID, func(q *sqlc.Queries, _ sqlc.Org, _ []sqlc.OrgTenant) error {
-		if err := assignOrgTenant(ctx, q, orgID, rule, req.Msg.GetMakeDefault(), actorFromCtx(ctx)); err != nil {
+	var warnings []string
+	resp, err := s.inOrgTenantTx(ctx, orgID, func(q *sqlc.Queries, _ sqlc.Org, _ []sqlc.OrgTenant) error {
+		if err := assignOrgTenant(ctx, q, orgID, rule, req.Msg.GetMakeDefault(), actorFromCtx(ctx), &warnings); err != nil {
 			return err
 		}
 		return auditOrgTenantChange(ctx, q, orgID, "org.tenant.add",
 			orgTenantDetail{Tenant: rule.Tenant, Kind: string(rule.Kind), IsDefault: req.Msg.GetMakeDefault()})
 	})
+	if err != nil {
+		return nil, err
+	}
+	resp.Msg.Warnings = warnings
+	return resp, nil
 }
 
 // RemoveOrgTenant takes an exact tenant or prefix away from an org (app
@@ -317,6 +343,15 @@ func (s *AdminService) RemoveOrgTenant(ctx context.Context, req *connect.Request
 			if gateway.RuleCovers(rule, uses[i].Tenant) && !gateway.OrgOwnsTenant(remaining, uses[i].Tenant) {
 				orphaned = append(orphaned, fmt.Sprintf("%s %q (tenant %q)", uses[i].What, uses[i].Name, uses[i].Tenant))
 			}
+		}
+		// In strict tenant mode an enabled pipeline writing to a tenant the
+		// org would no longer own is left behind too.
+		if org.StrictTenants || s.requireOwned {
+			pipes, err := tenancy.OrphanedPipelines(ctx, q, orgID, remaining)
+			if err != nil {
+				return busyOr(err, connect.NewError(connect.CodeInternal, errors.New("failed to check what uses the tenant")))
+			}
+			orphaned = append(orphaned, pipes...)
 		}
 		if len(orphaned) > 0 {
 			return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf(
@@ -381,7 +416,11 @@ func (s *AdminService) inOrgTenantTx(ctx context.Context, orgID pgtype.UUID, cha
 	if err := change(q, org, tenants); err != nil {
 		return nil, err
 	}
-	out, err := orgProtoWithTenants(ctx, q, org)
+	// Re-read: a change may write the org row itself (SetOrgStrictTenants).
+	if org, err = q.GetOrgByID(ctx, orgID); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to change org tenants"))
+	}
+	out, err := orgProtoWithTenants(ctx, q, org, s.requireOwned)
 	if err != nil {
 		return nil, err
 	}

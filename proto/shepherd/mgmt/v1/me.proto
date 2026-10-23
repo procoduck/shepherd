@@ -46,6 +46,11 @@ message OrgMembership {
   // admin — D11). Read-only: the destination form pre-fills a destination's
   // tenant from the default one, and the tenant-route form offers them.
   repeated OrgTenant tenants = 10;
+  // tenants_required is true when the org is in strict tenant mode (its own
+  // flag or the server-wide tenants.require_owned setting): destinations,
+  // bindings and routes may then only use one of tenants, so the forms offer
+  // only those.
+  bool tenants_required = 11;
 }
 
 // GetMeResponse is the caller's identity and the orgs they can see.

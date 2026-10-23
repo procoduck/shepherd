@@ -334,6 +334,18 @@ config:
     # from other services.
     service_name: "shepherd"
     # service_version: ""   # set it to correlate traces with releases
+  tenants:
+    # require_owned: strict tenant mode for EVERY organisation. When true,
+    # each destination, destination binding and tenant route that carries a
+    # tenant must use one its org owns (Admin -> Organisations -> tenants),
+    # and pipeline text that sets a literal X-Scope-OrgID header or tenant
+    # attribute the org does not own fails validation. Destinations without a
+    # tenant are unaffected; an org that owns no tenant can then not use one
+    # at all. Off by default. With it on, Shepherd refuses to start while
+    # anything already stored breaks the rule -- run
+    # `shepherd admin tenant-preflight` first to list it. Per-org strict mode
+    # (set by an app admin in the UI) needs no chart change.
+    require_owned: false
   log:
     # level: the minimum log level Shepherd emits, e.g. debug, info, warn, error.
     level: "info"

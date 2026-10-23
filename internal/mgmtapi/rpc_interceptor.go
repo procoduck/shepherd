@@ -51,6 +51,10 @@ var procedureRequirements = map[string]auth.Requirement{
 	mgmtv1connect.AdminServiceAddOrgTenantProcedure:        reqAppAdmin,
 	mgmtv1connect.AdminServiceRemoveOrgTenantProcedure:     reqAppAdmin,
 	mgmtv1connect.AdminServiceSetDefaultOrgTenantProcedure: reqAppAdmin,
+	// Strict tenant mode narrows what an org may write to its own tenants;
+	// like tenant ownership, only an app admin changes or previews it.
+	mgmtv1connect.AdminServiceSetOrgStrictTenantsProcedure: reqAppAdmin,
+	mgmtv1connect.AdminServiceTenantPreflightProcedure:     reqAppAdmin,
 	mgmtv1connect.AdminServiceListClustersProcedure:        reqAppAdmin,
 	mgmtv1connect.AdminServiceClaimClusterProcedure:        reqAppAdmin,
 	mgmtv1connect.AdminServiceUnclaimClusterProcedure:      reqAppAdmin,
@@ -246,6 +250,7 @@ var capabilityRequirements = map[string]string{
 	mgmtv1connect.AdminServiceAddOrgTenantProcedure:        capabilityApply,
 	mgmtv1connect.AdminServiceRemoveOrgTenantProcedure:     capabilityApply,
 	mgmtv1connect.AdminServiceSetDefaultOrgTenantProcedure: capabilityApply,
+	mgmtv1connect.AdminServiceSetOrgStrictTenantsProcedure: capabilityApply,
 	mgmtv1connect.AdminServiceClaimClusterProcedure:        capabilityApply,
 	mgmtv1connect.AdminServiceUnclaimClusterProcedure:      capabilityApply,
 	mgmtv1connect.AdminServiceCreateAgentTokenProcedure:    capabilityApply,

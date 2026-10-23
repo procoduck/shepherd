@@ -11,6 +11,10 @@ interface Org {
   // The tenants and prefixes the org owns (org_tenants, D11); the mock
   // converts them to Org.tenants and GetMe's membership (#261).
   tenants?: { tenant: string; kind: 'exact' | 'prefix'; is_default?: boolean }[];
+  // Strict tenant mode (0040) and, for the mock's SetOrgStrictTenants and
+  // TenantPreflight, what the server's preflight would find.
+  strict_tenants?: boolean;
+  strict_violations?: { kind: string; name: string; tenant?: string; message: string }[];
   created_at: string;
   updated_at: string;
 }

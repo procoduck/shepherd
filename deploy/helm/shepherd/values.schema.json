@@ -434,7 +434,9 @@
             },
             "max_file_bytes": {
               "type": "integer",
-              "minimum": 1
+              "minimum": 1,
+              "maximum": 1048576,
+              "description": "At most 1 MiB, the largest pipeline Shepherd saves."
             },
             "max_files": {
               "type": "integer",
@@ -494,6 +496,16 @@
             },
             "service_version": {
               "type": "string"
+            }
+          }
+        },
+        "tenants": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "require_owned": {
+              "type": "boolean",
+              "description": "Strict tenant mode for every organisation: destinations, bindings, tenant routes and pipelines may only use tenants their org owns. Shepherd refuses to start while anything stored breaks the rule (`shepherd admin tenant-preflight`)."
             }
           }
         },

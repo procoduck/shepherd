@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { clients, toApiError } from '@/api/transport';
 import { AdminConfirmDialog } from '@/components/admin/AdminConfirmDialog';
 import { AdminModal, AdminModalActions } from '@/components/admin/AdminModal';
+import { OrgStrictTenantsToggle } from '@/components/admin/OrgStrictTenantsToggle';
 import { OrgTenantsEditor } from '@/components/admin/OrgTenantsEditor';
 import { QueryError } from '@/components/QueryError';
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
@@ -66,6 +67,28 @@ function orgColumns(
           // rather than showing an empty cell an admin would read as
           // "nothing to do here".
           <span className='text-muted-3 italic'>none &mdash; no routes possible</span>
+        ),
+    },
+    {
+      key: 'strict',
+      header: 'Strict tenants',
+      render: (o) =>
+        o.tenantsRequired ? (
+          <span
+            className='text-xs text-warn'
+            data-testid={`org-strict-${o.name}`}
+            title={
+              o.strictTenants
+                ? 'Strict tenant mode: only the organisation’s own tenants'
+                : 'Strict tenant mode for every organisation (tenants.require_owned)'
+            }
+          >
+            {o.strictTenants ? 'on' : 'on (server-wide)'}
+          </span>
+        ) : (
+          <span className='text-muted-3' data-testid={`org-strict-${o.name}`}>
+            off
+          </span>
         ),
     },
   ];
@@ -343,6 +366,11 @@ export function AdminOrgsPage() {
               />
             </Field>
             <OrgTenantsEditor key={editOrg.id} org={editOrg} onChange={tenantsChanged} />
+            <OrgStrictTenantsToggle
+              key={`strict-${editOrg.id}`}
+              org={editOrg}
+              onChange={tenantsChanged}
+            />
             <Field label='Admin group ID' hint={GROUP_VALUE_HINT}>
               <Input
                 value={editForm.adminGroupId}

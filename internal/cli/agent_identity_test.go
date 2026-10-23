@@ -29,8 +29,10 @@ var _ = Describe("agent-identity create role validation", func() {
 	run := func(args ...string) error {
 		rootCmd.SilenceUsage = true
 		rootCmd.SilenceErrors = true
-		rootCmd.SetArgs(append([]string{"agent-identity", "create",
-			"--issuer", "https://idp.example/", "--app-id", "c", "--org", "prod-org"}, args...))
+		rootCmd.SetArgs(append([]string{
+			"agent-identity", "create",
+			"--issuer", "https://idp.example/", "--app-id", "c", "--org", "prod-org",
+		}, args...))
 		return rootCmd.Execute()
 	}
 

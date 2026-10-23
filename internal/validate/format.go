@@ -4,8 +4,9 @@ import (
 	"bytes"
 	"strings"
 
-	"github.com/grafana/alloy/syntax/parser"
 	"github.com/grafana/alloy/syntax/printer"
+
+	"shepherd/internal/alloysyntax"
 )
 
 // Format canonicalises Alloy source the way `alloy fmt` does: it parses the
@@ -22,7 +23,7 @@ import (
 // buffer untouched, so formatting only ever succeeds on syntactically valid
 // input. The editor's live validation already reports the same failure inline.
 func Format(content string) (string, error) {
-	f, err := parser.ParseFile("<pipeline>", []byte(content))
+	f, err := alloysyntax.ParseFile("<pipeline>", []byte(content))
 	if err != nil {
 		return "", err
 	}

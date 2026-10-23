@@ -7,8 +7,8 @@ import (
 	"strings"
 
 	"github.com/grafana/alloy/syntax/ast"
-	"github.com/grafana/alloy/syntax/parser"
 
+	"shepherd/internal/alloysyntax"
 	"shepherd/internal/schema"
 )
 
@@ -182,7 +182,7 @@ type componentDef struct {
 // unparseable config's signal set is unknown, not empty, and the two must
 // never be confused by a caller that only checks err == nil.
 func Derive(contents string, reg *schema.Registry) (Signals, error) {
-	file, err := parser.ParseFile("<pipeline>", []byte(contents))
+	file, err := alloysyntax.ParseFile("<pipeline>", []byte(contents))
 	if err != nil {
 		return Signals{}, fmt.Errorf("%w: %w", ErrParse, err)
 	}
