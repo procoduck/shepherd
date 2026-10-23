@@ -18,8 +18,13 @@
 > (#348) found the repository-link delete bug and B-GITSYNC-PRUNE (#349), and the local sign-in
 > throttle bypass through spoofed forwarding headers was fixed in #350 — all ship in v0.18.0.
 > The 2026-10-22 review remediation's steps 1–6, 4b–4d and 7a (#363–#381) ship in the prerelease
-> **v0.19.0-rc.1** (chart 0.23.0-rc.1), together with signed releases (#380); step 7b and the
-> follow-ups are open. The baseline below stays v0.18.0 until v0.19.0 is re-verified.
+> **v0.19.0-rc.1** (chart 0.23.0-rc.1), together with signed releases (#380). The external
+> evaluation's fixes — restore keeping the enabled state (#383), the beacon reporting per pipeline
+> (#384), collectors riding out a database outage (#385), org-bound agent tokens (#386), several
+> tenants per organisation (#387), strict tenant mode and the config size and nesting limits
+> (#388), and bounded visual render output (#393) — ship in the prerelease **v0.19.0-rc.2**
+> (chart 0.23.0-rc.2). Step 7b (#362) and #375, #389, #390 and the rest of #378 are open. The
+> baseline below stays v0.18.0 until v0.19.0 is re-verified.
 > Completed rounds live in `docs/archive/` — the history this ledger used to carry inline is
 > `docs/archive/completed-2026-09-11.md`. Do not start a second ledger.
 
@@ -29,7 +34,7 @@
 |---|---|
 | `docs/project-status.md` | this ledger — verified baseline, open bugs, unbuilt features, open follow-ups |
 | `docs/spec.md` | authoritative product/build specification (§ numbers referenced below) |
-| `docs/plans/` | dated per-PR implementation plans while their work is unreleased; a plan moves to `docs/archive/plans/` once it has shipped in a tag. **Empty: no live plan.** The last two, `2026-10-01-destination-auth.md` (#229/#262, v0.15.0) and `2026-10-06-destination-tenant-tls.md` (#261, v0.16.0), are in `docs/archive/plans/` |
+| `docs/plans/` | dated per-PR implementation plans while their work is unreleased; a plan moves to `docs/archive/plans/` once it has shipped in a tag. **Live: `2026-10-22-review-remediation.md`** (the v0.19.0 line; archived once v0.19.0 is tagged). The last two shipped, `2026-10-01-destination-auth.md` (#229/#262, v0.15.0) and `2026-10-06-destination-tenant-tls.md` (#261, v0.16.0), are in `docs/archive/plans/` |
 | `docs/visual-builder-design-VB1.md` | visual builder design — M1–M8 built; §6.4 (S3) is the live spec for the sandbox feature (enabled by default in the Helm chart since v0.0.1) |
 | `docs/reviews/` | **live decision records only**: `canvas-framework-evaluation.md` (the React Flow decision and the controlled-mode contract `CanvasPane` depends on). Closed reviews move to `docs/archive/reviews/` |
 | `docs/dev-guide.md` | running the dev stack |
@@ -172,6 +177,19 @@ the manual end-to-end pass the list above records. Re-walk them on the next rele
   (#370, migration `0036`); step 6 atomic git sync (#373); step 7a one role model, roles as API
   enums (#381, migration `0037`). Also signed tags and release attestations (#380) and Go 1.27.3
   (#365). Not walked in the browser.
+- **v0.19.0-rc.2** (prerelease, chart 0.23.0-rc.2) — the external evaluation's fixes and the
+  tenancy work: restore keeps the pipeline's enabled state (#383, #377); the beacon reports per
+  pipeline, B-BEACON-KEY (#384, part of #378); collectors ride out a database outage —
+  `Unavailable`, cached token verdicts and last served config, `agent.outage_cache_ttl` (#385,
+  #374); agent tokens bound to an organisation with cluster/role allowlists, org-admin tokens,
+  `may_claim`, `BindAgentToken`, unbound tokens refused (#386, migration `0038`); several tenants
+  and tenant prefixes per organisation, `SetOrgTenantID` removed (#387, migration `0039`); strict
+  tenant mode, `tenants.require_owned`, `shepherd admin tenant-preflight`, the 512 / 4096 / 1024
+  nesting, chain and depth limits at Stage 1, the 1 MiB pipeline and 4 MiB request caps and
+  `gitsync.max_file_bytes` ≤ 1 MiB (#388, migration `0040`); compose stacks bind their agent
+  token before Alloy starts, `shepherd dev ensure-org` (#392); visual render output bounded,
+  duplicate edges and labels/components over 256 bytes refused (#393, #391). Not walked in the
+  browser.
 
 ### History
 
@@ -205,6 +223,9 @@ remediation with its D1–D14 decisions, and the v0.5.0 dependency and toolchain
   recorded after the tag.
 - 2026-10-22 — v0.19.0-rc.1, prerelease (review remediation steps 1–6, 4b–4d, 7a; signed
   releases), chart 0.23.0-rc.1; release run recorded after the tag.
+- 2026-10-23 — v0.19.0-rc.2, prerelease (org-bound agent tokens, several tenants per org, strict
+  tenant mode, database-outage tolerance, config and render bounds), chart 0.23.0-rc.2; release
+  run recorded after the tag.
 
 ---
 
@@ -225,23 +246,6 @@ Compose stays a local-development convenience and this stays documented rather t
 developer who needs containment to be real locally uses `make dev-kind`, which installs Calico so
 the chart's NetworkPolicy is enforced (`docs/kind-test-environment-plan.md` §11). B-CONTAIN-2 is
 compose-only.
-
-### B-BEACON-KEY — the beacon never reported per pipeline · **medium** · ships fixed in the next release (part of #378)
-
-Since W5 shipped, `beacon.Project` keyed inventory on `controller_path` alone. Real Alloy (v1.18.1
-and v1.20.1, verified in source) reports a declare-wrapped pipeline's loader as
-`controller_path="/remotecfg" controller_id="pipe_x.default"` — every pipeline shares
-`/remotecfg` — so all pipelines collapsed onto one `/remotecfg` row (last write wins) and the
-reconciliation tab's `pipe_` filter never matched: **observed was always empty, and no
-"unserved component observed" finding could ever fire.** The test fixtures invented
-`controller_path="pipe_x"`, a shape Alloy never emits, which hid it. Fixed: the projection joins
-`controller_path` + `controller_id`, keys by the first `pipe_*` segment and sums health across
-nested module loaders (unhealthy if any is); root/bootstrap loaders are dropped. No served-bytes
-change. Rows already stored under `/remotecfg` are ignored by reconciliation and aged out by the
-sweeper (5 min) — no migration. Red-first specs in `internal/beacon/project_test.go`,
-`internal/agentapi/beacon_handler_test.go`, `internal/mgmtapi/rpc_reconcile_test.go`, plus an e2e
-spec that projects the real compose Alloy's `/metrics`. The role-enforcement half of #378 (module
-instances counted as Unknown) is still open.
 
 Fixed bugs (B-CONTAIN-1, B-CONCAT, B-STAGEORDER, F9-a) are in
 `docs/archive/completed-2026-09-11.md` with their red-run evidence. B-VIEWER-CANVAS (#226, a
@@ -277,6 +281,26 @@ The three bugs the 2026-10-22 review found ship fixed in the prerelease v0.19.0-
   `shepherd_serve_recompute_failures_total` on both paths and writes one `serve.recompute_failed`
   audit row per collector and generation (migration `0035`); Stage 3 validates the merged config
   with the D6 baseline appended.
+
+Fixed in the prerelease v0.19.0-rc.2:
+
+- **B-BEACON-KEY** (medium; part of #378, #384) — `beacon.Project` keyed inventory on
+  `controller_path` alone, which every declare-wrapped pipeline shares (`/remotecfg`), so all
+  pipelines collapsed onto one row and reconciliation's observed side was always empty; the test
+  fixtures used a shape Alloy never emits. The projection now joins `controller_path` +
+  `controller_id`, keys by the first `pipe_*` segment and rolls nested module loaders up into
+  their pipeline (unhealthy if any is); root and bootstrap loaders are dropped. No served-bytes
+  change; rows stored under `/remotecfg` age out (5 min). Red-first specs in
+  `internal/beacon/project_test.go`, `internal/agentapi/beacon_handler_test.go`,
+  `internal/mgmtapi/rpc_reconcile_test.go`, plus an e2e spec over the real compose Alloy's
+  `/metrics`. The role-enforcement half of #378 (module instances counted as Unknown) is open.
+- **Restore switched a live pipeline off** (#377, #383) — a restore now keeps the enabled state.
+- **Collectors crash-looped on restart during a database outage** (#374, #385) — see the
+  accepted limits in §4.
+- **Pathologically deep nesting could crash the server** (#388) — refused at Stage 1 by
+  `internal/alloysyntax`, the one parse entry point (`TestNoDirectParserImports`).
+- **A small visual graph could render to gigabytes** (#391, #393) — output bounded at 1 MiB,
+  duplicate edges and labels/components over 256 bytes refused, diagnostics capped.
 
 **2026-10-08 pre-release walkthrough** (kind dev stack, Playwright MCP): four high and six medium
 findings, all fixed in v0.15.0 — the builder save landing on stale data (H1), App
@@ -409,8 +433,17 @@ was closed in the same batches (`CHANGELOG.md` v0.7.0).
 The 2026-10-22 whole-project review's findings are decided and sequenced in
 `docs/plans/2026-10-22-review-remediation.md`. Steps 1–6, 4b–4d and 7a (the serve-cache write, the
 nil-schema divergence, the role-vocabulary refactor and the smaller fixes) ship in v0.19.0-rc.1;
-step 7b (a service-account viewer tier, R14) and the plan's §6 follow-ups (#374, #375, #377, #378)
-are open.
+the plan's §6 fixes (#374 via #385, #377 via #383, the beacon half of #378 via #384) and the
+tenancy work (#386, #387, #388, #393) ship in v0.19.0-rc.2. Open:
+
+- **Step 7b** — a service-account viewer tier, R14 (#362).
+- **#375** — validation ignores each collector's Alloy version.
+- **#378, role-enforcement half** — module-based (chart-generated) pipelines' instances count as
+  Unknown and the pipeline is dropped from restricted roles.
+- **#389** — beacon ingest hardening follow-ups.
+- **#390** — strict tenant mode: allow pinned external module imports.
+- The in-browser visual preview (`web/src/visual/renderTS.ts`) has no label or output cap; the
+  server's diagnostics are authoritative (#393 follow-up).
 
 In rough priority order; closed items stay in place, marked with the release that shipped them:
 
