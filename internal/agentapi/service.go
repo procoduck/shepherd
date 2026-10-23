@@ -423,10 +423,10 @@ type identityScope struct {
 func (s *Service) callerScope(ctx context.Context) (identityScope, error) {
 	p := PrincipalFrom(ctx)
 	if p.Kind == AuthKindToken {
-		if !p.token.orgID.Valid {
+		if !p.Binding.OrgID.Valid {
 			return identityScope{}, refuse(metrics.AgentRefusedTokenUnbound, errTokenUnbound)
 		}
-		return identityScope{orgID: p.token.orgID, clusters: allowlist(p.token.clusters), roles: allowlist(p.token.roles)}, nil
+		return identityScope{orgID: p.Binding.OrgID, clusters: allowlist(p.Binding.Clusters), roles: allowlist(p.Binding.Roles)}, nil
 	}
 	if p.Claims == nil {
 		return identityScope{}, nil
@@ -662,10 +662,10 @@ func (s *Service) resolveOrg(ctx context.Context, cluster, role string, coll sql
 	p := PrincipalFrom(ctx)
 	switch p.Kind {
 	case AuthKindToken:
-		if !p.token.orgID.Valid {
+		if !p.Binding.OrgID.Valid {
 			return pgtype.UUID{}, refuse(metrics.AgentRefusedTokenUnbound, errTokenUnbound)
 		}
-		return s.resolveBoundOrg(ctx, cluster, role, coll, p.token, "agent token")
+		return s.resolveBoundOrg(ctx, cluster, role, coll, p.Binding, "agent token")
 	case AuthKindOIDC:
 		if p.Claims == nil {
 			break
@@ -677,7 +677,7 @@ func (s *Service) resolveOrg(ctx context.Context, cluster, role string, coll sql
 		switch {
 		case err == nil:
 			return s.resolveBoundOrg(ctx, cluster, role, coll,
-				orgBinding{orgID: binding.OrgID, clusters: binding.Clusters, roles: binding.Roles}, "collector identity")
+				Binding{OrgID: binding.OrgID, Clusters: binding.Clusters, Roles: binding.Roles, MayClaim: true}, "collector identity")
 		case errors.Is(err, pgx.ErrNoRows):
 			// No binding. If mode 2 is on and the token asserts an org (D1
 			// tier 2), trust it; otherwise OIDC proved liveness only and we
@@ -698,23 +698,46 @@ func (s *Service) resolveOrg(ctx context.Context, cluster, role string, coll sql
 
 // resolveBoundOrg is the one resolver for a bound principal — an agent token
 // or an OIDC agent_identities binding: it enforces the binding's cluster/role
-// allowlists and auto-claims the cluster to the binding's org. subject names
+// allowlists and auto-claims the cluster to the binding's org — or, for a
+// binding that may not claim (a token an org admin or a service account
+// minted), serves only a cluster the org has already claimed. subject names
 // the principal kind in a refusal message.
-func (s *Service) resolveBoundOrg(ctx context.Context, cluster, role string, coll sqlc.Collector, b orgBinding, subject string) (pgtype.UUID, error) {
-	if !allowlistPermits(b.clusters, cluster) {
+func (s *Service) resolveBoundOrg(ctx context.Context, cluster, role string, coll sqlc.Collector, b Binding, subject string) (pgtype.UUID, error) {
+	if !allowlistPermits(b.Clusters, cluster) {
 		return pgtype.UUID{}, refuse(metrics.AgentRefusedClaimDenied,
 			fmt.Errorf("cluster %q is not permitted for this %s", cluster, subject))
 	}
-	if !allowlistPermits(b.roles, role) {
+	if !allowlistPermits(b.Roles, role) {
 		return pgtype.UUID{}, refuse(metrics.AgentRefusedRoleDenied,
 			fmt.Errorf("role %q is not permitted for this %s", role, subject))
+	}
+	if !b.MayClaim {
+		// Claiming a cluster into an org is an app-admin decision: an org
+		// token only confirms a claim that already exists. Otherwise an org
+		// admin could mint a token, name a new cluster first and pull it —
+		// and every OIDC collector on it that resolves by the claim — into
+		// their org, or race an app admin's deliberate unclaim.
+		current, err := s.store.Queries.GetCollectorOrgID(ctx, coll.ID)
+		if err != nil {
+			return pgtype.UUID{}, connect.NewError(connect.CodeInternal, fmt.Errorf("resolving org: %w", err))
+		}
+		switch {
+		case current == b.OrgID:
+			return current, nil
+		case !current.Valid:
+			return pgtype.UUID{}, refuse(metrics.AgentRefusedClaimDenied,
+				fmt.Errorf("cluster %q is not claimed by this organisation, and an organisation token cannot claim clusters; ask an app admin to claim it", cluster))
+		default:
+			return pgtype.UUID{}, refuse(metrics.AgentRefusedClaimDenied,
+				fmt.Errorf("cluster %q is claimed by another organisation", cluster))
+		}
 	}
 	// Bind the cluster to the binding's org, or confirm it is already ours.
 	// A cluster claimed by a different org matches no row (ErrNoRows) — a
 	// principal can never take over another org's cluster by naming it.
 	claimed, err := s.store.Queries.ClaimClusterForOrg(ctx, sqlc.ClaimClusterForOrgParams{
 		ID:    coll.ClusterID,
-		OrgID: b.orgID,
+		OrgID: b.OrgID,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return pgtype.UUID{}, refuse(metrics.AgentRefusedClaimDenied,

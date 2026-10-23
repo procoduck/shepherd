@@ -108,6 +108,7 @@ func toAgentTokenProto(t sqlc.AgentToken, orgName string) *mgmtv1.AgentToken {
 		OrgName:   orgName,
 		Clusters:  decodeStringArray(t.Clusters),
 		Roles:     decodeStringArray(t.Roles),
+		MayClaim:  t.MayClaim,
 	}
 }
 
@@ -554,6 +555,7 @@ func (s *AdminService) CreateAgentToken(ctx context.Context, req *connect.Reques
 		Name: name, TokenHash: hash[:], CreatedBy: actor, OrgID: org.ID,
 		Clusters: encodeStringArray(req.Msg.GetClusters()),
 		Roles:    encodeStringArray(req.Msg.GetRoles()),
+		MayClaim: mintedByAppAdmin(ctx),
 	})
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to create token"))
@@ -564,6 +566,20 @@ func (s *AdminService) CreateAgentToken(ctx context.Context, req *connect.Reques
 		Name:   tok.Name,
 		Secret: secret,
 	}), nil
+}
+
+// mintedByAppAdmin reports whether the caller minting a token is an app
+// admin — the one caller whose tokens may claim an unclaimed cluster for
+// their org (agent_tokens.may_claim). Claiming a cluster into an org is an
+// app-admin decision (spec §7.2), so a token an org admin or a service
+// account (never app admin) mints only serves clusters its org already
+// claimed.
+func mintedByAppAdmin(ctx context.Context) bool {
+	if _, ok := serviceAccountFromCtx(ctx); ok {
+		return false
+	}
+	sess := auth.SessionFromCtx(ctx)
+	return sess != nil && sess.IsAppAdmin
 }
 
 // RevokeAgentToken revokes an agent token. With org_id set only a token bound
@@ -594,7 +610,8 @@ func (s *AdminService) RevokeAgentToken(ctx context.Context, req *connect.Reques
 
 // BindAgentToken binds a live token to an organisation, or rebinds it, and
 // replaces its allowlists — in place, so the secret (and every collector
-// using it) keeps working. App admin only. Audited against the new org, with
+// using it) keeps working. App admin only, so a bound token may claim
+// clusters (may_claim, set by the query). Audited against the new org, with
 // the previous org in the detail.
 func (s *AdminService) BindAgentToken(ctx context.Context, req *connect.Request[mgmtv1.BindAgentTokenRequest]) (*connect.Response[mgmtv1.AgentToken], error) {
 	if err := requireWriteAuthorized(ctx); err != nil {

@@ -33,6 +33,7 @@ type AgentToken struct {
 	OrgID     pgtype.UUID        `json:"org_id"`
 	Clusters  json.RawMessage    `json:"clusters"`
 	Roles     json.RawMessage    `json:"roles"`
+	MayClaim  bool               `json:"may_claim"`
 }
 
 type AuditLog struct {

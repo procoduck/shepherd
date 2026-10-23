@@ -66,6 +66,7 @@ var _ = Describe("Migration: 0038_agent_token_org_binding", Label("integration")
 		Expect(tok.OrgID.Valid).To(BeFalse(), "the migration must not guess an org")
 		Expect(string(tok.Clusters)).To(MatchJSON(`[]`))
 		Expect(string(tok.Roles)).To(MatchJSON(`[]`))
+		Expect(tok.MayClaim).To(BeFalse(), "only an app admin's bind lets a token claim")
 	})
 
 	Describe("after the migration", func() {
@@ -135,6 +136,7 @@ var _ = Describe("Migration: 0038_agent_token_org_binding", Label("integration")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(bound.OrgID).To(Equal(orgA.ID))
 			Expect(bound.TokenHash).To(Equal(legacy.TokenHash))
+			Expect(bound.MayClaim).To(BeTrue(), "an app admin's bind lets the token claim clusters")
 
 			_, err = q.RevokeAgentToken(ctx, sqlc.RevokeAgentTokenParams{ID: legacy.ID})
 			Expect(err).NotTo(HaveOccurred())
@@ -147,7 +149,7 @@ var _ = Describe("Migration: 0038_agent_token_org_binding", Label("integration")
 			var n int
 			Expect(db.QueryRow(ctx, // RAW-SQL-OK: schema assertion
 				`SELECT count(*) FROM information_schema.columns
-				 WHERE table_name = 'agent_tokens' AND column_name IN ('org_id', 'clusters', 'roles')`,
+				 WHERE table_name = 'agent_tokens' AND column_name IN ('org_id', 'clusters', 'roles', 'may_claim')`,
 			).Scan(&n)).To(Succeed())
 			Expect(n).To(Equal(0))
 		})

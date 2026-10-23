@@ -119,7 +119,9 @@ kubectl -n shepherd rollout status deploy/shepherd</code></pre>
         for its token&rsquo;s organisation, and its collectors appear under
         <strong>Collectors</strong>, where they can be managed. A cluster another organisation
         already claimed is refused instead &mdash; the collector logs a
-        <code>permission_denied</code> error and keeps running its local config.
+        <code>permission_denied</code> error and keeps running its local config. (That is a
+        token an app admin created; a token an org admin creates is served only clusters an app
+        admin has already claimed for the organisation at <strong>Admin &rarr; Clusters</strong>.)
       </p>
       <p><img src="../img/collectors.jpg" alt="The Collectors list: each collector with its cluster, role, status, Alloy version and labels" loading="lazy"></p>
       <p class="note">

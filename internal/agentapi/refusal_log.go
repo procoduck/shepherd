@@ -1,6 +1,7 @@
 package agentapi
 
 import (
+	"context"
 	"log/slog"
 	"sync"
 	"time"
@@ -22,18 +23,24 @@ const (
 type refusalKey struct{ instanceID, reason string }
 
 // refusalLog counts every identity refusal in shepherd_agent_refused_total and
-// logs the first per (instance id, reason) per window at Warn; the rest are
-// counted only. In-process: each replica keeps its own window.
+// logs the first per (instance id, reason) per window at its level (Warn for
+// the collector RPCs); the rest are counted only. In-process: each replica
+// keeps its own window.
 type refusalLog struct {
 	mu     sync.Mutex
 	window time.Duration
 	max    int
+	level  slog.Level
 	last   map[refusalKey]time.Time
 	now    func() time.Time
 }
 
 func newRefusalLog(window time.Duration, maxKeys int) *refusalLog {
-	return &refusalLog{window: window, max: maxKeys, last: make(map[refusalKey]time.Time), now: time.Now}
+	return newRefusalLogAt(window, maxKeys, slog.LevelWarn)
+}
+
+func newRefusalLogAt(window time.Duration, maxKeys int, level slog.Level) *refusalLog {
+	return &refusalLog{window: window, max: maxKeys, level: level, last: make(map[refusalKey]time.Time), now: time.Now}
 }
 
 // record counts one refusal and reports whether it was logged. attrs are
@@ -46,7 +53,7 @@ func (l *refusalLog) record(logger *slog.Logger, rpc, reason, instanceID string,
 	if !l.allow(refusalKey{instanceID: instanceID, reason: reason}) {
 		return false
 	}
-	logger.Warn("collector request refused",
+	logger.Log(context.Background(), l.level, "collector request refused",
 		append([]any{"rpc", rpc, "reason", reason, "instance_id", instanceID}, attrs...)...)
 	return true
 }

@@ -14,6 +14,12 @@
 ALTER TABLE agent_tokens
     ADD COLUMN org_id   uuid  REFERENCES orgs(id) ON DELETE SET NULL,
     ADD COLUMN clusters jsonb NOT NULL DEFAULT '[]' CHECK (jsonb_typeof(clusters) = 'array'),
-    ADD COLUMN roles    jsonb NOT NULL DEFAULT '[]' CHECK (jsonb_typeof(roles) = 'array');
+    ADD COLUMN roles    jsonb NOT NULL DEFAULT '[]' CHECK (jsonb_typeof(roles) = 'array'),
+    -- may_claim: whether the token may claim an unclaimed cluster for its org
+    -- on a collector's first poll. True only for a token an app admin minted
+    -- or bound (and the operator CLI); a token an org admin or a service
+    -- account minted serves only clusters its org has already claimed —
+    -- claiming a cluster into an org stays an app-admin decision.
+    ADD COLUMN may_claim boolean NOT NULL DEFAULT false;
 
 CREATE INDEX agent_tokens_org_id_idx ON agent_tokens (org_id);

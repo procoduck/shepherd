@@ -136,7 +136,10 @@ export function OrgField({
   if (!isAppAdmin) {
     const own = options[0];
     return (
-      <Field label='Organisation' hint='Tokens you create are bound to the organisation in view.'>
+      <Field
+        label='Organisation'
+        hint='Tokens you create are bound to the organisation in view, and serve only clusters it has already claimed.'
+      >
         <Input value={own ? orgLabel(own) : ''} readOnly disabled data-testid='token-org' />
       </Field>
     );

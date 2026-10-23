@@ -965,8 +965,13 @@ type AgentToken struct {
 	OrgName string `protobuf:"bytes,7,opt,name=org_name,json=orgName,proto3" json:"org_name,omitempty"`
 	// Optional allowlists narrowing what the token may act as within its org.
 	// Empty means any.
-	Clusters      []string `protobuf:"bytes,8,rep,name=clusters,proto3" json:"clusters,omitempty"`
-	Roles         []string `protobuf:"bytes,9,rep,name=roles,proto3" json:"roles,omitempty"`
+	Clusters []string `protobuf:"bytes,8,rep,name=clusters,proto3" json:"clusters,omitempty"`
+	Roles    []string `protobuf:"bytes,9,rep,name=roles,proto3" json:"roles,omitempty"`
+	// may_claim: whether collectors using the token may claim an unclaimed
+	// cluster for its org. True for a token an app admin minted or bound; a
+	// token an org admin or a service account minted serves only clusters its
+	// org has already claimed.
+	MayClaim      bool `protobuf:"varint,10,opt,name=may_claim,json=mayClaim,proto3" json:"may_claim,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1062,6 +1067,13 @@ func (x *AgentToken) GetRoles() []string {
 		return x.Roles
 	}
 	return nil
+}
+
+func (x *AgentToken) GetMayClaim() bool {
+	if x != nil {
+		return x.MayClaim
+	}
+	return false
 }
 
 // ListAgentTokensRequest: org_id set lists only the tokens bound to that org
@@ -3024,7 +3036,7 @@ const file_shepherd_mgmt_v1_admin_proto_rawDesc = "" +
 	"\x15UnclaimClusterRequest\x12\x18\n" +
 	"\acluster\x18\x01 \x01(\tR\acluster\"0\n" +
 	"\x16UnclaimClusterResponse\x12\x16\n" +
-	"\x06status\x18\x01 \x01(\tR\x06status\"\x86\x02\n" +
+	"\x06status\x18\x01 \x01(\tR\x06status\"\xa3\x02\n" +
 	"\n" +
 	"AgentToken\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
@@ -3037,7 +3049,9 @@ const file_shepherd_mgmt_v1_admin_proto_rawDesc = "" +
 	"\x06org_id\x18\x06 \x01(\tR\x05orgId\x12\x19\n" +
 	"\borg_name\x18\a \x01(\tR\aorgName\x12\x1a\n" +
 	"\bclusters\x18\b \x03(\tR\bclusters\x12\x14\n" +
-	"\x05roles\x18\t \x03(\tR\x05roles\"/\n" +
+	"\x05roles\x18\t \x03(\tR\x05roles\x12\x1b\n" +
+	"\tmay_claim\x18\n" +
+	" \x01(\bR\bmayClaim\"/\n" +
 	"\x16ListAgentTokensRequest\x12\x15\n" +
 	"\x06org_id\x18\x01 \x01(\tR\x05orgId\"c\n" +
 	"\x17ListAgentTokensResponse\x122\n" +

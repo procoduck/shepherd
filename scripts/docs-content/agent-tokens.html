@@ -23,11 +23,15 @@
 }</code></pre>
       </div>
       <h2 id="binding">What a token may act for</h2>
-      <p>A collector using a token is served its token&rsquo;s organisation&rsquo;s configuration.
-        On its first poll, an unclaimed cluster it reports is claimed for that organisation
-        &mdash; no app admin step needed. A token is refused (the collector logs a
+      <p>A collector using a token is served its token&rsquo;s organisation&rsquo;s configuration,
+        for clusters that organisation has claimed. Claiming a cluster stays an app admin&rsquo;s
+        decision: a token an app admin created or bound claims an unclaimed cluster it reports for
+        its organisation on the first poll; a token an org admin created is only served clusters
+        the organisation already has, so ask an app admin to claim a new cluster first
+        (<strong>Admin &rarr; Clusters</strong>). A token is refused (the collector logs a
         <code>permission_denied</code> error and keeps running its local config) when it reports:</p>
       <ul>
+        <li>an unclaimed cluster, for a token an org admin created;</li>
         <li>a cluster another organisation has already claimed &mdash; a token can never act as
           another organisation&rsquo;s cluster by naming it;</li>
         <li>a cluster or role outside the token&rsquo;s allowlists, when it has them (an empty list

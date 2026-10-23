@@ -81,6 +81,7 @@ function tokenToWire(t: Obj, orgs: Obj[]) {
     orgName: orgId ? (org ? s(org, 'name') : s(t, 'org_name')) : '',
     clusters: (t['clusters'] as string[] | undefined) ?? [],
     roles: (t['roles'] as string[] | undefined) ?? [],
+    mayClaim: t['may_claim'] === true,
   };
 }
 
@@ -784,6 +785,7 @@ export function installDefaultHandlers(router: Router) {
       created_by: 'admin',
       created_at: '2026-08-17T09:00:00Z',
       org_id: orgId,
+      may_claim: !!(st.me as { isAppAdmin?: boolean } | null)?.isAppAdmin,
       clusters: (req['clusters'] as string[] | undefined) ?? [],
       roles: (req['roles'] as string[] | undefined) ?? [],
     };
@@ -822,6 +824,7 @@ export function installDefaultHandlers(router: Router) {
     t['org_id'] = orgId;
     t['clusters'] = (req['clusters'] as string[] | undefined) ?? [];
     t['roles'] = (req['roles'] as string[] | undefined) ?? [];
+    t['may_claim'] = true;
     return json(r, 200, tokenToWire(t, st.orgs as Obj[]));
   });
 

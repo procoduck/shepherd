@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"shepherd/internal/beacon"
+	"shepherd/internal/metrics"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
 )
@@ -40,6 +41,9 @@ type BeaconHandler struct {
 	limits      beacon.Limits
 	limiter     *beacon.RateLimiter
 	verifyAgent AgentVerifier
+	// refusals counts (and logs at Debug, rate-limited) writes dropped
+	// because a bound token named another org's collector.
+	refusals *refusalLog
 }
 
 // NewBeaconHandler constructs a BeaconHandler. limits must be non-zero (see
@@ -55,39 +59,42 @@ func NewBeaconHandler(st *store.Store, logger *slog.Logger, limits beacon.Limits
 		limits:      limits,
 		limiter:     beacon.NewRateLimiter(limits),
 		verifyAgent: verifyAgent,
+		refusals:    newRefusalLogAt(refusalLogWindow, refusalLogMax, slog.LevelDebug),
 	}
 }
 
 // authenticate resolves the reporting principal from the Authorization header,
 // mirroring the Connect gate: a `Bearer` OIDC access token yields
 // "oidc:<issuer>|<sub>", a `Basic` agent token yields the token UUID. The
-// returned string is the beacon inventory identity and the rate-limit key.
-func (h *BeaconHandler) authenticate(ctx context.Context, authz string) (string, error) {
+// returned string is the beacon inventory identity and the rate-limit key;
+// the org is an agent token's bound org (invalid for an unbound token and for
+// OIDC), which scopes the collectors the write may name.
+func (h *BeaconHandler) authenticate(ctx context.Context, authz string) (string, pgtype.UUID, error) {
 	if raw, ok := strings.CutPrefix(authz, "Bearer "); ok {
 		if h.verifyAgent == nil {
-			return "", errUnauthenticated
+			return "", pgtype.UUID{}, errUnauthenticated
 		}
 		claims, err := h.verifyAgent(ctx, raw)
 		if err != nil {
-			return "", errUnauthenticated
+			return "", pgtype.UUID{}, errUnauthenticated
 		}
 		// Strip control characters from the verified claims before they become
 		// a stored key, a rate-limit key, and a log field. The issuer is an
 		// https URL and the subject comes from a signature-verified JWT, so
 		// this is belt-and-braces — but it stops a hostile IdP from smuggling a
 		// newline into the beacon key or the logs (CodeQL log-injection).
-		return "oidc:" + stripControl(claims.Issuer) + "|" + stripControl(claims.Subject), nil
+		return "oidc:" + stripControl(claims.Issuer) + "|" + stripControl(claims.Subject), pgtype.UUID{}, nil
 	}
-	// The beacon keys inventory and its rate limit on the token id: it
-	// authenticates the writer and resolves no org, so a token's org binding
-	// (migration 0038) plays no part here.
+	// The beacon keys inventory and its rate limit on the token id. A bound
+	// token (migration 0038) may only report collectors its org claimed —
+	// ServeHTTP drops the rest; an unbound token is accepted as before.
 	tok, err := verifyBasicAuth(ctx, authz, h.store)
 	if err != nil {
-		return "", errUnauthenticated
+		return "", pgtype.UUID{}, errUnauthenticated
 	}
 	// The id is a validated UUID, but sanitising here too keeps `principal`
 	// provably free of control characters on every path into the logs.
-	return stripControl(tok.ID.String()), nil
+	return stripControl(tok.ID.String()), tok.OrgID, nil
 }
 
 var errUnauthenticated = errors.New("beacon: unauthenticated")
@@ -126,7 +133,7 @@ func (h *BeaconHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	principal, err := h.authenticate(r.Context(), r.Header.Get("Authorization"))
+	principal, tokenOrg, err := h.authenticate(r.Context(), r.Header.Get("Authorization"))
 	if err != nil {
 		// Same response shape agent auth failures already use elsewhere
 		// (auth.go): WWW-Authenticate so a client can tell this is a
@@ -179,6 +186,22 @@ func (h *BeaconHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var collectorUUID pgtype.UUID
 	if collectorID != "" {
 		_ = collectorUUID.Scan(collectorID) //nolint:errcheck // invalid scan leaves Valid=false → stored NULL
+	}
+
+	// The collector id is a label the writer chose. An org-bound token may
+	// only report a collector whose cluster its org claimed; a write naming
+	// any other collector (another org's, an unclaimed one, or none known)
+	// is dropped and counted, never stored — so one org cannot write health
+	// into another org's reconciliation view. The answer is the same 204, so
+	// the call reveals nothing about other orgs' collectors.
+	if tokenOrg.Valid && collectorUUID.Valid {
+		owner, err := h.store.Queries.GetCollectorOrgID(r.Context(), collectorUUID)
+		if err != nil || owner != tokenOrg {
+			h.refusals.record(h.logger, "BeaconWrite", metrics.AgentRefusedBeaconDenied, instanceLabel,
+				"collector_id", collectorUUID.String(), "principal", principal)
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 	}
 
 	for _, obs := range observations {

@@ -14,9 +14,10 @@ import (
 
 const bindAgentToken = `-- name: BindAgentToken :one
 UPDATE agent_tokens
-SET org_id = $1, clusters = $2, roles = $3, updated_at = now()
+SET org_id = $1, clusters = $2, roles = $3,
+    may_claim = true, updated_at = now()
 WHERE id = $4 AND revoked_at IS NULL
-RETURNING id, name, token_hash, created_by, revoked_at, created_at, updated_at, org_id, clusters, roles
+RETURNING id, name, token_hash, created_by, revoked_at, created_at, updated_at, org_id, clusters, roles, may_claim
 `
 
 type BindAgentTokenParams struct {
@@ -27,7 +28,8 @@ type BindAgentTokenParams struct {
 }
 
 // Sets (or replaces) a live token's org binding in place. The secret hash is
-// untouched, so a collector keeps its credentials across a bind.
+// untouched, so a collector keeps its credentials across a bind. Only an app
+// admin (or the operator CLI) binds, so a bound token may claim clusters.
 func (q *Queries) BindAgentToken(ctx context.Context, arg BindAgentTokenParams) (AgentToken, error) {
 	row := q.db.QueryRow(ctx, bindAgentToken,
 		arg.OrgID,
@@ -47,17 +49,19 @@ func (q *Queries) BindAgentToken(ctx context.Context, arg BindAgentTokenParams) 
 		&i.OrgID,
 		&i.Clusters,
 		&i.Roles,
+		&i.MayClaim,
 	)
 	return i, err
 }
 
 const createAgentToken = `-- name: CreateAgentToken :one
-INSERT INTO agent_tokens (name, token_hash, created_by, org_id, clusters, roles)
+INSERT INTO agent_tokens (name, token_hash, created_by, org_id, clusters, roles, may_claim)
 VALUES (
     $1, $2, $3, $4,
-    COALESCE($5::jsonb, '[]'::jsonb), COALESCE($6::jsonb, '[]'::jsonb)
+    COALESCE($5::jsonb, '[]'::jsonb), COALESCE($6::jsonb, '[]'::jsonb),
+    $7
 )
-RETURNING id, name, token_hash, created_by, revoked_at, created_at, updated_at, org_id, clusters, roles
+RETURNING id, name, token_hash, created_by, revoked_at, created_at, updated_at, org_id, clusters, roles, may_claim
 `
 
 type CreateAgentTokenParams struct {
@@ -67,10 +71,12 @@ type CreateAgentTokenParams struct {
 	OrgID     pgtype.UUID     `json:"org_id"`
 	Clusters  json.RawMessage `json:"clusters"`
 	Roles     json.RawMessage `json:"roles"`
+	MayClaim  bool            `json:"may_claim"`
 }
 
 // org_id is required for every new token (enforced in Go: the API and CLI
-// refuse a create without one); clusters/roles are jsonb string-array
+// refuse a create without one); may_claim is true only when an app admin
+// (or the operator CLI) mints it; clusters/roles are jsonb string-array
 // allowlists, empty = any within the org (0038_agent_token_org_binding); a
 // NULL allowlist is stored as the empty one.
 func (q *Queries) CreateAgentToken(ctx context.Context, arg CreateAgentTokenParams) (AgentToken, error) {
@@ -81,6 +87,7 @@ func (q *Queries) CreateAgentToken(ctx context.Context, arg CreateAgentTokenPara
 		arg.OrgID,
 		arg.Clusters,
 		arg.Roles,
+		arg.MayClaim,
 	)
 	var i AgentToken
 	err := row.Scan(
@@ -94,17 +101,19 @@ func (q *Queries) CreateAgentToken(ctx context.Context, arg CreateAgentTokenPara
 		&i.OrgID,
 		&i.Clusters,
 		&i.Roles,
+		&i.MayClaim,
 	)
 	return i, err
 }
 
 const createAgentTokenWithID = `-- name: CreateAgentTokenWithID :one
-INSERT INTO agent_tokens (id, name, token_hash, created_by, org_id, clusters, roles)
+INSERT INTO agent_tokens (id, name, token_hash, created_by, org_id, clusters, roles, may_claim)
 VALUES (
     $1, $2, $3, $4, $5,
-    COALESCE($6::jsonb, '[]'::jsonb), COALESCE($7::jsonb, '[]'::jsonb)
+    COALESCE($6::jsonb, '[]'::jsonb), COALESCE($7::jsonb, '[]'::jsonb),
+    $8
 )
-RETURNING id, name, token_hash, created_by, revoked_at, created_at, updated_at, org_id, clusters, roles
+RETURNING id, name, token_hash, created_by, revoked_at, created_at, updated_at, org_id, clusters, roles, may_claim
 `
 
 type CreateAgentTokenWithIDParams struct {
@@ -115,6 +124,7 @@ type CreateAgentTokenWithIDParams struct {
 	OrgID     pgtype.UUID     `json:"org_id"`
 	Clusters  json.RawMessage `json:"clusters"`
 	Roles     json.RawMessage `json:"roles"`
+	MayClaim  bool            `json:"may_claim"`
 }
 
 func (q *Queries) CreateAgentTokenWithID(ctx context.Context, arg CreateAgentTokenWithIDParams) (AgentToken, error) {
@@ -126,6 +136,7 @@ func (q *Queries) CreateAgentTokenWithID(ctx context.Context, arg CreateAgentTok
 		arg.OrgID,
 		arg.Clusters,
 		arg.Roles,
+		arg.MayClaim,
 	)
 	var i AgentToken
 	err := row.Scan(
@@ -139,12 +150,13 @@ func (q *Queries) CreateAgentTokenWithID(ctx context.Context, arg CreateAgentTok
 		&i.OrgID,
 		&i.Clusters,
 		&i.Roles,
+		&i.MayClaim,
 	)
 	return i, err
 }
 
 const getAgentTokenByID = `-- name: GetAgentTokenByID :one
-SELECT id, name, token_hash, created_by, revoked_at, created_at, updated_at, org_id, clusters, roles FROM agent_tokens WHERE id = $1 AND revoked_at IS NULL
+SELECT id, name, token_hash, created_by, revoked_at, created_at, updated_at, org_id, clusters, roles, may_claim FROM agent_tokens WHERE id = $1 AND revoked_at IS NULL
 `
 
 func (q *Queries) GetAgentTokenByID(ctx context.Context, id pgtype.UUID) (AgentToken, error) {
@@ -161,12 +173,13 @@ func (q *Queries) GetAgentTokenByID(ctx context.Context, id pgtype.UUID) (AgentT
 		&i.OrgID,
 		&i.Clusters,
 		&i.Roles,
+		&i.MayClaim,
 	)
 	return i, err
 }
 
 const listAgentTokens = `-- name: ListAgentTokens :many
-SELECT t.id, t.name, t.token_hash, t.created_by, t.revoked_at, t.created_at, t.updated_at, t.org_id, t.clusters, t.roles, o.name AS org_name
+SELECT t.id, t.name, t.token_hash, t.created_by, t.revoked_at, t.created_at, t.updated_at, t.org_id, t.clusters, t.roles, t.may_claim, o.name AS org_name
 FROM agent_tokens t
 LEFT JOIN orgs o ON o.id = t.org_id
 WHERE $1::uuid IS NULL OR t.org_id = $1::uuid
@@ -200,6 +213,7 @@ func (q *Queries) ListAgentTokens(ctx context.Context, orgID pgtype.UUID) ([]Lis
 			&i.AgentToken.OrgID,
 			&i.AgentToken.Clusters,
 			&i.AgentToken.Roles,
+			&i.AgentToken.MayClaim,
 			&i.OrgName,
 		); err != nil {
 			return nil, err
@@ -216,7 +230,7 @@ const revokeAgentToken = `-- name: RevokeAgentToken :one
 UPDATE agent_tokens SET revoked_at = now(), updated_at = now()
 WHERE id = $1
   AND ($2::uuid IS NULL OR org_id = $2::uuid)
-RETURNING id, name, token_hash, created_by, revoked_at, created_at, updated_at, org_id, clusters, roles
+RETURNING id, name, token_hash, created_by, revoked_at, created_at, updated_at, org_id, clusters, roles, may_claim
 `
 
 type RevokeAgentTokenParams struct {
@@ -241,6 +255,7 @@ func (q *Queries) RevokeAgentToken(ctx context.Context, arg RevokeAgentTokenPara
 		&i.OrgID,
 		&i.Clusters,
 		&i.Roles,
+		&i.MayClaim,
 	)
 	return i, err
 }

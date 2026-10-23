@@ -143,6 +143,7 @@ var _ = Describe("AdminService agent tokens", Label("integration"), func() {
 			Expect(tok.OrgID).To(Equal(orgA.ID))
 			Expect(string(tok.Clusters)).To(MatchJSON(`["prod-eu-1"]`))
 			Expect(string(tok.Roles)).To(MatchJSON(`["metrics"]`))
+			Expect(tok.MayClaim).To(BeFalse(), "an org admin's token never claims clusters")
 			Expect(auditCount("agent_token.create", orgA.ID)).To(Equal(1))
 		})
 
@@ -209,6 +210,53 @@ var _ = Describe("AdminService agent tokens", Label("integration"), func() {
 		})
 	})
 
+	// An admin-tier service account reaches exactly an org admin's token
+	// scope (sa=same-org,tier>=admin in the golden), and like an org admin
+	// its tokens never claim clusters.
+	It("an admin-tier service account mints only its own org's tokens, which never claim", func() {
+		secret := "tokens-sa-secret"
+		hash := sha256.Sum256([]byte(secret))
+		sa, err := st.Queries.CreateServiceAccount(ctx, sqlc.CreateServiceAccountParams{
+			OrgID: orgA.ID, Name: "ci", Capability: "apply", Role: "admin", TokenHash: hash[:], CreatedBy: "admin@example.com",
+		})
+		Expect(err).NotTo(HaveOccurred())
+		saCall := func(method string, body map[string]any) (int, map[string]any) {
+			buf, err := json.Marshal(body)
+			Expect(err).NotTo(HaveOccurred())
+			req, err := http.NewRequest(http.MethodPost, server.URL+"/shepherd.mgmt.v1.AdminService/"+method, strings.NewReader(string(buf)))
+			Expect(err).NotTo(HaveOccurred())
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("X-Requested-With", "XMLHttpRequest")
+			req.Header.Set("Shepherd-On-Behalf-Of", "admin@example.com")
+			req.SetBasicAuth(sa.ID.String(), secret)
+			resp, err := http.DefaultClient.Do(req)
+			Expect(err).NotTo(HaveOccurred())
+			defer resp.Body.Close() //nolint:errcheck // test cleanup
+			raw, err := io.ReadAll(resp.Body)
+			Expect(err).NotTo(HaveOccurred())
+			var payload map[string]any
+			Expect(json.Unmarshal(raw, &payload)).To(Succeed(), string(raw))
+			return resp.StatusCode, payload
+		}
+
+		code, created := saCall("CreateAgentToken", map[string]any{"name": "sa-tok", "orgId": orgA.ID.String()})
+		Expect(code).To(Equal(http.StatusOK), "%v", created)
+		var id pgtype.UUID
+		Expect(id.Scan(created["id"])).To(Succeed())
+		tok, err := st.Queries.GetAgentTokenByID(ctx, id)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(tok.OrgID).To(Equal(orgA.ID))
+		Expect(tok.MayClaim).To(BeFalse(), "a service account's token never claims clusters")
+
+		code, _ = saCall("CreateAgentToken", map[string]any{"name": "x", "orgId": orgB.ID.String()})
+		Expect(code).To(Equal(http.StatusForbidden))
+		code, _ = saCall("ListAgentTokens", map[string]any{})
+		Expect(code).To(Equal(http.StatusForbidden), "the every-token view is app admin only")
+		legacy := seedToken("legacy", nil)
+		code, _ = saCall("BindAgentToken", map[string]any{"id": legacy.ID.String(), "orgId": orgA.ID.String()})
+		Expect(code).To(Equal(http.StatusForbidden))
+	})
+
 	It("an org viewer cannot list, create or revoke the org's tokens", func() {
 		mine := seedToken("a-1", &orgA)
 		viewer := session(false, "a-viewer")
@@ -248,6 +296,8 @@ var _ = Describe("AdminService agent tokens", Label("integration"), func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(after.TokenHash).To(Equal(legacy.TokenHash), "binding never touches the secret")
 			Expect(after.OrgID).To(Equal(orgA.ID))
+			Expect(after.MayClaim).To(BeTrue(), "an app admin's bind lets the token claim clusters")
+			Expect(bound["mayClaim"]).To(BeTrue())
 			Expect(auditCount("agent_token.bind", orgA.ID)).To(Equal(1))
 
 			code, _ = call("BindAgentToken", map[string]any{"id": legacy.ID.String(), "orgId": orgB.ID.String()}, admin)
@@ -277,8 +327,13 @@ var _ = Describe("AdminService agent tokens", Label("integration"), func() {
 
 		It("creates a token for any org, and requires one", func() {
 			admin := session(true)
-			code, _ := call("CreateAgentToken", map[string]any{"name": "b-tok", "orgId": orgB.ID.String()}, admin)
+			code, created := call("CreateAgentToken", map[string]any{"name": "b-tok", "orgId": orgB.ID.String()}, admin)
 			Expect(code).To(Equal(http.StatusOK))
+			var id pgtype.UUID
+			Expect(id.Scan(created["id"])).To(Succeed())
+			tok, err := st.Queries.GetAgentTokenByID(ctx, id)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(tok.MayClaim).To(BeTrue(), "an app admin's token may claim clusters")
 			code, _ = call("CreateAgentToken", map[string]any{"name": "nowhere"}, admin)
 			Expect(code).To(Equal(http.StatusBadRequest))
 		})

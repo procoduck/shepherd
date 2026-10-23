@@ -40,19 +40,27 @@ type Principal struct {
 	TokenID string            // AuthKindToken
 	Claims  *auth.AgentClaims // AuthKindOIDC
 
-	// token is an AuthKindToken principal's org binding, read with the token
-	// row by the gate. An invalid org is an unbound token.
-	token orgBinding
+	// Binding is an AuthKindToken principal's org binding, read with the
+	// token row by the gate — whole, in one value, so a caller that caches
+	// the principal caches what it may act for with it. An invalid OrgID is
+	// an unbound token.
+	Binding Binding
 }
 
-// orgBinding is what a bound principal may act for: an org, and optional
-// cluster/role allowlists (jsonb string arrays, empty = any). An agent token
-// row and an OIDC agent_identities row both carry one, and both resolve
-// through Service.resolveBoundOrg.
-type orgBinding struct {
-	orgID    pgtype.UUID
-	clusters json.RawMessage
-	roles    json.RawMessage
+// Binding is what a bound principal may act for: an org, optional
+// cluster/role allowlists (jsonb string arrays, empty = any), and whether it
+// may claim an unclaimed cluster for that org. An agent token row and an OIDC
+// agent_identities row both carry one, and both resolve through
+// Service.resolveBoundOrg.
+type Binding struct {
+	OrgID    pgtype.UUID
+	Clusters json.RawMessage
+	Roles    json.RawMessage
+	// MayClaim: an unclaimed cluster may be claimed for OrgID on a poll.
+	// True for an OIDC binding and for a token an app admin minted or bound
+	// (agent_tokens.may_claim); a token an org admin or a service account
+	// minted serves only clusters OrgID has already claimed.
+	MayClaim bool
 }
 
 // PrincipalFrom returns the authenticated principal, or the zero value (an
@@ -99,7 +107,7 @@ func NewAuthGate(st *store.Store, verifyAgent AgentVerifier) connect.RequestGate
 		return context.WithValue(ctx, principalKey, Principal{
 			Kind:    AuthKindToken,
 			TokenID: tok.ID.String(),
-			token:   orgBinding{orgID: tok.OrgID, clusters: tok.Clusters, roles: tok.Roles},
+			Binding: Binding{OrgID: tok.OrgID, Clusters: tok.Clusters, Roles: tok.Roles, MayClaim: tok.MayClaim},
 		}), nil
 	}
 }

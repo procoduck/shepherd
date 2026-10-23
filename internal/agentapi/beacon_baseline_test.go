@@ -73,7 +73,7 @@ var _ = Describe("D6 baseline on the lazy serve path", Label("integration"), fun
 		secret := base64.URLEncoding.EncodeToString(raw)
 		hash := sha256.Sum256([]byte(secret))
 		tok, err := st.Queries.CreateAgentToken(ctx, sqlc.CreateAgentTokenParams{
-			Name: "beacon-token", TokenHash: hash[:], CreatedBy: "test", OrgID: org.ID,
+			Name: "beacon-token", TokenHash: hash[:], CreatedBy: "test", OrgID: org.ID, MayClaim: true,
 		})
 		Expect(err).NotTo(HaveOccurred())
 		authHeader := "Basic " + base64.StdEncoding.EncodeToString([]byte(tok.ID.String()+":"+secret))

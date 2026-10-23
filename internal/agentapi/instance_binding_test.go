@@ -89,7 +89,7 @@ var _ = Describe("Collector instance identity", Label("integration"), func() {
 			_, _ = rand.Read(raw)
 			secret := base64.URLEncoding.EncodeToString(raw)
 			hash := sha256.Sum256([]byte(secret))
-			tok, err := st.Queries.CreateAgentToken(ctx, sqlc.CreateAgentTokenParams{Name: "t-" + org.Name, TokenHash: hash[:], CreatedBy: "test", OrgID: org.ID})
+			tok, err := st.Queries.CreateAgentToken(ctx, sqlc.CreateAgentTokenParams{Name: "t-" + org.Name, TokenHash: hash[:], CreatedBy: "test", OrgID: org.ID, MayClaim: true})
 			Expect(err).NotTo(HaveOccurred())
 			return "Basic " + base64.StdEncoding.EncodeToString([]byte(tok.ID.String()+":"+secret))
 		}

@@ -70,16 +70,18 @@ var _ = Describe("Org-bound agent tokens", Label("integration"), func() {
 		return b
 	}
 
-	// mint creates a token row directly (a nil org is an unbound, pre-0038
-	// token) and returns a client authenticating with it plus its id.
-	mint := func(ctx context.Context, org *sqlc.Org, clusters, roles []string) (collectorv1connect.CollectorServiceClient, pgtype.UUID) {
+	// mintToken creates a token row directly (a nil org is an unbound,
+	// pre-0038 token) and returns a client authenticating with it plus its
+	// id. mayClaim is agent_tokens.may_claim: true for a token an app admin
+	// minted, false for one an org admin or a service account minted.
+	mintToken := func(ctx context.Context, org *sqlc.Org, clusters, roles []string, mayClaim bool) (collectorv1connect.CollectorServiceClient, pgtype.UUID) {
 		raw := make([]byte, 32)
 		_, _ = rand.Read(raw)
 		secret := base64.URLEncoding.EncodeToString(raw)
 		hash := sha256.Sum256([]byte(secret))
 		params := sqlc.CreateAgentTokenParams{
 			Name: "t", TokenHash: hash[:], CreatedBy: "test",
-			Clusters: arr(clusters...), Roles: arr(roles...),
+			Clusters: arr(clusters...), Roles: arr(roles...), MayClaim: mayClaim,
 		}
 		if org != nil {
 			params.OrgID = org.ID
@@ -95,6 +97,15 @@ var _ = Describe("Org-bound agent tokens", Label("integration"), func() {
 				}
 			})))
 		return c, tok.ID
+	}
+
+	// mint is an app-admin-minted token (may claim); orgMint an org admin's.
+	mint := func(ctx context.Context, org *sqlc.Org, clusters, roles []string) (collectorv1connect.CollectorServiceClient, pgtype.UUID) {
+		return mintToken(ctx, org, clusters, roles, true)
+	}
+	orgMint := func(ctx context.Context, org *sqlc.Org) collectorv1connect.CollectorServiceClient {
+		c, _ := mintToken(ctx, org, nil, nil, false)
+		return c
 	}
 
 	refused := func(reason string) float64 {
@@ -155,7 +166,35 @@ var _ = Describe("Org-bound agent tokens", Label("integration"), func() {
 		Expect(clusterOrg(ctx, "free-cluster").Valid).To(BeFalse(), "an unbound token claims nothing")
 	})
 
-	It("auto-claims an allowed unclaimed cluster for the token's org and serves it", func(ctx context.Context) {
+	Describe("a token an org admin or a service account minted", func() {
+		It("never claims an unclaimed cluster: refused as claim_denied, the cluster stays unclaimed", func(ctx context.Context) {
+			c := orgMint(ctx, &orgA)
+			before := refused(metrics.AgentRefusedClaimDenied)
+			err := poll(ctx, c, "inst-org", "new-cluster", "metrics")
+			Expect(connect.CodeOf(err)).To(Equal(connect.CodePermissionDenied))
+			Expect(err.Error()).To(ContainSubstring("an organisation token cannot claim clusters; ask an app admin to claim it"))
+			Expect(connect.CodeOf(register(ctx, c, "inst-org", "new-cluster", "metrics"))).To(Equal(connect.CodePermissionDenied))
+			Expect(refused(metrics.AgentRefusedClaimDenied) - before).To(Equal(2.0))
+			Expect(clusterOrg(ctx, "new-cluster").Valid).To(BeFalse(), "the cluster stays unclaimed")
+			Expect(instanceCount(ctx, "inst-org")).To(Equal(0))
+		})
+
+		It("is served for a cluster its org has already claimed", func(ctx context.Context) {
+			claim(ctx, "a-prod", orgA)
+			Expect(poll(ctx, orgMint(ctx, &orgA), "inst-org", "a-prod", "metrics")).To(Succeed())
+			Expect(instanceCount(ctx, "inst-org")).To(Equal(1))
+		})
+
+		It("is refused for a cluster another org claimed", func(ctx context.Context) {
+			claim(ctx, "b-prod", orgB)
+			err := poll(ctx, orgMint(ctx, &orgA), "inst-org", "b-prod", "metrics")
+			Expect(connect.CodeOf(err)).To(Equal(connect.CodePermissionDenied))
+			Expect(err.Error()).To(ContainSubstring("claimed by another organisation"))
+			Expect(clusterOrg(ctx, "b-prod")).To(Equal(orgB.ID))
+		})
+	})
+
+	It("auto-claims an allowed unclaimed cluster for an app-admin token's org and serves it", func(ctx context.Context) {
 		c, _ := mint(ctx, &orgA, nil, nil)
 		Expect(poll(ctx, c, "inst-a", "a-prod", "metrics")).To(Succeed())
 		Expect(clusterOrg(ctx, "a-prod")).To(Equal(orgA.ID))

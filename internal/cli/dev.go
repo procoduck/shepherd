@@ -765,7 +765,7 @@ func seedAgentToken(ctx context.Context, st *store.Store, orgID pgtype.UUID) err
 	empty := json.RawMessage(`[]`)
 	_, err := st.Queries.CreateAgentTokenWithID(ctx, sqlc.CreateAgentTokenWithIDParams{
 		ID: id, Name: "dev-alloy-token", TokenHash: hash[:], CreatedBy: "seed",
-		OrgID: orgID, Clusters: empty, Roles: empty,
+		OrgID: orgID, Clusters: empty, Roles: empty, MayClaim: true,
 	})
 	if err != nil && !isUnique(err) {
 		return err

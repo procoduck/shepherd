@@ -102,17 +102,18 @@ kubectl -n shepherd exec svc/shepherd -- /usr/local/bin/shepherd token bind \
 
 Bind each token to the org that already claims the clusters its collectors
 report: a bound token is refused for a cluster another org has claimed, and
-claims any unclaimed cluster it reports (within its allowlists) for its own
-org. `shepherd token create` now requires `--org`, and `CreateAgentToken`
+— because an app admin bound it — claims any unclaimed cluster it reports
+(within its allowlists) for its own org. `shepherd token create` now requires `--org`, and `CreateAgentToken`
 requires `org_id`; scripts that mint tokens need that argument added. Org
-admins can now create, list and revoke their own org's tokens; binding a
-token to an org stays app admin only.
+admins can now create, list and revoke their own org's tokens; those tokens
+serve only clusters the org already claims (claiming stays app admin only, as
+does binding a token to an org).
 
 #### Migration 0038
 
 Applied by the migration Job before the new pods start, as usual. It adds a
 nullable `org_id` (FK to `orgs`, `ON DELETE SET NULL`) and two `jsonb`
-allowlist columns defaulting to `[]` to `agent_tokens` — metadata-only, quick.
+allowlist columns defaulting to `[]` and `may_claim` (default `false`) to `agent_tokens` — metadata-only, quick.
 Its down migration drops them.
 
 ## 0.21.x → 0.22.0

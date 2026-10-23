@@ -207,6 +207,11 @@ message AgentToken {
   // Empty means any.
   repeated string clusters = 8;
   repeated string roles = 9;
+  // may_claim: whether collectors using the token may claim an unclaimed
+  // cluster for its org. True for a token an app admin minted or bound; a
+  // token an org admin or a service account minted serves only clusters its
+  // org has already claimed.
+  bool may_claim = 10;
 }
 
 // ListAgentTokensRequest: org_id set lists only the tokens bound to that org

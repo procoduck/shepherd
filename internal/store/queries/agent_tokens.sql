@@ -1,20 +1,23 @@
 -- name: CreateAgentToken :one
 -- org_id is required for every new token (enforced in Go: the API and CLI
--- refuse a create without one); clusters/roles are jsonb string-array
+-- refuse a create without one); may_claim is true only when an app admin
+-- (or the operator CLI) mints it; clusters/roles are jsonb string-array
 -- allowlists, empty = any within the org (0038_agent_token_org_binding); a
 -- NULL allowlist is stored as the empty one.
-INSERT INTO agent_tokens (name, token_hash, created_by, org_id, clusters, roles)
+INSERT INTO agent_tokens (name, token_hash, created_by, org_id, clusters, roles, may_claim)
 VALUES (
     sqlc.arg(name), sqlc.arg(token_hash), sqlc.arg(created_by), sqlc.narg(org_id),
-    COALESCE(sqlc.narg(clusters)::jsonb, '[]'::jsonb), COALESCE(sqlc.narg(roles)::jsonb, '[]'::jsonb)
+    COALESCE(sqlc.narg(clusters)::jsonb, '[]'::jsonb), COALESCE(sqlc.narg(roles)::jsonb, '[]'::jsonb),
+    sqlc.arg(may_claim)
 )
 RETURNING *;
 
 -- name: CreateAgentTokenWithID :one
-INSERT INTO agent_tokens (id, name, token_hash, created_by, org_id, clusters, roles)
+INSERT INTO agent_tokens (id, name, token_hash, created_by, org_id, clusters, roles, may_claim)
 VALUES (
     sqlc.arg(id), sqlc.arg(name), sqlc.arg(token_hash), sqlc.arg(created_by), sqlc.narg(org_id),
-    COALESCE(sqlc.narg(clusters)::jsonb, '[]'::jsonb), COALESCE(sqlc.narg(roles)::jsonb, '[]'::jsonb)
+    COALESCE(sqlc.narg(clusters)::jsonb, '[]'::jsonb), COALESCE(sqlc.narg(roles)::jsonb, '[]'::jsonb),
+    sqlc.arg(may_claim)
 )
 RETURNING *;
 
@@ -41,8 +44,10 @@ RETURNING *;
 
 -- name: BindAgentToken :one
 -- Sets (or replaces) a live token's org binding in place. The secret hash is
--- untouched, so a collector keeps its credentials across a bind.
+-- untouched, so a collector keeps its credentials across a bind. Only an app
+-- admin (or the operator CLI) binds, so a bound token may claim clusters.
 UPDATE agent_tokens
-SET org_id = sqlc.arg(org_id), clusters = sqlc.arg(clusters), roles = sqlc.arg(roles), updated_at = now()
+SET org_id = sqlc.arg(org_id), clusters = sqlc.arg(clusters), roles = sqlc.arg(roles),
+    may_claim = true, updated_at = now()
 WHERE id = sqlc.arg(id) AND revoked_at IS NULL
 RETURNING *;

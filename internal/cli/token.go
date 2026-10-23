@@ -195,6 +195,7 @@ func runTokenCreate(cmd *cobra.Command, _ []string) error {
 			TokenHash: hash[:],
 			CreatedBy: "cli",
 			OrgID:     orgID,
+			MayClaim:  true, // the operator CLI has database access: app-admin equivalent
 			Clusters:  clusters,
 			Roles:     roles,
 		})
@@ -208,6 +209,7 @@ func runTokenCreate(cmd *cobra.Command, _ []string) error {
 			TokenHash: hash[:],
 			CreatedBy: "cli",
 			OrgID:     orgID,
+			MayClaim:  true, // the operator CLI has database access: app-admin equivalent
 			Clusters:  clusters,
 			Roles:     roles,
 		})
