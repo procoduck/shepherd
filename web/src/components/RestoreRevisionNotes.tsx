@@ -20,9 +20,10 @@ function destinationNames(state: PipelineRevision['wizardState']): string[] {
 
 /**
  * What else a restore changes, said before it happens. RestoreRevision puts
- * back the revision's contents AND its matchers and enabled state, so a
- * restore — including "Restore last wizard version" (M4) — can change which
- * collectors receive the pipeline, or whether it is served at all.
+ * back the revision's contents AND its matchers, so a restore — including
+ * "Restore last wizard version" (M4) — can change which collectors receive
+ * the pipeline. It keeps the pipeline's current enabled state (#377); when
+ * the revision was saved in the other state, the dialog says which one wins.
  * `detail` is the revision in full (GetRevision); until it loads only the
  * notes that need no revision data show.
  */
@@ -84,10 +85,10 @@ export function RestoreRevisionNotes({
         </div>
       )}
       {detail && detail.enabled !== pipeline.enabled && (
-        <p data-testid='restore-enabled-change' className='text-sm text-amber-400'>
-          {detail.enabled
-            ? 'This revision was saved while the pipeline was enabled, so restoring it enables the pipeline — it will be served to matching collectors.'
-            : 'This revision was saved while the pipeline was disabled, so restoring it disables the pipeline — it stops being served.'}
+        <p data-testid='restore-enabled-kept' className='text-sm text-muted'>
+          {pipeline.enabled
+            ? 'This revision was saved while the pipeline was disabled. Restoring it keeps the pipeline enabled — the restored version is validated against and served to matching collectors.'
+            : 'This revision was saved while the pipeline was enabled. Restoring it keeps the pipeline disabled — enable it to serve the restored version.'}
         </p>
       )}
       {pipeline.source === 'git' && (

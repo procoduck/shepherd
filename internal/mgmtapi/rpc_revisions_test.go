@@ -29,7 +29,7 @@ func pipelineID(p map[string]any) string {
 
 // F-REVISIONS backend package: GetRevision (full-field read of one
 // revision) and RestoreRevision (create a new revision from an old one's
-// contents/matchers/enabled/wizard_state, through the same validation gate
+// contents/matchers/wizard_state, keeping the current enabled state (#377), through the same validation gate
 // and authorization as UpdatePipeline). See docs/archive/plans/2026-09-11-f-revisions.md
 // §3 for the settled shape; this file is B-6's Ginkgo coverage.
 var _ = Describe("PipelineService GetRevision / RestoreRevision", Label("integration"), func() {
@@ -397,182 +397,156 @@ var _ = Describe("PipelineService GetRevision / RestoreRevision", Label("integra
 		Expect(g11DecodeBody(applyResp)["code"]).To(Equal("invalid_argument"))
 	})
 
-	// 10. Fix-up (backend review, F-REVISIONS): a restore that flips an
-	// ENABLED pipeline back to disabled must dirty and recompute the serve
-	// cache exactly as EnablePipeline/DisablePipeline/DeletePipeline do —
-	// otherwise every collector the pipeline matched keeps being served its
-	// config indefinitely, since nothing else would ever mark the cache
-	// dirty again. Only the enabled bit changes across the restore here (the
-	// matcher and content are identical before and after), isolating the
-	// assertion to the dirty/recompute wiring rather than any content
-	// difference.
-	It("dirties and recomputes the serve cache when a restore flips an enabled pipeline back to disabled", func() {
-		cluster, err := st.Queries.UpsertCluster(ctx, "restore-dirty-cluster")
+	// Shared setup for the enabled-state specs below (#377): a claimed
+	// cluster with one metrics collector the pipeline's matcher selects, so
+	// the serve cache shows what is actually served.
+	metricsCollector := func(clusterName string) pgtype.UUID {
+		cluster, err := st.Queries.UpsertCluster(ctx, clusterName)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(st.Queries.ClaimCluster(ctx, sqlc.ClaimClusterParams{ID: cluster.ID, OrgID: orgUUID(orgID)})).To(Succeed())
 		collector, err := st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: cluster.ID, Role: "metrics"})
 		Expect(err).NotTo(HaveOccurred())
-
-		createResp := postConnectJSON(server, "/shepherd.mgmt.v1.PipelineService/CreatePipeline", editorCookie, map[string]any{
-			"orgId": orgID, "name": "restore-dirty-pipe", "contents": "// RESTORE-DIRTY-MARKER\n",
-			"matchers": []string{`role="metrics"`},
-		})
-		Expect(createResp.StatusCode).To(Equal(http.StatusOK))
-		var p map[string]any
-		Expect(json.NewDecoder(createResp.Body).Decode(&p)).To(Succeed())
-		Expect(createResp.Body.Close()).To(Succeed())
-		id := pipelineID(p)
-
-		// Enable it (still rev1's content — EnablePipeline never writes a
-		// new revision) and wait for the resulting eager recompute to
-		// actually serve this collector the marker, proving the setup is
-		// live before the restore under test.
-		enableResp := postConnectJSON(server, "/shepherd.mgmt.v1.PipelineService/EnablePipeline", editorCookie, map[string]any{
-			"orgId": orgID, "id": id,
-		})
-		Expect(enableResp.StatusCode).To(Equal(http.StatusOK))
-		Expect(enableResp.Body.Close()).To(Succeed())
-
-		Eventually(func() string {
-			cache, cacheErr := st.Queries.GetServeCache(ctx, collector.ID)
+		return collector.ID
+	}
+	servedContent := func(collectorID pgtype.UUID) func() string {
+		return func() string {
+			cache, cacheErr := st.Queries.GetServeCache(ctx, collectorID)
 			if cacheErr != nil {
-				return ""
+				return "sentinel: no serve_cache row"
 			}
 			return cache.Content
-		}, "5s", "20ms").Should(ContainSubstring("RESTORE-DIRTY-MARKER"),
-			"collector must be served the enabled pipeline's content before the restore under test")
-
-		// Restore revision 1 — created disabled, so this is an
-		// enabled(true) -> disabled(false) TRANSITION.
-		resp := restoreRevision(editorCookie, id, 1, "")
-		Expect(resp.StatusCode).To(Equal(http.StatusOK))
-		Expect(resp.Body.Close()).To(Succeed())
-
+		}
+	}
+	callOK := func(srv *httptest.Server, procedure string, body map[string]any) map[string]any {
+		resp := postConnectJSON(srv, "/shepherd.mgmt.v1.PipelineService/"+procedure, editorCookie, body)
+		defer resp.Body.Close() //nolint:errcheck // test cleanup
+		Expect(resp.StatusCode).To(Equal(http.StatusOK), procedure)
+		var out map[string]any
+		Expect(json.NewDecoder(resp.Body).Decode(&out)).To(Succeed())
+		return out
+	}
+	createMetricsPipeline := func(srv *httptest.Server, name, contents string) (string, pgtype.UUID) {
+		p := callOK(srv, "CreatePipeline", map[string]any{
+			"orgId": orgID, "name": name, "contents": contents, "matchers": []string{`role="metrics"`},
+		})
+		id := pipelineID(p)
 		var pid pgtype.UUID
 		Expect(pid.Scan(id)).To(Succeed())
-		reloaded, err := st.Queries.GetPipelineByID(ctx, pid)
+		return id, pid
+	}
+	auditActions := func(id string) []string {
+		rows, err := st.Queries.ListAuditLog(ctx, sqlc.ListAuditLogParams{Column1: orgUUID(orgID), Limit: 100})
 		Expect(err).NotTo(HaveOccurred())
-		Expect(reloaded.Enabled).To(BeFalse(), "restoring revision 1 must flip the pipeline back to disabled")
-
-		// The flip is audited as the toggle would be, beside pipeline.restore (#200).
-		auditRows, err := st.Queries.ListAuditLog(ctx, sqlc.ListAuditLogParams{Column1: orgUUID(orgID), Limit: 100})
-		Expect(err).NotTo(HaveOccurred())
-		var restoreDisable bool
-		for i := range auditRows {
-			if auditRows[i].Action == "pipeline.disable" && auditRows[i].ResourceID == id && auditRows[i].Actor == editorEmail() {
-				restoreDisable = true
+		var actions []string
+		for i := range rows {
+			if rows[i].ResourceID == id {
+				actions = append(actions, rows[i].Action)
 			}
 		}
-		Expect(restoreDisable).To(BeTrue(), "a restore that disables the pipeline must write pipeline.disable")
+		return actions
+	}
 
-		Eventually(func() string {
-			cache, cacheErr := st.Queries.GetServeCache(ctx, collector.ID)
-			if cacheErr != nil {
-				return "sentinel: no serve_cache row"
-			}
-			return cache.Content
-		}, "5s", "20ms").ShouldNot(ContainSubstring("RESTORE-DIRTY-MARKER"),
-			"restoring a pipeline from enabled to disabled must dirty+recompute the serve cache so "+
-				"the collector stops being served its config")
-	})
+	// 10. #377: restore brings back contents and matchers but keeps the
+	// pipeline's CURRENT enabled state. Revision 1 is always written
+	// disabled (create stores enabled=false; Enable/Disable write no
+	// revision), so before #377 "revert to revision 1" switched an enabled
+	// pipeline off and its data stopped. Restoring it onto an enabled
+	// pipeline must leave the pipeline enabled, dirty + recompute the serve
+	// cache, and serve the restored content. Red before #377: Enabled is
+	// false and the collector stops being served the pipeline.
+	It("keeps an enabled pipeline enabled and serves the restored content when the revision was written disabled", func() {
+		collectorID := metricsCollector("restore-keep-enabled-cluster")
+		id, pid := createMetricsPipeline(server, "restore-keep-enabled", "// KEEP-ENABLED-MARKER-A\n") // rev 1, enabled=false
+		callOK(server, "EnablePipeline", map[string]any{"orgId": orgID, "id": id})
+		callOK(server, "UpdatePipeline", map[string]any{
+			"orgId": orgID, "id": id, "name": "restore-keep-enabled",
+			"contents": "// KEEP-ENABLED-MARKER-B\n", "matchers": []string{`role="metrics"`},
+		}) // rev 2, enabled=true
+		Eventually(servedContent(collectorID), "5s", "20ms").Should(ContainSubstring("KEEP-ENABLED-MARKER-B"),
+			"collector must be served revision 2 before the restore under test")
 
-	// 10b. Re-check follow-up: the other direction of the enabled flip. A
-	// successful restore of an enabled=true revision onto a currently
-	// DISABLED pipeline must flip pipelines.enabled back on AND dirty +
-	// recompute the serve cache so the collector is served the restored
-	// content — spec 11 only exercises this transition on its forced-failure
-	// path. Red run: skipping the SetPipelineEnabled write (or the dirty +
-	// recompute block) in RestoreRevision fails the Enabled assertion (or
-	// the Eventually on the serve cache) below.
-	It("flips a disabled pipeline back to enabled and serves the restored content when the revision was enabled", func() {
-		cluster, err := st.Queries.UpsertCluster(ctx, "restore-reenable-cluster")
-		Expect(err).NotTo(HaveOccurred())
-		Expect(st.Queries.ClaimCluster(ctx, sqlc.ClaimClusterParams{ID: cluster.ID, OrgID: orgUUID(orgID)})).To(Succeed())
-		collector, err := st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: cluster.ID, Role: "metrics"})
-		Expect(err).NotTo(HaveOccurred())
+		restored := callOK(server, "RestoreRevision", map[string]any{"orgId": orgID, "id": id, "revision": 1})
+		Expect(restored).To(HaveKeyWithValue("enabled", true), "the RestoreRevision response must report the pipeline still enabled")
 
-		createResp := postConnectJSON(server, "/shepherd.mgmt.v1.PipelineService/CreatePipeline", editorCookie, map[string]any{
-			"orgId": orgID, "name": "restore-reenable-pipe", "contents": "// REENABLE-MARKER-A\n",
-			"matchers": []string{`role="metrics"`},
-		})
-		Expect(createResp.StatusCode).To(Equal(http.StatusOK))
-		var p map[string]any
-		Expect(json.NewDecoder(createResp.Body).Decode(&p)).To(Succeed())
-		Expect(createResp.Body.Close()).To(Succeed())
-		id := pipelineID(p)
-
-		// Enable (no new revision), then save new contents so revision 2 is
-		// written with enabled=true, then disable again (no new revision):
-		// the pipeline is now disabled while revision 2 says enabled.
-		enableResp := postConnectJSON(server, "/shepherd.mgmt.v1.PipelineService/EnablePipeline", editorCookie, map[string]any{
-			"orgId": orgID, "id": id,
-		})
-		Expect(enableResp.StatusCode).To(Equal(http.StatusOK))
-		Expect(enableResp.Body.Close()).To(Succeed())
-		updateResp := postConnectJSON(server, "/shepherd.mgmt.v1.PipelineService/UpdatePipeline", editorCookie, map[string]any{
-			"orgId": orgID, "id": id, "name": "restore-reenable-pipe", "contents": "// REENABLE-MARKER-B\n",
-			"matchers": []string{`role="metrics"`},
-		})
-		Expect(updateResp.StatusCode).To(Equal(http.StatusOK))
-		Expect(updateResp.Body.Close()).To(Succeed())
-		disableResp := postConnectJSON(server, "/shepherd.mgmt.v1.PipelineService/DisablePipeline", editorCookie, map[string]any{
-			"orgId": orgID, "id": id,
-		})
-		Expect(disableResp.StatusCode).To(Equal(http.StatusOK))
-		Expect(disableResp.Body.Close()).To(Succeed())
-		Eventually(func() string {
-			cache, cacheErr := st.Queries.GetServeCache(ctx, collector.ID)
-			if cacheErr != nil {
-				return "sentinel: no serve_cache row"
-			}
-			return cache.Content
-		}, "5s", "20ms").ShouldNot(ContainSubstring("REENABLE-MARKER"),
-			"the disabled pipeline must be absent from the served config before the restore under test")
-
-		// Restore revision 2 (contents B, enabled=true): a disabled -> enabled
-		// transition through the restore path.
-		resp := restoreRevision(editorCookie, id, 2, "")
-		Expect(resp.StatusCode).To(Equal(http.StatusOK))
-		Expect(resp.Body.Close()).To(Succeed())
-
-		var pid pgtype.UUID
-		Expect(pid.Scan(id)).To(Succeed())
 		reloaded, err := st.Queries.GetPipelineByID(ctx, pid)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(reloaded.Enabled).To(BeTrue(), "restoring an enabled=true revision must flip the pipeline back to enabled")
-		Expect(reloaded.Contents).To(Equal("// REENABLE-MARKER-B\n"))
+		Expect(reloaded.Enabled).To(BeTrue(), "restoring a disabled revision must not switch an enabled pipeline off")
+		Expect(reloaded.Contents).To(Equal("// KEEP-ENABLED-MARKER-A\n"))
 
-		Eventually(func() string {
-			cache, cacheErr := st.Queries.GetServeCache(ctx, collector.ID)
-			if cacheErr != nil {
-				return ""
-			}
-			return cache.Content
-		}, "10s", "20ms").Should(ContainSubstring("REENABLE-MARKER-B"),
-			"restoring a pipeline from disabled to enabled must dirty+recompute the serve cache so "+
-				"the collector is served the restored content")
+		revs, err := st.Queries.ListPipelineRevisions(ctx, pid)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(revs[0].Revision).To(BeNumerically("==", 3))
+		Expect(revs[0].Enabled).To(BeTrue(), "the new revision records the state the pipeline is in after the restore")
+
+		Eventually(servedContent(collectorID), "10s", "20ms").Should(SatisfyAll(
+			ContainSubstring("KEEP-ENABLED-MARKER-A"), Not(ContainSubstring("KEEP-ENABLED-MARKER-B")),
+		), "restoring an enabled pipeline must dirty+recompute the serve cache so the collector is served the restored content")
+
+		actions := auditActions(id)
+		Expect(actions).To(ContainElement("pipeline.restore"))
+		Expect(actions).NotTo(ContainElement("pipeline.disable"), "a restore no longer toggles the pipeline")
 	})
 
-	// 11. Fix-up (backend review, F-REVISIONS): when the enabled-transition
-	// Stage 3 check fails, the restore must leave the pipeline row, its
-	// revision history, and the audit log completely untouched — no
-	// half-restore where contents/matchers/wizard_state were already
-	// committed before the transition gate ran. Stage 3 is forced to fail
-	// deterministically via an effectively-zero Stage3Timeout on a
-	// dedicated server for this spec, rather than a genuine merge content
-	// conflict: this harness runs with no alloy binary (Stage 2 is always
-	// skipped, matching every other spec in this file) and Stage 1's bare
-	// syntax parser does not detect duplicate/colliding component labels
-	// across pipelines (that only surfaces once Alloy actually evaluates
-	// the merged component graph); a two-pipeline NAME collision, which
-	// would trip merge.Assemble's own declare-name-collision check without
-	// needing Stage 2 at all, is independently blocked by the
-	// pipelines_org_sanitized_name_key DB constraint. What matters for this
-	// fix is the WRITE ORDERING — Stage 3 must run, and be allowed to fail,
-	// strictly before UpdatePipeline touches the row — and a timeout
-	// reaches that same stage3Check failure branch exactly as a real merge
-	// conflict would, deterministically and content-independently.
-	It("leaves the pipeline row, revision history and audit log untouched when the Stage 3 transition check fails", func() {
+	// 10b. #377, the other direction: restoring a revision written while the
+	// pipeline was enabled onto a pipeline that is now DISABLED restores
+	// its content but leaves it disabled — nothing becomes served. Red
+	// before #377: the restore flipped the pipeline back on.
+	It("keeps a disabled pipeline disabled when the restored revision was written enabled", func() {
+		collectorID := metricsCollector("restore-keep-disabled-cluster")
+		id, pid := createMetricsPipeline(server, "restore-keep-disabled", "// KEEP-DISABLED-MARKER-A\n") // rev 1
+		callOK(server, "EnablePipeline", map[string]any{"orgId": orgID, "id": id})
+		callOK(server, "UpdatePipeline", map[string]any{
+			"orgId": orgID, "id": id, "name": "restore-keep-disabled",
+			"contents": "// KEEP-DISABLED-MARKER-B\n", "matchers": []string{`role="metrics"`},
+		}) // rev 2, enabled=true
+		callOK(server, "UpdatePipeline", map[string]any{
+			"orgId": orgID, "id": id, "name": "restore-keep-disabled",
+			"contents": "// KEEP-DISABLED-MARKER-C\n", "matchers": []string{`role="metrics"`},
+		}) // rev 3, enabled=true
+		callOK(server, "DisablePipeline", map[string]any{"orgId": orgID, "id": id})
+		Eventually(servedContent(collectorID), "5s", "20ms").ShouldNot(ContainSubstring("KEEP-DISABLED-MARKER"),
+			"the disabled pipeline must be absent from the served config before the restore under test")
+
+		restored := callOK(server, "RestoreRevision", map[string]any{"orgId": orgID, "id": id, "revision": 2})
+		Expect(restored).NotTo(HaveKeyWithValue("enabled", true), "the RestoreRevision response must report the pipeline still disabled (proto JSON omits false)")
+
+		reloaded, err := st.Queries.GetPipelineByID(ctx, pid)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(reloaded.Enabled).To(BeFalse(), "restoring an enabled revision must not switch a disabled pipeline on")
+		Expect(reloaded.Contents).To(Equal("// KEEP-DISABLED-MARKER-B\n"))
+
+		Consistently(servedContent(collectorID), "300ms", "20ms").ShouldNot(ContainSubstring("KEEP-DISABLED-MARKER"),
+			"a disabled pipeline stays out of the served config after a restore")
+
+		actions := auditActions(id)
+		Expect(actions).To(ContainElement("pipeline.restore"))
+		// One pipeline.enable from the EnablePipeline call above; the restore adds none.
+		enables := 0
+		for _, a := range actions {
+			if a == "pipeline.enable" {
+				enables++
+			}
+		}
+		Expect(enables).To(Equal(1), "a restore no longer toggles the pipeline")
+	})
+
+	// 11. The validation gate is unchanged by #377: a restore onto an
+	// ENABLED pipeline runs Stage 3 (the merged-config dry run) with the
+	// restored content as enabled, before any write, and a failure leaves
+	// the pipeline row, its revision history and the audit log untouched —
+	// and in particular keeping enabled=true is never a way past Stage 3.
+	// Stage 3 is forced to fail deterministically via an effectively-zero
+	// Stage3Timeout on a dedicated server for this spec, rather than a
+	// genuine merge content conflict: this harness runs with no alloy
+	// binary (Stage 2 is always skipped, matching every other spec in this
+	// file) and Stage 1's bare syntax parser does not detect
+	// duplicate/colliding component labels across pipelines; a two-pipeline
+	// NAME collision is independently blocked by the
+	// pipelines_org_sanitized_name_key DB constraint. A timeout reaches the
+	// same stage3Check failure branch a real merge conflict would. The
+	// pipeline is enabled directly in the store because EnablePipeline
+	// itself runs Stage 3 and would fail on this server.
+	It("refuses a restore onto an enabled pipeline when the restored content fails the Stage 3 merge dry run, leaving everything untouched", func() {
 		tinyStage3Cfg := &config.Config{
 			Auth: config.AuthConfig{InsecureCookies: true},
 			Validate: config.ValidateConfig{
@@ -584,25 +558,13 @@ var _ = Describe("PipelineService GetRevision / RestoreRevision", Label("integra
 		tinyServer := httptest.NewServer(newRPCWiringRouter(st, tinyAuthHandler, tinyStage3Cfg))
 		defer tinyServer.Close()
 
-		createResp := postConnectJSON(tinyServer, "/shepherd.mgmt.v1.PipelineService/CreatePipeline", editorCookie, map[string]any{
-			"orgId": orgID, "name": "restore-stage3-timeout", "contents": "// v1\n", "matchers": []string{},
-		})
-		Expect(createResp.StatusCode).To(Equal(http.StatusOK))
-		var p map[string]any
-		Expect(json.NewDecoder(createResp.Body).Decode(&p)).To(Succeed())
-		Expect(createResp.Body.Close()).To(Succeed())
-		id := pipelineID(p)
-		var pid pgtype.UUID
-		Expect(pid.Scan(id)).To(Succeed())
-
-		// Seed rev2 directly with enabled=true so restoring it is a
-		// disabled(false) -> enabled(true) TRANSITION — the path the fix
-		// gates on `p.Enabled || targetEnabled`, exercised here via
-		// targetEnabled alone (the pipeline itself stays disabled).
+		id, pid := createMetricsPipeline(tinyServer, "restore-stage3-timeout", "// v1\n") // rev 1
 		_, err := st.Queries.CreatePipelineRevision(ctx, sqlc.CreatePipelineRevisionParams{
 			PipelineID: pid, Revision: 2, Contents: "// v2 would-be-restored\n",
-			Matchers: json.RawMessage(`[]`), Enabled: true, ChangedBy: "test", ChangeNote: "seeded enabled",
+			Matchers: json.RawMessage(`[]`), Enabled: false, ChangedBy: "test", ChangeNote: "seeded disabled",
 		})
+		Expect(err).NotTo(HaveOccurred())
+		_, err = st.Queries.SetPipelineEnabled(ctx, sqlc.SetPipelineEnabledParams{ID: pid, Enabled: true, UpdatedBy: "test"})
 		Expect(err).NotTo(HaveOccurred())
 
 		resp := postConnectJSON(tinyServer, "/shepherd.mgmt.v1.PipelineService/RestoreRevision", editorCookie, map[string]any{
@@ -614,20 +576,46 @@ var _ = Describe("PipelineService GetRevision / RestoreRevision", Label("integra
 
 		reloaded, err := st.Queries.GetPipelineByID(ctx, pid)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(reloaded.Contents).To(Equal("// v1\n"), "a failed Stage 3 transition check must not touch the pipeline's stored contents")
-		Expect(reloaded.Enabled).To(BeFalse(), "a failed Stage 3 transition check must not flip the enabled bit")
+		Expect(reloaded.Contents).To(Equal("// v1\n"), "a failed Stage 3 check must not touch the pipeline's stored contents")
+		Expect(reloaded.Enabled).To(BeTrue(), "a failed restore leaves the enabled bit as it was")
 
 		revs, err := st.Queries.ListPipelineRevisions(ctx, pid)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(revs).To(HaveLen(2), "a failed restore must not write a new revision")
+		Expect(auditActions(id)).NotTo(ContainElement("pipeline.restore"), "a failed restore must not write a pipeline.restore audit row")
+	})
 
-		rows, err := st.Queries.ListAuditLog(ctx, sqlc.ListAuditLogParams{Column1: orgUUID(orgID), Limit: 100})
-		Expect(err).NotTo(HaveOccurred())
-		for i := range rows {
-			if rows[i].Action == "pipeline.restore" {
-				Expect(rows[i].ResourceID).NotTo(Equal(id), "a failed restore must not write a pipeline.restore audit row")
-			}
+	// 11b. The other half of the unchanged gate: a DISABLED pipeline's
+	// restore validates as a disabled save does (Stages 1-2 only, nothing
+	// is served), even when the restored revision was written enabled —
+	// the revision's old enabled bit no longer drives Stage 3. On the
+	// Stage-3-always-fails server this restore therefore succeeds and the
+	// pipeline stays disabled.
+	It("validates a disabled pipeline's restore as a disabled save, whatever the revision's enabled bit", func() {
+		tinyStage3Cfg := &config.Config{
+			Auth: config.AuthConfig{InsecureCookies: true},
+			Validate: config.ValidateConfig{
+				AlloyBinary: "", StabilityLevel: "experimental", Timeout: 10e9,
+				Stage3Timeout: 1,
+			},
 		}
+		tinyAuthHandler := auth.NewLocalAdmin(tinyStage3Cfg, st, slog.Default())
+		tinyServer := httptest.NewServer(newRPCWiringRouter(st, tinyAuthHandler, tinyStage3Cfg))
+		defer tinyServer.Close()
+
+		id, pid := createMetricsPipeline(tinyServer, "restore-disabled-gate", "// v1\n") // rev 1
+		_, err := st.Queries.CreatePipelineRevision(ctx, sqlc.CreatePipelineRevisionParams{
+			PipelineID: pid, Revision: 2, Contents: "// v2 restored\n",
+			Matchers: json.RawMessage(`[]`), Enabled: true, ChangedBy: "test", ChangeNote: "seeded enabled",
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		callOK(tinyServer, "RestoreRevision", map[string]any{"orgId": orgID, "id": id, "revision": 2})
+
+		reloaded, err := st.Queries.GetPipelineByID(ctx, pid)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(reloaded.Contents).To(Equal("// v2 restored\n"))
+		Expect(reloaded.Enabled).To(BeFalse())
 	})
 
 	// 12. Fix-up (backend review, F-REVISIONS): RestoreRevision must not run

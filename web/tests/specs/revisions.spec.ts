@@ -141,8 +141,8 @@ test('restore calls the RPC and refreshes', async ({ page, api }) => {
 
   await page.getByTestId('restore-btn').click();
   await expect(page.getByTestId('restore-dialog')).toBeVisible();
-  // Both revisions are enabled: nothing to warn about.
-  await expect(page.getByTestId('restore-enabled-change')).toHaveCount(0);
+  // Both revisions are enabled: nothing to say about the enabled state.
+  await expect(page.getByTestId('restore-enabled-kept')).toHaveCount(0);
   await page.getByTestId('confirm-restore-btn').click();
 
   const calls = api.calls('/shepherd.mgmt.v1.PipelineService/RestoreRevision');
@@ -267,7 +267,10 @@ test('viewer sees the diff but no Restore', async ({ page, api }) => {
   expect(api.calls('/shepherd.mgmt.v1.PipelineService/RestoreRevision')).toHaveLength(0);
 });
 
-test('restore warns when it will disable the pipeline (#200)', async ({ page, api }) => {
+test('restoring a revision saved while disabled keeps the pipeline enabled (#377)', async ({
+  page,
+  api,
+}) => {
   await api.loginAs(appAdmin);
   // Revision 1 was saved while the pipeline was disabled; it is enabled now.
   const pipelineId = seedTwoRevisions(api, false);
@@ -276,5 +279,13 @@ test('restore warns when it will disable the pipeline (#200)', async ({ page, ap
   await page.getByRole('button', { name: /revision history \(2\)/i }).click();
   await viewRevision(page, 1);
   await page.getByTestId('restore-btn').click();
-  await expect(page.getByTestId('restore-enabled-change')).toContainText('disables the pipeline');
+  await expect(page.getByTestId('restore-enabled-kept')).toContainText(
+    'keeps the pipeline enabled',
+  );
+  await page.getByTestId('confirm-restore-btn').click();
+  await expect(page.getByTestId('restore-dialog')).toHaveCount(0);
+  const pipeline = (api.state.pipelines as { id: string; enabled: boolean }[]).find(
+    (p) => p.id === pipelineId,
+  );
+  expect(pipeline?.enabled).toBe(true);
 });
