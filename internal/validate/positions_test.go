@@ -38,7 +38,7 @@ var _ = Describe("Pipeline diagnostic positions (F2)", func() {
 			"    url = = \"x\"\n" +
 			"  }\n" +
 			"}\n"
-		r := noBinary().ValidatePipeline(context.Background(), "demo", contents)
+		r := noBinary().ValidatePipeline(context.Background(), "demo", contents, validate.TenantPolicy{})
 		Expect(r.Valid).To(BeFalse())
 		Expect(r.Diagnostics).NotTo(BeEmpty())
 		Expect(r.Diagnostics[0].Line).To(Equal(3))
@@ -50,7 +50,7 @@ var _ = Describe("Pipeline diagnostic positions (F2)", func() {
 		// wrapped text. The first is the user's own text (1:2); the rest are
 		// the wrapper's closing brace and instantiation, clamped to the end
 		// of the user's text with their messages kept.
-		r := noBinary().ValidatePipeline(context.Background(), "preview", "x")
+		r := noBinary().ValidatePipeline(context.Background(), "preview", "x", validate.TenantPolicy{})
 		Expect(r.Valid).To(BeFalse())
 		Expect(r.Diagnostics).NotTo(BeEmpty())
 		for _, d := range r.Diagnostics {
@@ -62,7 +62,7 @@ var _ = Describe("Pipeline diagnostic positions (F2)", func() {
 
 	It("clamps an unterminated block's error to the end of the user's text, message kept", func() {
 		contents := "prometheus.exporter.self \"a\" {\n  bogus = 1\n"
-		r := noBinary().ValidatePipeline(context.Background(), "demo", contents)
+		r := noBinary().ValidatePipeline(context.Background(), "demo", contents, validate.TenantPolicy{})
 		Expect(r.Valid).To(BeFalse())
 		Expect(r.Diagnostics).NotTo(BeEmpty())
 		// The text ends with a newline, so its end is the empty line 3, column 1.
@@ -73,7 +73,7 @@ var _ = Describe("Pipeline diagnostic positions (F2)", func() {
 	})
 
 	It("reports the in-process port-shape check in the user's coordinates", func() {
-		r := noBinary().ValidatePipeline(context.Background(), "demo", listOfLists)
+		r := noBinary().ValidatePipeline(context.Background(), "demo", listOfLists, validate.TenantPolicy{})
 		Expect(r.Valid).To(BeFalse())
 		Expect(r.Diagnostics).To(HaveLen(1))
 		// `  targets    = [discovery.kubernetes.pods.targets]` is line 6; the diagnostic points at the reference, column 17.
@@ -89,7 +89,7 @@ var _ = Describe("Pipeline diagnostic positions (F2)", func() {
 			Skip("no alloy binary and no docker")
 		}
 		v := validate.New(&config.ValidateConfig{AlloyBinary: bin, StabilityLevel: "experimental", Timeout: 2 * time.Minute})
-		r := v.ValidatePipeline(context.Background(), "preview", `prometheus.exporter.self "a" { bogus = 1 }`)
+		r := v.ValidatePipeline(context.Background(), "preview", `prometheus.exporter.self "a" { bogus = 1 }`, validate.TenantPolicy{})
 		Expect(r.Valid).To(BeFalse())
 		Expect(positions(r.Diagnostics)).To(ConsistOf(`1:32 unrecognized attribute name "bogus"`))
 	})
