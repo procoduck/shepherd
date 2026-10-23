@@ -497,6 +497,16 @@
             }
           }
         },
+        "tenants": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "require_owned": {
+              "type": "boolean",
+              "description": "Strict tenant mode for every organisation: destinations, bindings, tenant routes and pipelines may only use tenants their org owns. Shepherd refuses to start while anything stored breaks the rule (`shepherd admin tenant-preflight`)."
+            }
+          }
+        },
         "log": {
           "type": "object",
           "additionalProperties": false,

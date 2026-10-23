@@ -52,6 +52,8 @@ type WizardService struct {
 	// collector whose role refuses the pipeline's signals (M2). Nil means no
 	// such warning, never a guessed one.
 	schema *schema.Registry
+	// requireOwned is the server-wide tenants.require_owned setting.
+	requireOwned bool
 }
 
 // WizardServiceOption configures optional WizardService dependencies.
@@ -121,7 +123,7 @@ func (s *WizardService) RenderWizard(ctx context.Context, req *connect.Request[m
 	// The org's destinations are what the wizard's `*_dest_name` fields
 	// resolve against — the same load CommitWizard does, so the preview
 	// shows exactly the writer, auth block included, a commit would store.
-	dests, err := wizardDestinations(ctx, s.store.Queries, orgID)
+	dests, err := wizardDestinations(ctx, s.store.Queries, orgID, s.requireOwned)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, err)
 	}
@@ -134,7 +136,11 @@ func (s *WizardService) RenderWizard(ctx context.Context, req *connect.Request[m
 	if name == "" {
 		name = "preview"
 	}
-	valResult := s.validator.ValidatePipeline(ctx, name, result.Contents)
+	tenants, err := lintPolicy(ctx, s.store.Queries, orgID, s.requireOwned)
+	if err != nil {
+		return nil, err
+	}
+	valResult := s.validator.ValidatePipeline(ctx, name, result.Contents, tenants)
 
 	candidate := merge.Pipeline{
 		ID:       name,
@@ -285,7 +291,7 @@ func (s *WizardService) CommitWizard(ctx context.Context, req *connect.Request[m
 	// The org's destinations are what the wizard's `*_dest_name` fields
 	// resolve against — the same load RenderWizard does, so the preview and
 	// the stored pipeline render the same writer, auth block included.
-	dests, err := wizardDestinations(ctx, s.store.Queries, orgID)
+	dests, err := wizardDestinations(ctx, s.store.Queries, orgID, s.requireOwned)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, err)
 	}
@@ -301,7 +307,11 @@ func (s *WizardService) CommitWizard(ctx context.Context, req *connect.Request[m
 	// field value that breaks Alloy syntax, like a quote in a scrape URL)
 	// could be committed straight through. The wizard stays disabled-on-create
 	// (Enabled: false below), so Stage 3 is EnablePipeline's job, same as today.
-	if valResult := s.validator.ValidatePipeline(ctx, req.Msg.GetName(), result.Contents); !valResult.Valid {
+	tenants, err := lintPolicy(ctx, s.store.Queries, orgID, s.requireOwned)
+	if err != nil {
+		return nil, err
+	}
+	if valResult := s.validator.ValidatePipeline(ctx, req.Msg.GetName(), result.Contents, tenants); !valResult.Valid {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, &pipelineValidationError{Diagnostics: valResult.Diagnostics})
 	}
 

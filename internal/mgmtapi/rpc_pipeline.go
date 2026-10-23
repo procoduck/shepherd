@@ -49,6 +49,9 @@ type PipelineService struct {
 	// field exists here too rather than only in agentapi.Service. See
 	// beacon.AppendBaseline, the single function both paths call.
 	beaconBaseline beacon.BaselineConfig
+	// requireOwned is the server-wide tenants.require_owned setting
+	// (WithRequireOwnedTenants): strict tenant mode for every org.
+	requireOwned bool
 }
 
 // PipelineServiceOption configures optional PipelineService behavior. See
@@ -136,6 +139,7 @@ func diagnosticsToProto(diags []validate.Diagnostic) []*mgmtv1.Diagnostic {
 			Col:     int32(d.Col),  //nolint:gosec // same
 			Message: d.Message,
 			Stage:   int32(d.Stage), //nolint:gosec // stage is 1..3
+			Warning: d.Warning,
 		}
 	}
 	return out
@@ -523,6 +527,9 @@ func (s *PipelineService) GetPipeline(ctx context.Context, req *connect.Request[
 // pipelineSaveInput holds the fields shared by CreatePipeline and
 // UpdatePipeline's validation/persistence pipeline.
 type pipelineSaveInput struct {
+	// OrgID is the pipeline's org, whose strict tenant policy the gate's
+	// tenant lint applies.
+	OrgID       pgtype.UUID
 	Name        string
 	Contents    string
 	Matchers    []string
@@ -569,7 +576,11 @@ func (s *PipelineService) validateSaveInput(ctx context.Context, in pipelineSave
 		return nil, connect.NewError(connect.CodeInvalidArgument, errMatchersInvalid)
 	}
 
-	if result := s.validator.ValidatePipeline(ctx, in.Name, in.Contents); !result.Valid {
+	tenants, err := lintPolicy(ctx, s.store.Queries, in.OrgID, s.requireOwned)
+	if err != nil {
+		return nil, err
+	}
+	if result := s.validator.ValidatePipeline(ctx, in.Name, in.Contents, tenants); !result.Valid {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, &pipelineValidationError{Diagnostics: result.Diagnostics})
 	}
 	return matchersJSON, nil
@@ -599,7 +610,7 @@ func (s *PipelineService) CreatePipeline(ctx context.Context, req *connect.Reque
 	}
 
 	matchersJSON, err := s.validateSaveInput(ctx, pipelineSaveInput{
-		Name: msg.GetName(), Contents: msg.GetContents(), Matchers: msg.GetMatchers(),
+		OrgID: orgID, Name: msg.GetName(), Contents: msg.GetContents(), Matchers: msg.GetMatchers(),
 		Source: msg.GetSource(), WizardState: wsJSON,
 	})
 	if err != nil {
@@ -685,7 +696,7 @@ func (s *PipelineService) UpdatePipeline(ctx context.Context, req *connect.Reque
 	}
 
 	matchersJSON, err := s.validateSaveInput(ctx, pipelineSaveInput{
-		Name: msg.GetName(), Contents: msg.GetContents(), Matchers: msg.GetMatchers(),
+		OrgID: p.OrgID, Name: msg.GetName(), Contents: msg.GetContents(), Matchers: msg.GetMatchers(),
 		Source: msg.GetSource(), WizardState: wsJSON,
 	})
 	if err != nil {
@@ -944,7 +955,16 @@ func (s *PipelineService) ValidatePipeline(ctx context.Context, req *connect.Req
 	if name == "" {
 		name = "preview"
 	}
-	result := s.validator.ValidatePipeline(ctx, name, req.Msg.GetContents())
+	// The org's strict tenant policy: the authz interceptor has already
+	// checked the caller may read org_id.
+	var tenants validate.TenantPolicy
+	if orgID := looseUUID(req.Msg.GetOrgId()); orgID.Valid {
+		var err error
+		if tenants, err = lintPolicy(ctx, s.store.Queries, orgID, s.requireOwned); err != nil {
+			return nil, err
+		}
+	}
+	result := s.validator.ValidatePipeline(ctx, name, req.Msg.GetContents(), tenants)
 
 	resp := &mgmtv1.ValidatePipelineResponse{
 		Valid:         result.Valid,
@@ -1239,7 +1259,7 @@ func (s *PipelineService) RestoreRevision(ctx context.Context, req *connect.Requ
 	// so the client-submission render-equality gate never engages for
 	// server-stored content.
 	if _, err := s.validateSaveInput(ctx, pipelineSaveInput{
-		Name: p.Name, Contents: rv.Contents, Matchers: matchers,
+		OrgID: p.OrgID, Name: p.Name, Contents: rv.Contents, Matchers: matchers,
 		Source: p.Source,
 	}); err != nil {
 		return nil, err
@@ -1529,6 +1549,16 @@ func (s *PipelineService) stage3CheckSet(ctx context.Context, orgID pgtype.UUID,
 		return fmt.Errorf("merge validation failed on collectors: %s", strings.Join(failures, " | "))
 	}
 
+	// Strict tenant mode: every pipeline this change adds or replaces is
+	// linted against the org's tenants as they stand now — so a pipeline
+	// saved before the org turned strict (or before it lost a tenant) is
+	// refused when it is enabled, not only when it is next edited. Linted
+	// as written, not merged: the merged config also carries D6's baseline,
+	// which is Shepherd's own and not the org's to own.
+	if err := s.stage3TenantLint(ctx, orgID, candidates); err != nil {
+		return err
+	}
+
 	// Validate unique merged contents concurrently (max 4 workers).
 	type result struct {
 		key  string
@@ -1576,6 +1606,35 @@ func (s *PipelineService) stage3CheckSet(ctx context.Context, orgID pgtype.UUID,
 
 	if len(failures) > 0 {
 		return fmt.Errorf("merge validation failed on collectors: %s", strings.Join(failures, " | "))
+	}
+	return nil
+}
+
+// stage3TenantLint refuses any of candidates the org's strict tenant policy
+// refuses (validate.TenantLint), naming each pipeline and its diagnostics.
+// A no-op for an org not in strict tenant mode.
+func (s *PipelineService) stage3TenantLint(ctx context.Context, orgID pgtype.UUID, candidates []sqlc.Pipeline) error {
+	if len(candidates) == 0 {
+		return nil
+	}
+	tenants, err := lintPolicy(ctx, s.store.Queries, orgID, s.requireOwned)
+	if err != nil {
+		return fmt.Errorf("loading the org's tenant policy: %w", err)
+	}
+	var failures []string
+	for i := range candidates {
+		var msgs []string
+		for _, d := range validate.TenantLint(candidates[i].Contents, tenants) {
+			if !d.Warning {
+				msgs = append(msgs, fmt.Sprintf("%d:%d %s", d.Line, d.Col, d.Message))
+			}
+		}
+		if len(msgs) > 0 {
+			failures = append(failures, fmt.Sprintf("%s: %s", candidates[i].Name, strings.Join(msgs, "; ")))
+		}
+	}
+	if len(failures) > 0 {
+		return fmt.Errorf("strict tenant mode refuses pipeline(s): %s", strings.Join(failures, " | "))
 	}
 	return nil
 }

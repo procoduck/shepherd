@@ -17,6 +17,8 @@
 /shepherd.mgmt.v1.AdminService/RevokeAgentToken	human=app-admin|org>=admin	sa=same-org,tier>=admin
 /shepherd.mgmt.v1.AdminService/SearchGroups	human=app-admin|org>=admin	sa=same-org,tier>=admin
 /shepherd.mgmt.v1.AdminService/SetDefaultOrgTenant	human=app-admin	sa=deny
+/shepherd.mgmt.v1.AdminService/SetOrgStrictTenants	human=app-admin	sa=deny
+/shepherd.mgmt.v1.AdminService/TenantPreflight	human=app-admin	sa=deny
 /shepherd.mgmt.v1.AdminService/TestOidcSettings	human=app-admin	sa=deny
 /shepherd.mgmt.v1.AdminService/UnclaimCluster	human=app-admin	sa=deny
 /shepherd.mgmt.v1.AdminService/UpdateOidcSettings	human=app-admin	sa=deny

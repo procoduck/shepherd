@@ -173,8 +173,12 @@ func (s *PipelineService) renderWizardPipeline(ctx context.Context, p sqlc.Pipel
 		return wizardRerender{}, false, nil
 	}
 	// The same Stage 1/2 gate UpdatePipeline (validateSaveInput) and
-	// CommitWizard run before they write.
-	if r := s.validator.ValidatePipeline(ctx, p.Name, result.Contents); !r.Valid {
+	// CommitWizard run before they write, tenant lint included.
+	tenants, err := lintPolicy(ctx, s.store.Queries, p.OrgID, s.requireOwned)
+	if err != nil {
+		return fail("%v", err)
+	}
+	if r := s.validator.ValidatePipeline(ctx, p.Name, result.Contents, tenants); !r.Valid {
 		return fail("%s", summarizeDiagnostics(r.Diagnostics))
 	}
 	row := p
@@ -349,7 +353,10 @@ func (w *wizardFollows) of(ctx context.Context, p sqlc.Pipeline) bool {
 		dests, ok := w.dests[p.OrgID]
 		if !ok {
 			var err error
-			dests, err = wizardDestinations(ctx, w.q, p.OrgID)
+			// Strict tenant mode off: this is the hand-edit check of the
+			// render that was stored, not a new render, and a tenant the
+			// org has since stopped owning does not make it hand-edited.
+			dests, err = wizardDestinations(ctx, w.q, p.OrgID, false)
 			if err != nil {
 				w.logger.Warn("follows_wizard: loading destinations", "err", err, "pipeline_id", p.ID.String())
 				return true
@@ -415,7 +422,7 @@ func withoutPre261Fields(dests wizard.Destinations) wizard.Destinations {
 	for name := range dests {
 		d := dests[name]
 		d.TenantID = ""
-		if errors.Is(d.LoadErr, errTenantNotAvailable) {
+		if errors.Is(d.LoadErr, errTenantNotAvailable) || errors.Is(d.LoadErr, errTenantNotOwned) {
 			d.LoadErr = nil
 		}
 		d.TLS = nil
@@ -562,8 +569,11 @@ const LegacyRerenderActor = "system:rerender-destinations"
 // It writes nothing when dryRun is set. Run by `shepherd admin
 // rerender-destinations`; collectors pick the new config up on their next
 // poll (the agent API recomputes a dirty serve cache lazily).
-func RerenderLegacyDestinationWriters(ctx context.Context, st *store.Store, v *validate.Validator, reg *schema.Registry, logger *slog.Logger, dryRun bool) ([]LegacyRerenderResult, error) {
-	return rerenderEveryOrg(ctx, st, v, reg, logger, false, dryRun)
+//
+// opts configure the PipelineService the re-render runs through: the CLI
+// passes WithRequireOwnedTenants(cfg.Tenants.RequireOwned).
+func RerenderLegacyDestinationWriters(ctx context.Context, st *store.Store, v *validate.Validator, reg *schema.Registry, logger *slog.Logger, dryRun bool, opts ...PipelineServiceOption) ([]LegacyRerenderResult, error) {
+	return rerenderEveryOrg(ctx, st, v, reg, logger, false, dryRun, opts...)
 }
 
 // RerenderAllWizardPipelines regenerates every wizard pipeline in every org
@@ -581,12 +591,12 @@ func RerenderLegacyDestinationWriters(ctx context.Context, st *store.Store, v *v
 // config, then revision, pipeline.rerender audit row as LegacyRerenderActor
 // and the serve cache marked dirty. Pre-#260 sys.env pipelines are converted
 // too. Idempotent: a second run finds nothing that differs.
-func RerenderAllWizardPipelines(ctx context.Context, st *store.Store, v *validate.Validator, reg *schema.Registry, logger *slog.Logger, dryRun bool) ([]LegacyRerenderResult, error) {
-	return rerenderEveryOrg(ctx, st, v, reg, logger, true, dryRun)
+func RerenderAllWizardPipelines(ctx context.Context, st *store.Store, v *validate.Validator, reg *schema.Registry, logger *slog.Logger, dryRun bool, opts ...PipelineServiceOption) ([]LegacyRerenderResult, error) {
+	return rerenderEveryOrg(ctx, st, v, reg, logger, true, dryRun, opts...)
 }
 
-func rerenderEveryOrg(ctx context.Context, st *store.Store, v *validate.Validator, reg *schema.Registry, logger *slog.Logger, all, dryRun bool) ([]LegacyRerenderResult, error) {
-	ps := NewPipelineService(st, v, reg, logger)
+func rerenderEveryOrg(ctx context.Context, st *store.Store, v *validate.Validator, reg *schema.Registry, logger *slog.Logger, all, dryRun bool, opts ...PipelineServiceOption) ([]LegacyRerenderResult, error) {
+	ps := NewPipelineService(st, v, reg, logger, opts...)
 	orgs, err := st.Queries.ListOrgs(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("listing orgs: %w", err)
@@ -639,7 +649,7 @@ func (s *PipelineService) rerenderOrg(ctx context.Context, org sqlc.Org, all, dr
 	if len(legacy) == 0 {
 		return res, nil
 	}
-	dests, err := wizardDestinations(ctx, txQ, org.ID)
+	dests, err := wizardDestinations(ctx, txQ, org.ID, s.requireOwned)
 	if err != nil {
 		for i := range legacy {
 			res.Failed = append(res.Failed, failureFor(legacy[i], err.Error()).describe(remedyLegacyRerender))

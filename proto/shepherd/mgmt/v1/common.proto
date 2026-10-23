@@ -17,6 +17,10 @@ message Diagnostic {
   string message = 3;
   // Stage identifies which validation stage produced this diagnostic (1, 2, or 3).
   int32 stage = 4;
+  // warning marks a diagnostic that does not fail validation (valid stays
+  // true): today only strict tenant mode's "tenant set from a non-literal
+  // expression" note. false is an error, the only kind before it.
+  bool warning = 5;
 }
 
 // Role is an org role (spec §7.2): viewer < editor < admin, each including

@@ -49,6 +49,10 @@ type AdminService struct {
 	// so this replica stops answering that OIDC caller from the outage
 	// cache under the old binding (#385). Nil = nothing to forget.
 	identityChanged func(issuer, appID string)
+
+	// requireOwned is the server-wide tenants.require_owned setting
+	// (WithAdminRequireOwnedTenants).
+	requireOwned bool
 }
 
 // AdminServiceOption configures optional AdminService dependencies. The
@@ -75,6 +79,12 @@ func WithIdentityChangedHook(f func(issuer, appID string)) AdminServiceOption {
 	return func(s *AdminService) { s.identityChanged = f }
 }
 
+// WithAdminRequireOwnedTenants passes the server-wide tenants.require_owned
+// setting, which Org.tenants_required reports.
+func WithAdminRequireOwnedTenants(on bool) AdminServiceOption {
+	return func(s *AdminService) { s.requireOwned = on }
+}
+
 // NewAdminService constructs an AdminService.
 func NewAdminService(st *store.Store, logger *slog.Logger, opts ...AdminServiceOption) *AdminService {
 	s := &AdminService{store: st, logger: logger}
@@ -86,7 +96,10 @@ func NewAdminService(st *store.Store, logger *slog.Logger, opts ...AdminServiceO
 
 var _ mgmtv1connect.AdminServiceHandler = (*AdminService)(nil)
 
-func toOrgProto(o sqlc.Org, tenants []sqlc.OrgTenant) *mgmtv1.Org {
+// toOrgProto builds o's proto. requireOwned is the server-wide
+// tenants.require_owned setting, which makes the strict tenant rule apply to
+// o whatever its own flag says (Org.tenants_required).
+func toOrgProto(o sqlc.Org, tenants []sqlc.OrgTenant, requireOwned bool) *mgmtv1.Org {
 	return &mgmtv1.Org{
 		Id:            o.ID.String(),
 		Name:          o.Name,
@@ -101,6 +114,8 @@ func toOrgProto(o sqlc.Org, tenants []sqlc.OrgTenant) *mgmtv1.Org {
 		AllowExperimentalComponents: o.AllowExperimentalComponents,
 		AllowLabelMatching:          o.AllowLabelMatching,
 		AllowLocalAttributeMatching: o.AllowLocalAttributeMatching,
+		StrictTenants:               o.StrictTenants,
+		TenantsRequired:             o.StrictTenants || requireOwned,
 	}
 }
 
@@ -149,7 +164,7 @@ func (s *AdminService) ListOrgs(ctx context.Context, _ *connect.Request[mgmtv1.L
 	byOrg := groupOrgTenants(allTenants)
 	items := make([]*mgmtv1.Org, len(orgs))
 	for i := range orgs {
-		items[i] = toOrgProto(orgs[i], byOrg[orgs[i].ID])
+		items[i] = toOrgProto(orgs[i], byOrg[orgs[i].ID], s.requireOwned)
 	}
 	return connect.NewResponse(&mgmtv1.ListOrgsResponse{Items: items, Total: int32(len(items))}), nil //nolint:gosec // org counts never approach int32 overflow
 }
@@ -205,7 +220,7 @@ func (s *AdminService) CreateOrg(ctx context.Context, req *connect.Request[mgmtv
 			return nil, err
 		}
 	}
-	out, err := orgProtoWithTenants(ctx, txQ, o)
+	out, err := orgProtoWithTenants(ctx, txQ, o, s.requireOwned)
 	if err != nil {
 		return nil, err
 	}
@@ -264,7 +279,7 @@ func (s *AdminService) UpdateOrg(ctx context.Context, req *connect.Request[mgmtv
 		s.logger.Warn("update org: audit insert failed, rolling back", "org_id", o.ID, "err", err)
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to record org update"))
 	}
-	out, err := orgProtoWithTenants(ctx, txQ, o)
+	out, err := orgProtoWithTenants(ctx, txQ, o, s.requireOwned)
 	if err != nil {
 		return nil, err
 	}

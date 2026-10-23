@@ -1,0 +1,226 @@
+// Package tenancy is strict tenant mode: the rule that an organisation's
+// destinations, destination bindings, tenant routes and pipelines may only
+// use tenants it owns (org_tenants, gateway.OrgOwnsTenant). It applies to an
+// org when its own strict_tenants flag is on (0040_org_strict_tenants, set
+// by an app admin) or when the server-wide tenants.require_owned setting is.
+//
+// Policy is the rule for one org as the write paths ask it; Preflight finds
+// what of an org already breaks it, which is what turning strict mode on —
+// per org (AdminService.SetOrgStrictTenants) or server-wide (boot) — is
+// refused over.
+package tenancy
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+
+	"github.com/jackc/pgx/v5/pgtype"
+
+	"shepherd/internal/gateway"
+	"shepherd/internal/store/sqlc"
+	"shepherd/internal/validate"
+)
+
+// Policy is strict tenant mode for one org.
+type Policy struct {
+	// Strict is whether the rule applies: OrgStrict or the server-wide
+	// setting.
+	Strict bool
+	// OrgStrict is the org's own strict_tenants flag.
+	OrgStrict bool
+	// Owned is the org's tenants and tenant prefixes.
+	Owned []gateway.OrgTenant
+}
+
+// Load reads orgID's policy through q. requireOwned is the server-wide
+// tenants.require_owned setting. A write that then checks a tenant against
+// it must hold the shared ownership lock in q's transaction, so neither the
+// org's tenants nor its flag (both changed under the exclusive lock) move
+// before it commits.
+func Load(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, requireOwned bool) (Policy, error) {
+	org, err := q.GetOrgByID(ctx, orgID)
+	if err != nil {
+		return Policy{}, fmt.Errorf("loading org: %w", err)
+	}
+	return LoadOrg(ctx, q, org, requireOwned)
+}
+
+// LoadOrg is Load for an org already read.
+func LoadOrg(ctx context.Context, q *sqlc.Queries, org sqlc.Org, requireOwned bool) (Policy, error) {
+	rows, err := q.ListOrgTenants(ctx, org.ID)
+	if err != nil {
+		return Policy{}, fmt.Errorf("loading org tenants: %w", err)
+	}
+	return Policy{Strict: org.StrictTenants || requireOwned, OrgStrict: org.StrictTenants, Owned: Rules(rows)}, nil
+}
+
+// Rules converts org_tenants rows to gateway's form.
+func Rules(rows []sqlc.OrgTenant) []gateway.OrgTenant {
+	out := make([]gateway.OrgTenant, len(rows))
+	for i := range rows {
+		out[i] = gateway.OrgTenant{Tenant: rows[i].Tenant, Kind: gateway.TenantKind(rows[i].Kind)}
+	}
+	return out
+}
+
+// Owns reports whether the org owns tenant.
+func (p Policy) Owns(tenant string) bool { return gateway.OrgOwnsTenant(p.Owned, tenant) }
+
+// ErrNotOwned is the strict-mode refusal of a tenant the org does not own.
+var ErrNotOwned = errors.New("strict tenant mode: the tenant is not one this organisation owns; " +
+	"use one of its tenants (or a tenant under one of its prefixes), which an application administrator assigns")
+
+// Check refuses (ErrNotOwned) a non-empty tenant the org does not own when
+// the policy is strict. An empty tenant — a destination that sends none —
+// always passes.
+func (p Policy) Check(tenant string) error {
+	if !p.Strict || tenant == "" || p.Owns(tenant) {
+		return nil
+	}
+	return fmt.Errorf("%w (tenant %q)", ErrNotOwned, tenant)
+}
+
+// Validation is the policy as the validation gate takes it
+// (validate.ValidatePipeline's tenant lint).
+func (p Policy) Validation() validate.TenantPolicy {
+	if !p.Strict {
+		return validate.TenantPolicy{}
+	}
+	return validate.TenantPolicy{Strict: true, Owns: p.Owns}
+}
+
+// The kinds of object a Violation names.
+const (
+	KindOrg      = "org"
+	KindPipeline = "pipeline"
+)
+
+// Violation is one thing that breaks the strict tenant rule.
+type Violation struct {
+	OrgID, OrgName string
+	// Kind is "tenant route", "destination", "destination binding",
+	// "pipeline" or "org".
+	Kind   string
+	Name   string
+	Tenant string
+	// Message says what is wrong and how to fix it.
+	Message string
+}
+
+func (v Violation) String() string {
+	return fmt.Sprintf("org %q: %s", v.OrgName, v.Message)
+}
+
+// Preflight lists what of org breaks the strict tenant rule: each live
+// tenant route, destination and destination binding on a tenant the org
+// does not own, and each enabled pipeline the tenant lint refuses. With
+// requireTenant, an org that owns no tenant at all is a violation too
+// (per-org strict mode needs one; the server-wide setting does not).
+func Preflight(ctx context.Context, q *sqlc.Queries, org sqlc.Org, requireTenant bool) ([]Violation, error) {
+	rows, err := q.ListOrgTenants(ctx, org.ID)
+	if err != nil {
+		return nil, fmt.Errorf("loading org %q's tenants: %w", org.Name, err)
+	}
+	p := Policy{Strict: true, OrgStrict: org.StrictTenants, Owned: Rules(rows)}
+	base := Violation{OrgID: org.ID.String(), OrgName: org.Name}
+	var out []Violation
+	if requireTenant && len(rows) == 0 {
+		v := base
+		v.Kind = KindOrg
+		v.Name = org.Name
+		v.Message = "the organisation owns no tenant; an application administrator assigns one " +
+			"(Admin → Organisations → tenants) before strict tenant mode can be turned on"
+		out = append(out, v)
+	}
+	uses, err := q.ListOrgTenantUses(ctx, org.ID)
+	if err != nil {
+		return nil, fmt.Errorf("listing org %q's tenant uses: %w", org.Name, err)
+	}
+	for i := range uses {
+		if p.Owns(uses[i].Tenant) {
+			continue
+		}
+		v := base
+		v.Kind, v.Name, v.Tenant = uses[i].What, uses[i].Name, uses[i].Tenant
+		v.Message = fmt.Sprintf("%s %q uses tenant %q, which the organisation does not own; assign the "+
+			"tenant to the organisation or change the %s", uses[i].What, uses[i].Name, uses[i].Tenant, uses[i].What)
+		out = append(out, v)
+	}
+	pipelines, err := q.ListEnabledPipelinesByOrg(ctx, org.ID)
+	if err != nil {
+		return nil, fmt.Errorf("listing org %q's enabled pipelines: %w", org.Name, err)
+	}
+	for i := range pipelines {
+		var msgs []string
+		for _, d := range validate.TenantLint(pipelines[i].Contents, p.Validation()) {
+			if !d.Warning {
+				msgs = append(msgs, fmt.Sprintf("%d:%d %s", d.Line, d.Col, d.Message))
+			}
+		}
+		if len(msgs) == 0 {
+			continue
+		}
+		v := base
+		v.Kind, v.Name = KindPipeline, pipelines[i].Name
+		v.Message = fmt.Sprintf("enabled pipeline %q sets a tenant the organisation does not own (%s); "+
+			"edit or disable the pipeline, or assign the tenant to the organisation",
+			pipelines[i].Name, strings.Join(msgs, "; "))
+		out = append(out, v)
+	}
+	return out, nil
+}
+
+// PreflightAll is Preflight over every org without requireTenant: what the
+// server-wide tenants.require_owned setting refuses to start over.
+func PreflightAll(ctx context.Context, q *sqlc.Queries) ([]Violation, error) {
+	orgs, err := q.ListOrgs(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("listing orgs: %w", err)
+	}
+	var out []Violation
+	for i := range orgs {
+		v, err := Preflight(ctx, q, orgs[i], false)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, v...)
+	}
+	return out, nil
+}
+
+// Summarize renders violations as one line each, for an error message.
+func Summarize(vs []Violation) string {
+	lines := make([]string, len(vs))
+	for i := range vs {
+		lines[i] = vs[i].String()
+	}
+	return strings.Join(lines, "; ")
+}
+
+// ErrRequireOwnedViolations is the boot refusal when tenants.require_owned
+// is on and something already stored breaks the rule.
+var ErrRequireOwnedViolations = errors.New("tenants.require_owned is on, but stored objects use tenants their " +
+	"organisation does not own")
+
+// CheckRequireOwned is the boot preflight for tenants.require_owned: nil
+// when nothing breaks the rule, else an error listing every violation and
+// how to clear them.
+func CheckRequireOwned(ctx context.Context, q *sqlc.Queries) error {
+	vs, err := PreflightAll(ctx, q)
+	if err != nil {
+		return fmt.Errorf("tenant preflight: %w", err)
+	}
+	if len(vs) == 0 {
+		return nil
+	}
+	lines := make([]string, len(vs))
+	for i := range vs {
+		lines[i] = "  - " + vs[i].String()
+	}
+	return fmt.Errorf("%w (%d):\n%s\nAssign the tenants to their organisations (Admin → Organisations), or edit, "+
+		"disable or delete the objects listed, then start again; `shepherd admin tenant-preflight` lists them "+
+		"without starting the server. Or set tenants.require_owned back to false",
+		ErrRequireOwnedViolations, len(vs), strings.Join(lines, "\n"))
+}

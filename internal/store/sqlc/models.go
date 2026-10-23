@@ -189,6 +189,7 @@ type Org struct {
 	AllowExperimentalComponents bool               `json:"allow_experimental_components"`
 	AllowLabelMatching          bool               `json:"allow_label_matching"`
 	AllowLocalAttributeMatching bool               `json:"allow_local_attribute_matching"`
+	StrictTenants               bool               `json:"strict_tenants"`
 }
 
 type OrgMember struct {

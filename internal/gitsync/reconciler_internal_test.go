@@ -555,6 +555,39 @@ prometheus.remote_write "demo" {
 				Expect(l.SyncError.String).To(ContainSubstring("bad.alloy: validation errors"))
 			})
 
+			// Strict tenant mode: the gate's tenant lint runs on a synced file
+			// like on a UI save, and one file writing to a tenant the org does
+			// not own refuses the whole commit.
+			It("applies nothing from a commit with a file writing to a tenant a strict org does not own", func() {
+				_, err := st.Queries.AddOrgTenant(ctx, sqlc.AddOrgTenantParams{
+					OrgID: link.OrgID, Tenant: "gitsync", Kind: "exact", IsDefault: true, CreatedBy: "test",
+				})
+				Expect(err).NotTo(HaveOccurred())
+				_, err = st.Queries.SetOrgStrictTenants(ctx, sqlc.SetOrgStrictTenantsParams{ID: link.OrgID, StrictTenants: true})
+				Expect(err).NotTo(HaveOccurred())
+				writer := func(tenant string) string {
+					return `prometheus.remote_write "out" {
+  endpoint {
+    url     = "https://mimir.example/api/v1/push"
+    headers = { "X-Scope-OrgID" = "` + tenant + `" }
+  }
+}
+`
+				}
+				commit(map[string]string{
+					"keep.alloy":  "// keep, changed",
+					"other.alloy": writer("someone-else"),
+				}, "gone.alloy")
+
+				err = r.reconcileLink(ctx, link)
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(And(ContainSubstring("other.alloy"), ContainSubstring(`tenant "someone-else" is not one this organisation owns`)))
+				expectNothingApplied("other")
+
+				commit(map[string]string{"keep.alloy": "// keep", "gone.alloy": "// gone", "other.alloy": writer("gitsync")})
+				Expect(r.reconcileLink(ctx, link)).To(Succeed(), "an owned tenant syncs")
+			})
+
 			It("names at most five failing files, then how many more", func() {
 				files := map[string]string{"keep.alloy": "// keep, changed"}
 				for i := 1; i <= 7; i++ {

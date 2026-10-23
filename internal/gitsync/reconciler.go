@@ -33,6 +33,7 @@ import (
 	"shepherd/internal/serve"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
+	"shepherd/internal/tenancy"
 	"shepherd/internal/validate"
 )
 
@@ -48,9 +49,12 @@ type Reconciler struct {
 	// and so by the dry run too (serve.Assemble).
 	beaconBaseline beacon.BaselineConfig
 	cfg            *config.GitSyncConfig
-	limits         gitrepo.Limits
-	tokenCache     *gitrepo.TokenCache
-	logger         *slog.Logger
+	// requireOwned is the server-wide tenants.require_owned setting: strict
+	// tenant mode's pipeline lint for every org.
+	requireOwned bool
+	limits       gitrepo.Limits
+	tokenCache   *gitrepo.TokenCache
+	logger       *slog.Logger
 	// locker, when set, limits passes to one replica at a time (see Locker).
 	locker Locker
 	// recompute, when set, refreshes the link's collector's served config
@@ -102,6 +106,7 @@ func New(st *store.Store, enc *crypto.Encryptor, v *validate.Validator, reg *sch
 		schema:         reg,
 		beaconBaseline: serve.BeaconBaseline(cfg),
 		cfg:            &cfg.GitSync,
+		requireOwned:   cfg.Tenants.RequireOwned,
 		limits: gitrepo.Limits{
 			MaxRepoBytes: cfg.GitSync.MaxRepoBytes,
 			MaxFileBytes: cfg.GitSync.MaxFileBytes,
@@ -926,7 +931,15 @@ func (r *Reconciler) planFile(ctx context.Context, link sqlc.RepoLink, file gitr
 	// construction (New) but never referenced here before this change —
 	// every synced file passed on Stage 1 syntax alone, regardless of
 	// whether it would actually validate.
-	if result := r.validator.ValidatePipeline(ctx, name, contents); !result.Valid {
+	//
+	// In strict tenant mode the gate's tenant lint runs too, against the
+	// org's tenants as they stand now: one file setting a tenant the org
+	// does not own refuses the whole commit, like any other invalid file.
+	policy, err := tenancy.Load(ctx, r.store.Queries, link.OrgID, r.requireOwned)
+	if err != nil {
+		return nil, fmt.Errorf("loading the org's tenant policy: %w", err)
+	}
+	if result := r.validator.ValidatePipeline(ctx, name, contents, policy.Validation()); !result.Valid {
 		return nil, fmt.Errorf("validation errors in %s: %v", file.Path, result.Diagnostics)
 	}
 

@@ -20,6 +20,7 @@ import (
 	"shepherd/internal/gateway"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
+	"shepherd/internal/tenancy"
 	"shepherd/internal/wizard"
 )
 
@@ -229,7 +230,12 @@ func validateDestinationTLS(url string, extra []byte) error {
 // the whole load instead made one bad row (written before the API validated
 // extra, or by a path that skipped it) break every wizard render and every
 // destination update in the org (#261).
-func wizardDestinations(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID) (wizard.Destinations, error) {
+//
+// requireOwned is the server-wide tenants.require_owned setting: in strict
+// tenant mode a destination whose tenant the org does not own (any more)
+// carries errTenantNotOwned, so no wizard render, destination re-render or
+// `shepherd admin rerender-destinations` run writes it.
+func wizardDestinations(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, requireOwned bool) (wizard.Destinations, error) {
 	rows, err := q.ListDestinationsByOrg(ctx, orgID)
 	if err != nil {
 		return nil, fmt.Errorf("listing destinations: %w", err)
@@ -237,6 +243,12 @@ func wizardDestinations(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID)
 	others, err := loadOtherOrgOwner(ctx, q, orgID)
 	if err != nil {
 		return nil, err
+	}
+	var policy tenancy.Policy
+	if orgID.Valid {
+		if policy, err = tenancy.Load(ctx, q, orgID, requireOwned); err != nil {
+			return nil, fmt.Errorf("loading the org's tenant policy: %w", err)
+		}
 	}
 	out := make(wizard.Destinations, len(rows))
 	for i := range rows {
@@ -264,6 +276,11 @@ func wizardDestinations(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID)
 		if dest.LoadErr == nil && d.TenantID != "" && others.owns(d.TenantID) {
 			dest.LoadErr = errTenantNotAvailable
 		}
+		// And strict tenant mode's rule, asked the same way: of the org's
+		// own tenants as they stand now.
+		if dest.LoadErr == nil && policy.Check(d.TenantID) != nil {
+			dest.LoadErr = errTenantNotOwned
+		}
 		out[d.Name] = dest
 	}
 	return out, nil
@@ -276,27 +293,33 @@ func wizardDestinations(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID)
 // owns it.
 var errTenantNotAvailable = errors.New("tenant_id is not available to this org")
 
+// errTenantNotOwned is strict tenant mode's render-time refusal: the
+// destination's tenant is not one the org owns.
+var errTenantNotOwned = errors.New("tenant_id is not one this org owns, and the org is in strict tenant mode")
+
 // validateDestinationTenant refuses, as invalid_argument, a tenant_id
 // outside Mimir's charset (wizard.ValidateTenant) or one another org owns.
 // Empty means no tenant is sent. q must be the transaction the destination
 // is then written in: it first takes the shared ownership lock
 // (lockOrgTenantsShared), which an app admin's tenant change takes
 // exclusively, so another org cannot be given this tenant between the check
-// and the commit.
-func validateDestinationTenant(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, tenant string) error {
+// and the commit. In strict tenant mode (requireOwned, or the org's own
+// flag) the tenant must also be one the org owns.
+func validateDestinationTenant(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, requireOwned bool, tenant string) error {
 	if err := wizard.ValidateTenant(tenant); err != nil {
 		return connect.NewError(connect.CodeInvalidArgument, err)
 	}
 	if tenant == "" {
 		return nil
 	}
-	return refuseOtherOrgTenant(ctx, q, orgID, tenant)
+	return refuseOtherOrgTenant(ctx, q, orgID, requireOwned, tenant)
 }
 
 // refuseOtherOrgTenant takes the shared ownership lock in q's transaction and
 // refuses (invalid_argument, errTenantNotAvailable) a tenant another org
-// owns. The caller has already validated tenant's charset.
-func refuseOtherOrgTenant(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, tenant string) error {
+// owns — and, in strict tenant mode, one this org does not own
+// (tenancy.ErrNotOwned). The caller has already validated tenant's charset.
+func refuseOtherOrgTenant(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, requireOwned bool, tenant string) error {
 	if err := lockOrgTenantsShared(ctx, q); err != nil {
 		return err
 	}
@@ -306,6 +329,9 @@ func refuseOtherOrgTenant(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUI
 	}
 	if others.owns(tenant) {
 		return connect.NewError(connect.CodeInvalidArgument, errTenantNotAvailable)
+	}
+	if err := checkStrictTenant(ctx, q, orgID, requireOwned, tenant); err != nil {
+		return err
 	}
 	return nil
 }
@@ -337,7 +363,7 @@ func (s *DestinationService) CreateDestination(ctx context.Context, req *connect
 	}
 	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck // no-op once committed
 	txQ := s.store.Queries.WithTx(tx)
-	if err := validateDestinationTenant(ctx, txQ, orgID, req.Msg.GetTenantId()); err != nil {
+	if err := validateDestinationTenant(ctx, txQ, orgID, s.pipelines.requireOwned, req.Msg.GetTenantId()); err != nil {
 		return nil, err
 	}
 	if err := validateDestinationTLS(req.Msg.GetUrl(), extraJSON); err != nil {
@@ -412,14 +438,14 @@ func (s *DestinationService) UpdateDestination(ctx context.Context, req *connect
 	}
 	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck // no-op once committed; rollback error on the success path is expected and harmless
 	txQ := s.store.Queries.WithTx(tx)
-	if err := validateDestinationTenant(ctx, txQ, owned.OrgID, req.Msg.GetTenantId()); err != nil {
+	if err := validateDestinationTenant(ctx, txQ, owned.OrgID, s.pipelines.requireOwned, req.Msg.GetTenantId()); err != nil {
 		return nil, err
 	}
 
 	// The destinations as they stand BEFORE this update — what every
 	// affected wizard pipeline's stored text was rendered from, so the
 	// hand-edit check (handEdited) compares against the right render.
-	before, err := wizardDestinations(ctx, txQ, owned.OrgID)
+	before, err := wizardDestinations(ctx, txQ, owned.OrgID, s.pipelines.requireOwned)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, err)
 	}
@@ -496,7 +522,7 @@ func (s *DestinationService) rerenderForUpdate(ctx context.Context, txQ *sqlc.Qu
 	if len(pipelines) == 0 {
 		return nil, false, nil
 	}
-	dests, err := wizardDestinations(ctx, txQ, owned.OrgID)
+	dests, err := wizardDestinations(ctx, txQ, owned.OrgID, s.pipelines.requireOwned)
 	if err != nil {
 		return nil, false, connect.NewError(connect.CodeFailedPrecondition, err)
 	}
@@ -759,7 +785,7 @@ func (s *DestinationService) CreateDestinationBinding(ctx context.Context, req *
 	}
 	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck // no-op once committed
 	txQ := s.store.Queries.WithTx(tx)
-	if err := refuseOtherOrgTenant(ctx, txQ, orgID, req.Msg.GetTenantId()); err != nil {
+	if err := refuseOtherOrgTenant(ctx, txQ, orgID, s.pipelines.requireOwned, req.Msg.GetTenantId()); err != nil {
 		return nil, err
 	}
 	b, err := txQ.CreateDestinationBinding(ctx, sqlc.CreateDestinationBindingParams{
@@ -816,7 +842,7 @@ func (s *DestinationService) UpdateDestinationBinding(ctx context.Context, req *
 	}
 	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck // no-op once committed
 	txQ := s.store.Queries.WithTx(tx)
-	if err := refuseOtherOrgTenant(ctx, txQ, owned.OrgID, req.Msg.GetTenantId()); err != nil {
+	if err := refuseOtherOrgTenant(ctx, txQ, owned.OrgID, s.pipelines.requireOwned, req.Msg.GetTenantId()); err != nil {
 		return nil, err
 	}
 	b, err := txQ.UpdateDestinationBinding(ctx, sqlc.UpdateDestinationBindingParams{

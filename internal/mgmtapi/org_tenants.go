@@ -215,13 +215,14 @@ func describeKind(k gateway.TenantKind) string {
 	return "tenant"
 }
 
-// orgProtoWithTenants loads the org's tenants through q and builds its proto.
-func orgProtoWithTenants(ctx context.Context, q *sqlc.Queries, o sqlc.Org) (*mgmtv1.Org, error) {
+// orgProtoWithTenants loads the org's tenants through q and builds its proto
+// (requireOwned: see toOrgProto).
+func orgProtoWithTenants(ctx context.Context, q *sqlc.Queries, o sqlc.Org, requireOwned bool) (*mgmtv1.Org, error) {
 	rows, err := q.ListOrgTenants(ctx, o.ID)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to load org tenants"))
 	}
-	return toOrgProto(o, rows), nil
+	return toOrgProto(o, rows, requireOwned), nil
 }
 
 // parseOrgTenantRule reads and validates a (tenant, kind) pair from a request.
@@ -381,7 +382,11 @@ func (s *AdminService) inOrgTenantTx(ctx context.Context, orgID pgtype.UUID, cha
 	if err := change(q, org, tenants); err != nil {
 		return nil, err
 	}
-	out, err := orgProtoWithTenants(ctx, q, org)
+	// Re-read: a change may write the org row itself (SetOrgStrictTenants).
+	if org, err = q.GetOrgByID(ctx, orgID); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to change org tenants"))
+	}
+	out, err := orgProtoWithTenants(ctx, q, org, s.requireOwned)
 	if err != nil {
 		return nil, err
 	}

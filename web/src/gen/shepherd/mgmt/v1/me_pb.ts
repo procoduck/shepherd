@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file shepherd/mgmt/v1/me.proto.
  */
 export const file_shepherd_mgmt_v1_me: GenFile = /*@__PURE__*/
-  fileDesc("ChlzaGVwaGVyZC9tZ210L3YxL21lLnByb3RvEhBzaGVwaGVyZC5tZ210LnYxIg4KDEdldE1lUmVxdWVzdCKXAgoNT3JnTWVtYmVyc2hpcBIKCgJpZBgBIAEoCRIMCgRuYW1lGAIgASgJEhQKDGRpc3BsYXlfbmFtZRgDIAEoCRIkCgRyb2xlGAkgASgOMhYuc2hlcGhlcmQubWdtdC52MS5Sb2xlEiUKHWFsbG93X2V4cGVyaW1lbnRhbF9jb21wb25lbnRzGAUgASgIEhwKFGFsbG93X2xhYmVsX21hdGNoaW5nGAYgASgIEiYKHmFsbG93X2xvY2FsX2F0dHJpYnV0ZV9tYXRjaGluZxgHIAEoCBIsCgd0ZW5hbnRzGAogAygLMhsuc2hlcGhlcmQubWdtdC52MS5PcmdUZW5hbnRKBAgEEAVKBAgIEAlSCXRlbmFudF9pZCKgAQoNR2V0TWVSZXNwb25zZRIQCgh1c2VyX29pZBgBIAEoCRINCgVlbWFpbBgCIAEoCRIUCgxkaXNwbGF5X25hbWUYAyABKAkSFAoMaXNfYXBwX2FkbWluGAQgASgIEhMKC2F1dGhfbWV0aG9kGAUgASgJEi0KBG9yZ3MYBiADKAsyHy5zaGVwaGVyZC5tZ210LnYxLk9yZ01lbWJlcnNoaXAyVwoJTWVTZXJ2aWNlEkoKBUdldE1lEh4uc2hlcGhlcmQubWdtdC52MS5HZXRNZVJlcXVlc3QaHy5zaGVwaGVyZC5tZ210LnYxLkdldE1lUmVzcG9uc2UiAEImWiRzaGVwaGVyZC9nZW4vc2hlcGhlcmQvbWdtdC92MTttZ210djFiBnByb3RvMw", [file_shepherd_mgmt_v1_common]);
+  fileDesc("ChlzaGVwaGVyZC9tZ210L3YxL21lLnByb3RvEhBzaGVwaGVyZC5tZ210LnYxIg4KDEdldE1lUmVxdWVzdCKxAgoNT3JnTWVtYmVyc2hpcBIKCgJpZBgBIAEoCRIMCgRuYW1lGAIgASgJEhQKDGRpc3BsYXlfbmFtZRgDIAEoCRIkCgRyb2xlGAkgASgOMhYuc2hlcGhlcmQubWdtdC52MS5Sb2xlEiUKHWFsbG93X2V4cGVyaW1lbnRhbF9jb21wb25lbnRzGAUgASgIEhwKFGFsbG93X2xhYmVsX21hdGNoaW5nGAYgASgIEiYKHmFsbG93X2xvY2FsX2F0dHJpYnV0ZV9tYXRjaGluZxgHIAEoCBIsCgd0ZW5hbnRzGAogAygLMhsuc2hlcGhlcmQubWdtdC52MS5PcmdUZW5hbnQSGAoQdGVuYW50c19yZXF1aXJlZBgLIAEoCEoECAQQBUoECAgQCVIJdGVuYW50X2lkIqABCg1HZXRNZVJlc3BvbnNlEhAKCHVzZXJfb2lkGAEgASgJEg0KBWVtYWlsGAIgASgJEhQKDGRpc3BsYXlfbmFtZRgDIAEoCRIUCgxpc19hcHBfYWRtaW4YBCABKAgSEwoLYXV0aF9tZXRob2QYBSABKAkSLQoEb3JncxgGIAMoCzIfLnNoZXBoZXJkLm1nbXQudjEuT3JnTWVtYmVyc2hpcDJXCglNZVNlcnZpY2USSgoFR2V0TWUSHi5zaGVwaGVyZC5tZ210LnYxLkdldE1lUmVxdWVzdBofLnNoZXBoZXJkLm1nbXQudjEuR2V0TWVSZXNwb25zZSIAQiZaJHNoZXBoZXJkL2dlbi9zaGVwaGVyZC9tZ210L3YxO21nbXR2MWIGcHJvdG8z", [file_shepherd_mgmt_v1_common]);
 
 /**
  * @generated from message shepherd.mgmt.v1.GetMeRequest
@@ -92,6 +92,16 @@ export type OrgMembership = Message<"shepherd.mgmt.v1.OrgMembership"> & {
    * @generated from field: repeated shepherd.mgmt.v1.OrgTenant tenants = 10;
    */
   tenants: OrgTenant[];
+
+  /**
+   * tenants_required is true when the org is in strict tenant mode (its own
+   * flag or the server-wide tenants.require_owned setting): destinations,
+   * bindings and routes may then only use one of tenants, so the forms offer
+   * only those.
+   *
+   * @generated from field: bool tenants_required = 11;
+   */
+  tenantsRequired: boolean;
 };
 
 /**

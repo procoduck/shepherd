@@ -1,0 +1,11 @@
+-- Strict tenant mode, per organisation.
+--
+-- With strict_tenants on, every destination, destination binding and tenant
+-- route of the org must use a tenant the org owns (org_tenants: one of its
+-- exact tenants, or a tenant under one of its prefixes), and pipeline text
+-- that sets a literal tenant the org does not own is refused by the
+-- validation gate. Only an app admin turns it on or off
+-- (AdminService.SetOrgStrictTenants), and turning it on is refused while
+-- anything of the org would break the rule. Off by default: an existing org
+-- behaves exactly as before.
+ALTER TABLE orgs ADD COLUMN strict_tenants boolean NOT NULL DEFAULT false;
