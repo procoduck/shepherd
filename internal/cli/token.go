@@ -69,7 +69,7 @@ func init() {
 	if err := tokenCreateCmd.MarkFlagRequired("name"); err != nil {
 		panic(err)
 	} // programming error if missing
-	tokenCreateCmd.Flags().StringVar(&tokenOrg, "org", "", "organisation slug (or id) to bind the token to (required; only a dev fixture with SHEPHERD_DEV_ALLOW_STATIC_TOKEN=true may omit it and bind later)")
+	tokenCreateCmd.Flags().StringVar(&tokenOrg, "org", "", "organisation slug (or id) to bind the token to (required)")
 	tokenCreateCmd.Flags().StringSliceVar(&tokenClusters, "clusters", nil, "allowed clusters, comma-separated or repeated (empty = any in the org)")
 	tokenCreateCmd.Flags().StringSliceVar(&tokenRoles, "roles", nil, "allowed collector roles, comma-separated or repeated (empty = any)")
 	tokenCreateCmd.Flags().StringVar(&tokenSecret, "secret", "", "fixed secret (only allowed when SHEPHERD_DEV_ALLOW_STATIC_TOKEN=true)")
@@ -142,10 +142,11 @@ func runTokenCreate(cmd *cobra.Command, _ []string) error {
 	if tokenID != "" && !devMode {
 		return fmt.Errorf("--id flag is only allowed when SHEPHERD_DEV_ALLOW_STATIC_TOKEN=true")
 	}
-	// Every token is bound to an org. The one exception is a dev/test fixture
-	// minted before its org exists (the e2e compose stack): it is created
-	// unbound — refused by the agent API — and bound later.
-	if strings.TrimSpace(tokenOrg) == "" && !devMode {
+	// Every token is bound to an org, dev fixtures included: the agent API
+	// refuses an unbound token, and Alloy exits when its initial load is
+	// refused, so a compose stack creates its org first (`shepherd dev
+	// ensure-org`) and mints the token bound to it.
+	if strings.TrimSpace(tokenOrg) == "" {
 		return fmt.Errorf("--org is required: every agent token is bound to an organisation")
 	}
 	if err := validateTokenRoles(tokenRoles); err != nil {
@@ -158,14 +159,11 @@ func runTokenCreate(cmd *cobra.Command, _ []string) error {
 	}
 	defer st.Close()
 
-	var orgID pgtype.UUID
-	if strings.TrimSpace(tokenOrg) != "" {
-		org, err := lookupTokenOrg(cmd.Context(), st, tokenOrg)
-		if err != nil {
-			return err
-		}
-		orgID = org.ID
+	org, err := lookupTokenOrg(cmd.Context(), st, tokenOrg)
+	if err != nil {
+		return err
 	}
+	orgID := org.ID
 	clusters, roles, err := tokenAllowlists()
 	if err != nil {
 		return err

@@ -148,12 +148,29 @@ var (
 	devCmd              = &cobra.Command{Use: "dev", Short: "Developer tooling (direct DB access — never use in production)"}
 	devSeedCmd          = &cobra.Command{Use: "seed", Short: "Seed development fixture data (idempotent)", RunE: runDevSeed}
 	devCreateSessionCmd = &cobra.Command{Use: "create-session", Short: "Mint a dev session for persona testing (direct DB — never production)", RunE: runDevCreateSession}
+	devEnsureOrgCmd     = &cobra.Command{
+		Use:   "ensure-org",
+		Short: "Create an organisation if it does not exist (idempotent; direct DB — never production)",
+		Long: "Create an organisation by name, or leave an existing one untouched. A compose\n" +
+			"stack runs it before `shepherd token create --org`, so its collectors' token is\n" +
+			"bound before any Alloy starts: the agent API refuses an unbound token, and Alloy\n" +
+			"exits when its initial load fails.",
+		RunE: runDevEnsureOrg,
+	}
 )
 
 func init() {
 	devCreateSessionCmd.Flags().String("persona", "appadmin", "persona: appadmin|admin-platform|viewer-platform|nobody")
 	devCreateSessionCmd.Flags().Duration("ttl", time.Hour, "session TTL")
-	devCmd.AddCommand(devSeedCmd, devCreateSessionCmd)
+	devEnsureOrgCmd.Flags().String("name", "", "organisation slug (required)")
+	devEnsureOrgCmd.Flags().String("display-name", "", "display name (defaults to --name)")
+	devEnsureOrgCmd.Flags().String("admin-group-id", "", "admin group id (required)")
+	for _, f := range []string{"name", "admin-group-id"} {
+		if err := devEnsureOrgCmd.MarkFlagRequired(f); err != nil {
+			panic(err)
+		}
+	}
+	devCmd.AddCommand(devSeedCmd, devCreateSessionCmd, devEnsureOrgCmd)
 	rootCmd.AddCommand(devCmd)
 }
 
@@ -801,6 +818,57 @@ func seedAgentToken(ctx context.Context, st *store.Store, orgID pgtype.UUID) err
 func isUnique(err error) bool {
 	var pgErr *pgconn.PgError
 	return errors.As(err, &pgErr) && pgErr.Code == "23505"
+}
+
+// runDevEnsureOrg creates the named org with no tenant — what
+// AdminService.CreateOrg does without a tenant_id — or, when it already exists
+// (a re-run against a kept stack), leaves it as it is.
+func runDevEnsureOrg(cmd *cobra.Command, _ []string) error {
+	name, _ := cmd.Flags().GetString("name")                 //nolint:errcheck // registered above
+	displayName, _ := cmd.Flags().GetString("display-name")  //nolint:errcheck // registered above
+	adminGroup, _ := cmd.Flags().GetString("admin-group-id") //nolint:errcheck // registered above
+	name, adminGroup = strings.TrimSpace(name), strings.TrimSpace(adminGroup)
+	if name == "" || adminGroup == "" {
+		return errors.New("--name and --admin-group-id must not be empty")
+	}
+	if strings.TrimSpace(displayName) == "" {
+		displayName = name
+	}
+	cfg, err := config.Load(cfgFile)
+	if err != nil {
+		return err
+	}
+	st, err := store.New(cmd.Context(), &cfg.Database)
+	if err != nil {
+		return fmt.Errorf("connecting: %w", err)
+	}
+	defer st.Close()
+	org, created, err := ensureOrg(cmd.Context(), st, name, displayName, adminGroup)
+	if err != nil {
+		return err
+	}
+	verdict := "exists"
+	if created {
+		verdict = "created"
+	}
+	fmt.Printf("org: id=%s name=%s %s\n", org.ID.String(), org.Name, verdict)
+	return nil
+}
+
+// ensureOrg creates the named org, or returns the existing one unchanged.
+func ensureOrg(ctx context.Context, st *store.Store, name, displayName, adminGroup string) (sqlc.Org, bool, error) {
+	org, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{Name: name, DisplayName: displayName, AdminGroupID: adminGroup})
+	switch {
+	case err == nil:
+		return org, true, nil
+	case isUnique(err):
+		if org, err = st.Queries.GetOrgByName(ctx, name); err != nil {
+			return sqlc.Org{}, false, fmt.Errorf("looking up org %q: %w", name, err)
+		}
+		return org, false, nil
+	default:
+		return sqlc.Org{}, false, fmt.Errorf("creating org %q: %w", name, err)
+	}
 }
 
 func runDevCreateSession(cmd *cobra.Command, _ []string) error {

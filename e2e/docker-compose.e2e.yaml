@@ -132,16 +132,43 @@ services:
     environment:
       SHEPHERD_DATABASE_URL: postgres://shepherd:shepherd@postgres:5432/shepherd_e2e?sslmode=disable
       SHEPHERD_SECURITY_ENCRYPTION_KEY: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
-      SHEPHERD_DEV_ALLOW_STATIC_TOKEN: "true"
     command:
       - migrate
       - up
     restart: "no"
 
-  shepherd-token:
+  # The collectors' org, created before their token: the agent API refuses an
+  # unbound token (PermissionDenied, token_unbound) and Alloy exits when its
+  # initial load is refused, so the token must be bound before Alloy starts.
+  # admin_group_id is e2e_test.go's appAdminGroupID.
+  shepherd-org:
     image: shepherd:local-init
     depends_on:
       shepherd-init:
+        condition: service_completed_successfully
+    environment:
+      SHEPHERD_DATABASE_URL: postgres://shepherd:shepherd@postgres:5432/shepherd_e2e?sslmode=disable
+      SHEPHERD_SECURITY_ENCRYPTION_KEY: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+    command:
+      - dev
+      - ensure-org
+      - --name
+      - e2e-org
+      - --display-name
+      - E2E Org
+      - --admin-group-id
+      - "11111111-1111-1111-1111-111111111111"
+    restart: "no"
+
+  # The collectors' token, bound to e2e-org and narrowed to the one collector
+  # the stack runs (alloy/config.alloy: cluster e2e-cluster, role metrics).
+  # CLI-minted, so may_claim: Alloy's first poll claims e2e-cluster to
+  # e2e-org. SHEPHERD_DEV_ALLOW_STATIC_TOKEN is needed only for the fixed
+  # --id/--secret that alloy/config.alloy and e2e_test.go hardcode.
+  shepherd-token:
+    image: shepherd:local-init
+    depends_on:
+      shepherd-org:
         condition: service_completed_successfully
     environment:
       SHEPHERD_DATABASE_URL: postgres://shepherd:shepherd@postgres:5432/shepherd_e2e?sslmode=disable
@@ -152,6 +179,12 @@ services:
       - create
       - --name
       - e2e
+      - --org
+      - e2e-org
+      - --clusters
+      - e2e-cluster
+      - --roles
+      - metrics
       - --id
       - "00000000-e2e0-4000-a000-000000000001"
       - --secret

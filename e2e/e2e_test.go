@@ -167,7 +167,7 @@ var _ = SynchronizedBeforeSuite(func() []byte {
 	return nil
 }, func(_ []byte) {
 	// Resolve the admin token ID from the tokens list as a logged-in app admin.
-	// (shepherd-init creates it with a known secret; AdminService is app-admin only)
+	// (shepherd-token creates it with a known secret; AdminService is app-admin only)
 	admin := newAdminClient()
 	var tokens struct {
 		Items []struct {
@@ -186,8 +186,45 @@ var _ = SynchronizedAfterSuite(func() {}, func() {
 
 var _ = Describe("Shepherd E2E", Ordered, func() {
 	_ = Describe("1. Registration & claiming", Ordered, func() {
-		It("shows e2e-cluster as unclaimed after Alloy boots", func() {
-			Eventually(func() bool {
+		It("binds the collectors' token to e2e-org before Alloy boots", func() {
+			// The compose stack creates e2e-org (shepherd-org) and mints the
+			// collectors' token bound to it (shepherd-token) before Alloy
+			// starts: the agent API refuses an unbound token, and Alloy exits
+			// when its initial load is refused.
+			var orgs struct {
+				Items []struct {
+					ID   string `json:"id"`
+					Name string `json:"name"`
+				} `json:"items"`
+			}
+			adminClient.mustRPC("AdminService", "ListOrgs", nil, &orgs)
+			for _, o := range orgs.Items {
+				if o.Name == "e2e-org" {
+					orgID = o.ID
+				}
+			}
+			Expect(orgID).NotTo(BeEmpty(), "the compose stack's shepherd-org service creates e2e-org")
+
+			var tokens struct {
+				Items []struct {
+					ID    string `json:"id"`
+					OrgID string `json:"orgId"`
+				} `json:"items"`
+			}
+			adminClient.mustRPC("AdminService", "ListAgentTokens", nil, &tokens)
+			var bound string
+			for _, t := range tokens.Items {
+				if t.ID == e2eAgentTokenID {
+					bound = t.OrgID
+				}
+			}
+			Expect(bound).To(Equal(orgID), "the collectors' token is bound to e2e-org")
+		})
+
+		It("claims e2e-cluster to the token's org on Alloy's first poll", func() {
+			// A CLI-minted token may claim (operator-trusted): the cluster
+			// Alloy names is claimed to the token's org, no ClaimCluster call.
+			Eventually(func() string {
 				var clusters struct {
 					Items []struct {
 						Name  string `json:"name"`
@@ -197,43 +234,11 @@ var _ = Describe("Shepherd E2E", Ordered, func() {
 				adminClient.mustRPC("AdminService", "ListClusters", nil, &clusters)
 				for _, c := range clusters.Items {
 					if c.Name == "e2e-cluster" {
-						return true
+						return c.OrgID
 					}
 				}
-				return false
-			}).WithTimeout(90 * time.Second).WithPolling(2 * time.Second).Should(BeTrue())
-		})
-
-		It("creates an org and claims the cluster", func() {
-			var org struct {
-				ID string `json:"id"`
-			}
-			// Connect answers a create with 200, not REST's 201.
-			status := adminClient.rpc("AdminService", "CreateOrg", map[string]string{
-				"name":           "e2e-org",
-				"display_name":   "E2E Org",
-				"admin_group_id": appAdminGroupID,
-			}, &org)
-			Expect(status).To(Equal(http.StatusOK))
-			orgID = org.ID
-			Expect(orgID).NotTo(BeEmpty())
-
-			status = adminClient.rpc("AdminService", "ClaimCluster", map[string]string{
-				"cluster": "e2e-cluster",
-				"org_id":  orgID,
-			}, nil)
-			Expect(status).To(Equal(http.StatusOK))
-
-			// The compose stack mints the collectors' token before any org
-			// exists, so it starts unbound and the agent API refuses it
-			// (token_unbound) — the cluster above was still discovered. Bind
-			// it in place: Alloy keeps its credentials and is served from its
-			// next poll.
-			status = adminClient.rpc("AdminService", "BindAgentToken", map[string]any{
-				"id":     e2eAgentTokenID,
-				"org_id": orgID,
-			}, nil)
-			Expect(status).To(Equal(http.StatusOK))
+				return ""
+			}).WithTimeout(90 * time.Second).WithPolling(2 * time.Second).Should(Equal(orgID))
 		})
 	})
 

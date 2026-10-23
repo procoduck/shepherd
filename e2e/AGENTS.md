@@ -48,5 +48,6 @@ Compose-based e2e suites (`//go:build e2e`) plus the kind-based Kubernetes suite
 - E2E stack login: `admin` / `e2e-local-admin-pass` (the dev stack uses `admin` / `admin`).
 
 ## Fixtures
+- Collectors' token: `shepherd-org` (`shepherd dev ensure-org`) then `shepherd-token` (`token create --org e2e-org …`) mint it bound to `e2e-org` before Alloy starts. Never mint it unbound to bind later: the agent API refuses an unbound token and Alloy exits when its initial load is refused.
 - `mockmsft/` — mock Entra/Graph server; tests inject state via `POST /__fixture` (see `e2e_test.go`).
 - Gitea is the git server for GitOps scenarios; `gitea_helpers_test.go` owns repo/token/push helpers.

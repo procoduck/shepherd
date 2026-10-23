@@ -66,11 +66,11 @@ var _ = Describe("token create flag parsing", func() {
 		Expect(err.Error()).To(ContainSubstring("connecting to database"))
 	})
 
-	It("lets a dev fixture omit --org (created unbound, bound later)", func() {
+	It("requires --org in dev mode too: a dev fixture is never minted unbound", func() {
 		GinkgoT().Setenv("SHEPHERD_DEV_ALLOW_STATIC_TOKEN", "true")
-		err := runTokenCreate("--name", "x")
+		err := runTokenCreate("--name", "x", "--secret", "fixed-secret", "--id", validFixedUUID)
 		Expect(err).To(HaveOccurred())
-		Expect(err.Error()).To(ContainSubstring("connecting to database"))
+		Expect(err.Error()).To(ContainSubstring("--org is required"))
 	})
 
 	It("refuses --secret outside dev mode (token.go:63)", func() {
@@ -87,7 +87,7 @@ var _ = Describe("token create flag parsing", func() {
 
 	It("allows --secret and --id once SHEPHERD_DEV_ALLOW_STATIC_TOKEN=true, and reaches the database instead of the guard", func() {
 		GinkgoT().Setenv("SHEPHERD_DEV_ALLOW_STATIC_TOKEN", "true")
-		err := runTokenCreate("--name", "x", "--secret", "fixed-secret", "--id", validFixedUUID)
+		err := runTokenCreate("--name", "x", "--org", "e2e-org", "--secret", "fixed-secret", "--id", validFixedUUID)
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).NotTo(ContainSubstring("only allowed"))
 		Expect(err.Error()).To(ContainSubstring("connecting to database"))

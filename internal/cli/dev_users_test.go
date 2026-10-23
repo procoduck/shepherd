@@ -142,3 +142,68 @@ var _ = Describe("seedPipelines", Label("integration"), func() {
 		Expect(dirty).To(BeTrue())
 	})
 })
+
+// The compose stacks' token bootstrap (e2e/docker-compose.e2e.yaml): the org
+// first, then a fixed-secret token bound to it — never an unbound token,
+// which the agent API refuses and Alloy exits on.
+var _ = Describe("dev ensure-org, then token create --org", Label("integration"), func() {
+	var (
+		ctx   context.Context
+		st    *store.Store
+		dbURL string
+	)
+
+	BeforeEach(func() {
+		ctx = context.Background()
+		dbURL = devUsersPG.IsolatedDB(ctx, GinkgoTB())
+		var err error
+		st, err = store.New(ctx, &config.DatabaseConfig{URL: dbURL, MaxConns: 5})
+		Expect(err).NotTo(HaveOccurred())
+	})
+
+	AfterEach(func() {
+		st.Close()
+	})
+
+	It("creates the org once and returns it unchanged on a re-run", func() {
+		first, created, err := ensureOrg(ctx, st, "e2e-org", "E2E Org", "g-admins")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(created).To(BeTrue())
+
+		again, created, err := ensureOrg(ctx, st, "e2e-org", "Other", "g-other")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(created).To(BeFalse())
+		Expect(again.ID).To(Equal(first.ID))
+		Expect(again.DisplayName).To(Equal("E2E Org"), "an existing org is left untouched")
+	})
+
+	It("mints the fixed-secret dev token bound to the org, with may_claim and its allowlists", func() {
+		_, _, err := ensureOrg(ctx, st, "e2e-org", "E2E Org", "g-admins")
+		Expect(err).NotTo(HaveOccurred())
+
+		tokenName, tokenSecret, tokenID = "", "", ""
+		resetTokenFlags(tokenCreateCmd)
+		GinkgoT().Setenv("SHEPHERD_DEV_ALLOW_STATIC_TOKEN", "true")
+		GinkgoT().Setenv("SHEPHERD_DATABASE_URL", dbURL)
+		GinkgoT().Setenv("SHEPHERD_SECURITY_ENCRYPTION_KEY", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
+		rootCmd.SilenceUsage = true
+		rootCmd.SilenceErrors = true
+		rootCmd.SetArgs([]string{
+			"token", "create", "--name", "e2e", "--org", "e2e-org",
+			"--clusters", "e2e-cluster", "--roles", "metrics",
+			"--id", validFixedUUID, "--secret", "e2e-static-secret-32byteslong1234",
+		})
+		Expect(rootCmd.Execute()).To(Succeed())
+
+		var id pgtype.UUID
+		Expect(id.Scan(validFixedUUID)).To(Succeed())
+		tok, err := st.Queries.GetAgentTokenByID(ctx, id)
+		Expect(err).NotTo(HaveOccurred())
+		org, err := st.Queries.GetOrgByName(ctx, "e2e-org")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(tok.OrgID).To(Equal(org.ID))
+		Expect(tok.MayClaim).To(BeTrue(), "a CLI-minted token is operator-trusted")
+		Expect(string(tok.Clusters)).To(MatchJSON(`["e2e-cluster"]`))
+		Expect(string(tok.Roles)).To(MatchJSON(`["metrics"]`))
+	})
+})
