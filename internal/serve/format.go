@@ -22,8 +22,13 @@ package serve
 // #369, a beacon-disabled deployment serves no D6 baseline on any path (the
 // eager paths had appended it; a clean row they wrote would otherwise keep
 // it until something next marked the collector dirty). Beacon-enabled rows
-// recompute to the same bytes and hash, so their collectors see no reload.
-const Format int16 = 3
+// recompute to the same bytes and hash, so their collectors see no reload;
+// 4 — B-BEACON-SCRAPE, the D6 baseline scrapes Alloy's root /metrics through a
+// discovery.relabel (the exporter's own remotecfg component path answers 400,
+// so the beacon had never carried a sample). Every beacon-enabled collector's
+// bytes and hash change, so each reloads once; beacon-disabled rows recompute
+// to the same bytes.
+const Format int16 = 4
 
 // Current reports whether a cached row's format is the one this binary
 // computes. A row in an older format is stale however clean its dirty flag.

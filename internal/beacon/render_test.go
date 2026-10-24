@@ -216,3 +216,77 @@ func TestOAuth2ForBeacon(t *testing.T) {
 		t.Errorf("descriptor not built from defaults + args: %+v", got)
 	}
 }
+
+// TestRenderBaselinePipeline_Golden pins the baseline's exact bytes. They are
+// served to every beacon-enabled collector and feed its config hash, so a
+// change here reloads the whole fleet once and needs a serve.Format bump.
+//
+// B-BEACON-SCRAPE: the scrape reads Alloy's ROOT /metrics. The exporter's own
+// target path (/api/v0/component/remotecfg/prometheus.exporter.self.beacon/metrics)
+// answers HTTP 400 when the exporter arrives through remotecfg (Alloy's
+// remotecfg component route does not resolve the id), so the scrape forwarded
+// only synthetic up/scrape_* series, the keep rule dropped them, and no beacon
+// write ever carried a sample. discovery.relabel keeps the exporter's target
+// (the in-memory address and the per-host `instance` label Project requires)
+// and rewrites only __metrics_path__. Red run, executed: the pre-fix render
+// scraped prometheus.exporter.self.beacon.targets directly.
+func TestRenderBaselinePipeline_Golden(t *testing.T) {
+	cfg := validConfig()
+	cfg.CollectorID = "col-1"
+	out, err := RenderBaselinePipeline(cfg)
+	if err != nil {
+		t.Fatalf("RenderBaselinePipeline: %v", err)
+	}
+	const want = `prometheus.exporter.self "beacon" { }
+
+discovery.relabel "beacon" {
+  targets = prometheus.exporter.self.beacon.targets
+
+  rule {
+    target_label = "__metrics_path__"
+    replacement  = "/metrics"
+    action       = "replace"
+  }
+}
+
+prometheus.scrape "beacon" {
+  targets         = discovery.relabel.beacon.output
+  forward_to      = [prometheus.relabel.beacon.receiver]
+  job_name        = "shepherd-beacon"
+  scrape_interval = "60s"
+}
+
+prometheus.relabel "beacon" {
+  forward_to = [prometheus.remote_write.beacon.receiver]
+
+  rule {
+    source_labels = ["__name__"]
+    regex         = "alloy_component_controller_running_components"
+    action        = "keep"
+  }
+
+  rule {
+    target_label = "shepherd_collector_id"
+    replacement  = "col-1"
+    action       = "replace"
+  }
+}
+
+prometheus.remote_write "beacon" {
+  endpoint {
+    url = "https://shepherd.example.com/beacon/v1/write"
+
+    basic_auth {
+      username = sys.env("SHEPHERD_AGENT_TOKEN_ID")
+      password = sys.env("SHEPHERD_AGENT_TOKEN_SECRET")
+    }
+  }
+}
+`
+	if out != want {
+		t.Fatalf("baseline mismatch:\n got:\n%s\nwant:\n%s", out, want)
+	}
+	if d := validate.PortShapes(out); len(d) != 0 {
+		t.Fatalf("baseline fails the Stage 2 port-shape check: %+v", d)
+	}
+}

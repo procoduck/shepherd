@@ -302,6 +302,25 @@ Fixed in the prerelease v0.19.0-rc.2:
 - **A small visual graph could render to gigabytes** (#391, #393) — output bounded at 1 MiB,
   duplicate edges and labels/components over 256 bytes refused, diagnostics capped.
 
+Fixed after v0.19.0-rc.2 (unreleased):
+
+- **B-BEACON-SCRAPE** (high; found live on kind 2026-10-24) — the D6 beacon had **never produced
+  data** since it shipped (c276e9c). The served baseline scraped
+  `prometheus.exporter.self.beacon.targets`, whose path
+  (`/api/v0/component/remotecfg/prometheus.exporter.self.beacon/metrics`) Alloy answers with HTTP
+  400 for an exporter delivered through remotecfg (upstream route bug), so only synthetic
+  `up`/`scrape_*` series reached the keep rule and every beacon write was empty;
+  `beacon_inventory` stayed empty and reconciliation's observed side was always unknown. Every
+  test checked a layer short of the deployed artifact (render text, `Project` over hand-fed
+  `/metrics`). The baseline now runs the exporter's target through `discovery.relabel` setting
+  `__metrics_path__` to `/metrics` (Alloy's root registry, same in-memory listener, same
+  `instance` label); serve format 4, so every beacon-enabled collector reloads once (approved
+  2026-10-24). Red-first: `TestRenderBaselinePipeline_Golden` and the e2e spec "the served beacon
+  baseline reports observed state" (real Alloy → `/beacon/v1/write` → `GetReconciliation`), which
+  also needed the e2e stack's `server.base_url` set to an address Alloy can dial. The compose dev
+  stack (`make dev`) still leaves `base_url` at its unreachable default, so its beacon writes go
+  nowhere; kind is unaffected.
+
 **2026-10-08 pre-release walkthrough** (kind dev stack, Playwright MCP): four high and six medium
 findings, all fixed in v0.15.0 — the builder save landing on stale data (H1), App
 Observability scrape targets and log globs that collected nothing (H2, H3), the Database Metrics DSN

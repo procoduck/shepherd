@@ -120,14 +120,18 @@ expose both variables still gets and runs its config, but its beacon never authe
 uses — see [Collectors](https://procoduck.github.io/shepherd/docs/collectors.html) and
 [Agent tokens](https://procoduck.github.io/shepherd/docs/agent-tokens.html).
 
-### One recompute per collector (serve format 3)
+### One reload per beacon-enabled collector (serve format 4)
 
-The new pods compute serve format 3 and recompute every cached config once, on its collector's
-next poll. With the beacon enabled (the default) the bytes are unchanged, so collectors get
-`NotModified` and do not reload. With `config.server.beacon_disabled: true`, a collector whose
-config was last written by an eager recompute loses a beacon `remote_write` block that pointed at
-an endpoint the server does not mount, and **reloads once**; after that its config no longer
-changes depending on which path computed it.
+The new pods compute serve format 4 and recompute every cached config once, on its collector's
+next poll. The D6 beacon baseline changed (B-BEACON-SCRAPE): it now scrapes Alloy's root
+`/metrics` through a `discovery.relabel "beacon"` block, because the exporter's own remotecfg
+path answers HTTP 400 and the beacon had never delivered data. With the beacon enabled (the
+default) **every collector's served config changes once and each reloads once**; from then on
+`beacon_inventory` fills and the **Reconciliation** tab shows observed state. The beacon writes to
+`config.server.base_url` + `/beacon/v1/write`, so `base_url` must be reachable from the collectors.
+With `config.server.beacon_disabled: true` the bytes do not change, except that a collector whose
+config was last written by an eager recompute on 0.22.x loses a beacon `remote_write` block that
+pointed at an endpoint the server does not mount (format 3, rc.1) and reloads once.
 
 ### Management API changes
 
