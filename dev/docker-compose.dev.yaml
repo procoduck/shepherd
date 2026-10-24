@@ -247,6 +247,11 @@ services:
       - --storage.path=/tmp/alloy-metrics
       - --server.http.listen-addr=0.0.0.0:12345
       - --disable-reporting
+    # The dev seed's agent token, read by the remotecfg block
+    # (dev/alloy-*.alloy) and by the beacon baseline Shepherd serves.
+    environment:
+      SHEPHERD_AGENT_TOKEN_ID: 00000000-de00-4000-a000-000000000001
+      SHEPHERD_AGENT_TOKEN_SECRET: dev-only-agent-secret-32byteslong
     volumes:
       - ../dev/alloy-metrics.alloy:/etc/alloy/config.alloy:ro
     ports:
@@ -264,6 +269,11 @@ services:
       - --storage.path=/tmp/alloy-logs
       - --server.http.listen-addr=0.0.0.0:12346
       - --disable-reporting
+    # The dev seed's agent token, read by the remotecfg block
+    # (dev/alloy-*.alloy) and by the beacon baseline Shepherd serves.
+    environment:
+      SHEPHERD_AGENT_TOKEN_ID: 00000000-de00-4000-a000-000000000001
+      SHEPHERD_AGENT_TOKEN_SECRET: dev-only-agent-secret-32byteslong
     volumes:
       - ../dev/alloy-logs.alloy:/etc/alloy/config.alloy:ro
     ports:
@@ -281,6 +291,11 @@ services:
       - --storage.path=/tmp/alloy-staging
       - --server.http.listen-addr=0.0.0.0:12347
       - --disable-reporting
+    # The dev seed's agent token, read by the remotecfg block
+    # (dev/alloy-*.alloy) and by the beacon baseline Shepherd serves.
+    environment:
+      SHEPHERD_AGENT_TOKEN_ID: 00000000-de00-4000-a000-000000000001
+      SHEPHERD_AGENT_TOKEN_SECRET: dev-only-agent-secret-32byteslong
     volumes:
       - ../dev/alloy-staging.alloy:/etc/alloy/config.alloy:ro
     ports:

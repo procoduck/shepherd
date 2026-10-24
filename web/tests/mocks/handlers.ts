@@ -142,6 +142,8 @@ function collectorToWire(c: Obj) {
     localAttributes: c['local_attributes'] ?? {},
     instances: arr<Obj>(c, 'instances').map(collectorInstanceToWire),
     labels: c['labels'] ?? {},
+    lastRefusedReason: s(c, 'last_refused_reason'),
+    lastRefusedAt: c['last_refused_at'],
   };
 }
 
@@ -1451,7 +1453,8 @@ export function installDefaultHandlers(router: Router) {
     });
   });
   router.register('POST', '/shepherd.mgmt.v1.FleetService/GetReconciliation', (r) => {
-    const findings = arr<Obj>((st.reconciliation as Obj) ?? {}, 'findings').map((f) => ({
+    const recon = (st.reconciliation as Obj) ?? {};
+    const findings = arr<Obj>(recon, 'findings').map((f) => ({
       kind: s(f, 'kind'),
       sources: arr<string>(f, 'sources'),
       summary: s(f, 'summary'),
@@ -1459,7 +1462,7 @@ export function installDefaultHandlers(router: Router) {
       controllerPath: s(f, 'controller_path'),
       stale: b(f, 'stale'),
     }));
-    return json(r, 200, { findings });
+    return json(r, 200, { findings, observedKnown: b(recon, 'observed_known') });
   });
   router.register('POST', '/shepherd.mgmt.v1.FleetService/ListAssignments', async (r) => {
     const req = await body(r);

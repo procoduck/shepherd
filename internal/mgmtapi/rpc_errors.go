@@ -5,6 +5,7 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"shepherd/internal/auth"
 )
@@ -16,6 +17,33 @@ import (
 // err) before returning) has any record of what actually failed, matching
 // how every other CodeInternal site in mgmtapi already behaves.
 var errInternal = errors.New("internal error")
+
+// The client-facing texts for mapError's Postgres cases. The store's own
+// error text (constraint and table names, the SQLSTATE) is never sent: a
+// caller wanting a domain message ("an org with that name already exists")
+// checks isUniqueViolation itself first, as several handlers do.
+var (
+	errAlreadyExists     = errors.New("already exists")
+	errConflictsRelated  = errors.New("conflicts with a related resource (it no longer exists, or is still in use)")
+	errRolloutInProgress = errors.New("server temporarily unavailable (schema mismatch, likely an upgrade in progress); retry")
+)
+
+// isSchemaMismatch reports a Postgres error meaning this binary and the
+// database schema disagree — a pod on the other side of a migration during a
+// rolling upgrade. Retrying succeeds once the rollout settles: Unavailable.
+// internal/agentapi applies the same rule to collector RPCs.
+func isSchemaMismatch(err error) bool {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) {
+		return false
+	}
+	switch pgErr.Code {
+	case "42P10", "42703", "42P01", "42883":
+		return true
+	default:
+		return false
+	}
+}
 
 // mapError maps the store and auth packages' sentinel errors, plus common
 // pgconn failure codes, onto the connect.Code an RPC handler should return.
@@ -45,9 +73,11 @@ func mapError(err error) error {
 		errors.Is(err, auth.ErrNoSettings):
 		return connect.NewError(connect.CodeFailedPrecondition, err)
 	case isUniqueViolation(err):
-		return connect.NewError(connect.CodeAlreadyExists, err)
+		return connect.NewError(connect.CodeAlreadyExists, errAlreadyExists)
 	case isFKViolation(err):
-		return connect.NewError(connect.CodeAlreadyExists, err)
+		return connect.NewError(connect.CodeAlreadyExists, errConflictsRelated)
+	case isSchemaMismatch(err):
+		return connect.NewError(connect.CodeUnavailable, errRolloutInProgress)
 	default:
 		return connect.NewError(connect.CodeInternal, errInternal)
 	}

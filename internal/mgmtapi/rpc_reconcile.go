@@ -60,7 +60,7 @@ func (s *FleetService) GetReconciliation(ctx context.Context, req *connect.Reque
 		s.logger.Warn("reconcile: building served set failed", "collector_id", id.String(), "err", err)
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to reconcile served pipelines"))
 	}
-	observed, err := s.reconcileObserved(ctx, id)
+	observed, observedKnown, err := s.reconcileObserved(ctx, id)
 	if err != nil {
 		s.logger.Warn("reconcile: building observed set failed", "collector_id", id.String(), "err", err)
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to reconcile observed components"))
@@ -84,7 +84,9 @@ func (s *FleetService) GetReconciliation(ctx context.Context, req *connect.Reque
 	if rej, ok := s.rejectionFinding(ctx, id); ok {
 		findings = append([]reconcile.Finding{rej}, findings...)
 	}
-	return connect.NewResponse(&mgmtv1.GetReconciliationResponse{Findings: findingsToProto(findings)}), nil
+	return connect.NewResponse(&mgmtv1.GetReconciliationResponse{
+		Findings: findingsToProto(findings), ObservedKnown: observedKnown,
+	}), nil
 }
 
 // rejectionFinding reports a collector that rejected its served config
@@ -217,10 +219,10 @@ func (s *FleetService) reconcileServed(ctx context.Context, orgID pgtype.UUID, c
 // reconcileObserved reads the collector's beacon inventory (attributed via the
 // shepherd_collector_id the baseline stamps) into the reconcile Observed set,
 // scoped to the managed namespace (see managedControllerPrefix).
-func (s *FleetService) reconcileObserved(ctx context.Context, collectorID pgtype.UUID) (reconcile.Observed, error) {
+func (s *FleetService) reconcileObserved(ctx context.Context, collectorID pgtype.UUID) (reconcile.Observed, bool, error) {
 	rows, err := s.store.Queries.ListBeaconInventoryByCollector(ctx, collectorID)
 	if err != nil {
-		return reconcile.Observed{}, err
+		return reconcile.Observed{}, false, err
 	}
 	cutoff := time.Now().Add(-beaconStaleAfter)
 	var comps []reconcile.ObservedComponent
@@ -235,7 +237,11 @@ func (s *FleetService) reconcileObserved(ctx context.Context, collectorID pgtype
 			Stale:          r.LastSeen.Valid && r.LastSeen.Time.Before(cutoff),
 		})
 	}
-	return reconcile.Observed{Components: comps}, nil
+	// known is whether the beacon reported anything at all for this
+	// collector — unmanaged components included: an inventory holding none
+	// of the managed pipelines is a positive "none running", while no rows
+	// is UNKNOWN (never reported, or every row aged out; package reconcile).
+	return reconcile.Observed{Components: comps}, len(rows) > 0, nil
 }
 
 func findingsToProto(findings []reconcile.Finding) []*mgmtv1.Finding {

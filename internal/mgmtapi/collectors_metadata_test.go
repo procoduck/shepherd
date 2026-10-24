@@ -448,6 +448,51 @@ var _ = Describe("Collector instance metadata", Label("integration"), func() {
 			Expect(item).NotTo(HaveKey("remoteConfigError"))
 		})
 	})
+
+	// 0.22 -> 0.23 upgrade walkthrough: while every poll was refused
+	// (token_unbound), the list and detail kept the last successful poll's
+	// APPLIED. The agent API records the refusal on the collector row (0041);
+	// both views carry it while it is newer than the last successful poll.
+	Describe("a refused collector (0041)", func() {
+		It("carries the latest refusal on the list and the detail while it is newer than the last successful poll", func() {
+			collector := createCollector("refused-cluster")
+			upsertInstance("refused-inst", collector.ID, "refused-inst", "v1.20.1", "linux", `{}`)
+			setStatus("refused-inst", "APPLIED", "")
+			backdate("refused-inst", time.Minute)
+			Expect(st.Queries.RecordCollectorRefusal(ctx, sqlc.RecordCollectorRefusalParams{
+				ID: collector.ID, Reason: "token_unbound",
+			})).To(Succeed())
+
+			item := listItem(collector.ID)
+			Expect(item["lastRefusedReason"]).To(Equal("token_unbound"))
+			Expect(item["lastRefusedAt"]).NotTo(BeEmpty())
+			Expect(item["remoteConfigStatus"]).To(Equal("APPLIED"), "the stored outcome is untouched")
+			detail := getCollector(collector.ID)
+			Expect(detail["lastRefusedReason"]).To(Equal("token_unbound"))
+			Expect(detail["lastRefusedAt"]).NotTo(BeEmpty())
+		})
+
+		It("omits a refusal older than the last successful poll (one an older binary never cleared)", func() {
+			collector := createCollector("refused-then-ok")
+			Expect(st.Queries.RecordCollectorRefusal(ctx, sqlc.RecordCollectorRefusalParams{
+				ID: collector.ID, Reason: "claim_denied",
+			})).To(Succeed())
+			upsertInstance("ok-inst", collector.ID, "ok-inst", "v1.20.1", "linux", `{}`)
+
+			Expect(listItem(collector.ID)).NotTo(HaveKey("lastRefusedReason"))
+			Expect(getCollector(collector.ID)).NotTo(HaveKey("lastRefusedReason"))
+		})
+
+		It("omits it once cleared", func() {
+			collector := createCollector("refused-cleared")
+			Expect(st.Queries.RecordCollectorRefusal(ctx, sqlc.RecordCollectorRefusalParams{
+				ID: collector.ID, Reason: "role_denied",
+			})).To(Succeed())
+			Expect(listItem(collector.ID)["lastRefusedReason"]).To(Equal("role_denied"), "no instance yet: the refusal shows")
+			Expect(st.Queries.ClearCollectorRefusal(ctx, collector.ID)).To(Succeed())
+			Expect(listItem(collector.ID)).NotTo(HaveKey("lastRefusedReason"))
+		})
+	})
 })
 
 // instanceCollectorID is the collector of the most recently seen instance row

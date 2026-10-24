@@ -332,6 +332,26 @@ cmd_seed() {
 	kc -n "$NAMESPACE" exec "$(app_pod)" -- /usr/local/bin/shepherd dev seed
 }
 
+# alloy_log_verdict reads an Alloy agent's recent log on stdin and prints one
+# word: refused (Shepherd refused the agent — Alloy logs the RPC error code,
+# permission_denied or unauthenticated, on a "failed to fetch"/"failed to get
+# configuration" line), unreachable (any other fetch failure), rejecting (the
+# agent fetched its config and could not load it) or ok. A refused agent used
+# to read as "rejecting its served config": both lines say "remote config".
+alloy_log_verdict() {
+	local logs
+	logs=$(cat)
+	if grep -qE 'err="(permission_denied|unauthenticated)' <<<"$logs"; then
+		echo refused
+	elif grep -qE 'failed to (fetch remote config|get configuration from remote server)' <<<"$logs"; then
+		echo unreachable
+	elif grep -qE 'failed to .*remote config' <<<"$logs"; then
+		echo rejecting
+	else
+		echo ok
+	fi
+}
+
 cmd_status() {
 	kc -n "$NAMESPACE" get pods,svc,pvc,gateway,httproute
 	hm -n "$NAMESPACE" status "$RELEASE"
@@ -342,11 +362,12 @@ cmd_status() {
 	curl -sf http://shepherd.localtest.me/readyz >/dev/null && echo "shepherd ready: ok" || echo "shepherd ready: NOT READY"
 	local a
 	for a in alloy-metrics alloy-logs alloy-staging; do
-		if kc -n "$NAMESPACE" logs "deploy/${a}" --since=2m 2>/dev/null | grep -q 'failed to .*remote config'; then
-			echo "${a}: rejecting its served config (kc -n ${NAMESPACE} logs deploy/${a})"
-		else
-			echo "${a}: ok"
-		fi
+		case "$(kc -n "$NAMESPACE" logs "deploy/${a}" --since=2m 2>/dev/null | alloy_log_verdict)" in
+		refused) echo "${a}: refused by Shepherd (token unbound / cluster or role not allowed — see the Collectors page; logs: kc -n ${NAMESPACE} logs deploy/${a})" ;;
+		unreachable) echo "${a}: cannot fetch its config (kc -n ${NAMESPACE} logs deploy/${a})" ;;
+		rejecting) echo "${a}: rejecting its served config (kc -n ${NAMESPACE} logs deploy/${a})" ;;
+		*) echo "${a}: ok" ;;
+		esac
 	done
 	curl -sf http://oidc.localtest.me/default/.well-known/openid-configuration >/dev/null && echo "oidc: ok" || echo "oidc: unreachable"
 	curl -sf http://gitea.localtest.me/api/healthz >/dev/null && echo "gitea: ok" || echo "gitea: unreachable"

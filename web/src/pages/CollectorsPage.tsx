@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { useMemo, useState } from 'react';
 import { clients } from '@/api/transport';
+import { RefusedBadge } from '@/components/CollectorRefusal';
 import { ConnectClusterDialog } from '@/components/ConnectClusterDialog';
 import { QueryError } from '@/components/QueryError';
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
@@ -38,6 +39,9 @@ const collectorColumns: DataTableColumn<Collector>[] = [
     header: 'Status',
     width: '12%',
     render: (c) => {
+      // A refusal newer than the last successful poll wins (0041): the
+      // instance status is the last poll that passed, not what happens now.
+      if (c.lastRefusedReason) return <RefusedBadge collector={c} />;
       const status = c.remoteConfigStatus?.toUpperCase() ?? '';
       const tone = statusColor(status);
       return (
@@ -107,7 +111,7 @@ export function CollectorsPage() {
           c.cluster,
           c.role,
           c.alloyVersion,
-          c.remoteConfigStatus || 'unknown',
+          c.lastRefusedReason ? 'refused' : c.remoteConfigStatus || 'unknown',
           ...Object.entries(c.labels).map(([key, value]) => `${key}=${value}`),
         ].some((value) => value.toLowerCase().includes(query)),
       ),

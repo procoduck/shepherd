@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { clients } from '@/api/transport';
+import { toneClass } from '@/components/ui/statusTone';
 
 /**
  * The heading for one finding kind (internal/reconcile's Kind values).
@@ -98,7 +99,35 @@ export function CollectorReconciliation({
       {isLoading ? (
         <p className='text-sm text-muted'>Checking…</p>
       ) : findings.length === 0 ? (
-        status === 'FAILED' ? null : (
+        status === 'FAILED' ? null : !data?.observedKnown ? (
+          // No beacon inventory: observed is UNKNOWN, never agreement
+          // (internal/reconcile). Saying "in sync" here read as a clean bill
+          // of health for a collector Shepherd cannot see (0.22 -> 0.23
+          // upgrade walkthrough).
+          <div
+            className={`rounded-lg border px-4 py-3 text-sm ${toneClass('neutral')}`}
+            data-testid='reconciliation-observed-unknown'
+          >
+            <p className='font-medium'>
+              Observed state unknown — no beacon data from this collector yet.
+            </p>
+            <p className='mt-1'>
+              Declared and served agree, but nothing has reported what is running. The
+              self-monitoring beacon in the served config writes back to Shepherd; with agent-token
+              auth the collector must expose its token as <code>SHEPHERD_AGENT_TOKEN_ID</code> and{' '}
+              <code>SHEPHERD_AGENT_TOKEN_SECRET</code>, and <code>server.base_url</code> must be
+              reachable from its cluster.{' '}
+              <a
+                href='https://procoduck.github.io/shepherd/docs/collectors.html'
+                target='_blank'
+                rel='noreferrer'
+                className='underline'
+              >
+                Collectors docs
+              </a>
+            </p>
+          </div>
+        ) : (
           <div
             className='rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-400'
             data-testid='reconciliation-in-sync'

@@ -43,3 +43,15 @@ UPDATE collectors
 SET labels = labels - sqlc.arg(label_key)::text, updated_at = now()
 WHERE id = sqlc.arg(id)
 RETURNING labels;
+
+-- name: RecordCollectorRefusal :exec
+-- The agent API calls this only when the row's recorded refusal differs or
+-- is older than its refusal-log window (agentapi.recordCollectorRefusal).
+UPDATE collectors
+SET last_refused_at = now(), last_refused_reason = sqlc.arg(reason)::text
+WHERE id = sqlc.arg(id);
+
+-- name: ClearCollectorRefusal :exec
+UPDATE collectors
+SET last_refused_at = NULL, last_refused_reason = NULL
+WHERE id = $1 AND last_refused_at IS NOT NULL;

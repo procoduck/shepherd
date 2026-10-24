@@ -12,6 +12,17 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const clearCollectorRefusal = `-- name: ClearCollectorRefusal :exec
+UPDATE collectors
+SET last_refused_at = NULL, last_refused_reason = NULL
+WHERE id = $1 AND last_refused_at IS NOT NULL
+`
+
+func (q *Queries) ClearCollectorRefusal(ctx context.Context, id pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, clearCollectorRefusal, id)
+	return err
+}
+
 const deleteCollectorLabel = `-- name: DeleteCollectorLabel :one
 UPDATE collectors
 SET labels = labels - $1::text, updated_at = now()
@@ -32,7 +43,7 @@ func (q *Queries) DeleteCollectorLabel(ctx context.Context, arg DeleteCollectorL
 }
 
 const getCollectorByClusterAndRole = `-- name: GetCollectorByClusterAndRole :one
-SELECT c.id, c.cluster_id, c.role, c.created_at, c.updated_at, c.labels FROM collectors c
+SELECT c.id, c.cluster_id, c.role, c.created_at, c.updated_at, c.labels, c.last_refused_at, c.last_refused_reason FROM collectors c
 JOIN clusters cl ON c.cluster_id = cl.id
 WHERE cl.name = $1 AND c.role = $2
 `
@@ -52,12 +63,14 @@ func (q *Queries) GetCollectorByClusterAndRole(ctx context.Context, arg GetColle
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Labels,
+		&i.LastRefusedAt,
+		&i.LastRefusedReason,
 	)
 	return i, err
 }
 
 const getCollectorByID = `-- name: GetCollectorByID :one
-SELECT id, cluster_id, role, created_at, updated_at, labels FROM collectors WHERE id = $1
+SELECT id, cluster_id, role, created_at, updated_at, labels, last_refused_at, last_refused_reason FROM collectors WHERE id = $1
 `
 
 func (q *Queries) GetCollectorByID(ctx context.Context, id pgtype.UUID) (Collector, error) {
@@ -70,6 +83,8 @@ func (q *Queries) GetCollectorByID(ctx context.Context, id pgtype.UUID) (Collect
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Labels,
+		&i.LastRefusedAt,
+		&i.LastRefusedReason,
 	)
 	return i, err
 }
@@ -88,7 +103,7 @@ func (q *Queries) GetCollectorOrgID(ctx context.Context, id pgtype.UUID) (pgtype
 }
 
 const listCollectorsByOrg = `-- name: ListCollectorsByOrg :many
-SELECT c.id, c.cluster_id, c.role, c.created_at, c.updated_at, c.labels FROM collectors c
+SELECT c.id, c.cluster_id, c.role, c.created_at, c.updated_at, c.labels, c.last_refused_at, c.last_refused_reason FROM collectors c
 JOIN clusters cl ON c.cluster_id = cl.id
 WHERE cl.org_id = $1
 ORDER BY cl.name, c.role
@@ -110,6 +125,8 @@ func (q *Queries) ListCollectorsByOrg(ctx context.Context, orgID pgtype.UUID) ([
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.Labels,
+			&i.LastRefusedAt,
+			&i.LastRefusedReason,
 		); err != nil {
 			return nil, err
 		}
@@ -167,6 +184,24 @@ func (q *Queries) ListCollectorsWithClusterByOrg(ctx context.Context, orgID pgty
 	return items, nil
 }
 
+const recordCollectorRefusal = `-- name: RecordCollectorRefusal :exec
+UPDATE collectors
+SET last_refused_at = now(), last_refused_reason = $1::text
+WHERE id = $2
+`
+
+type RecordCollectorRefusalParams struct {
+	Reason string      `json:"reason"`
+	ID     pgtype.UUID `json:"id"`
+}
+
+// The agent API calls this only when the row's recorded refusal differs or
+// is older than its refusal-log window (agentapi.recordCollectorRefusal).
+func (q *Queries) RecordCollectorRefusal(ctx context.Context, arg RecordCollectorRefusalParams) error {
+	_, err := q.db.Exec(ctx, recordCollectorRefusal, arg.Reason, arg.ID)
+	return err
+}
+
 const setCollectorLabel = `-- name: SetCollectorLabel :one
 UPDATE collectors
 SET labels = labels || jsonb_build_object($1::text, $2::text),
@@ -193,7 +228,7 @@ const upsertCollector = `-- name: UpsertCollector :one
 INSERT INTO collectors (cluster_id, role)
 VALUES ($1, $2)
 ON CONFLICT (cluster_id, role) DO UPDATE SET updated_at = now()
-RETURNING id, cluster_id, role, created_at, updated_at, labels
+RETURNING id, cluster_id, role, created_at, updated_at, labels, last_refused_at, last_refused_reason
 `
 
 type UpsertCollectorParams struct {
@@ -211,6 +246,8 @@ func (q *Queries) UpsertCollector(ctx context.Context, arg UpsertCollectorParams
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Labels,
+		&i.LastRefusedAt,
+		&i.LastRefusedReason,
 	)
 	return i, err
 }

@@ -33,7 +33,7 @@ func (s *AdminService) GetOidcSettings(ctx context.Context, _ *connect.Request[m
 	settings, err := s.oidc.EffectiveSettings(ctx)
 	if err != nil {
 		s.logger.Error("loading OIDC settings", "err", err)
-		return nil, connect.NewError(connect.CodeInternal, err)
+		return nil, connect.NewError(connect.CodeInternal, errInternal)
 	}
 	return connect.NewResponse(s.toOidcSettingsProto(settings)), nil
 }
@@ -207,7 +207,8 @@ func (s *AdminService) auditOIDCDenied(ctx context.Context, action string, attem
 func (s *AdminService) storedClientSecret(ctx context.Context) (string, error) {
 	current, err := s.oidc.EffectiveSettings(ctx)
 	if err != nil {
-		return "", connect.NewError(connect.CodeInternal, err)
+		s.logger.Error("loading OIDC settings", "err", err)
+		return "", connect.NewError(connect.CodeInternal, errInternal)
 	}
 	if current == nil || current.ClientSecret == "" {
 		return "", connect.NewError(connect.CodeInvalidArgument, errors.New("client secret is required — there is no stored secret to keep"))

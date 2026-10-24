@@ -61,6 +61,17 @@ message Collector {
   repeated CollectorInstance instances = 11;
   // UI-managed grouping labels, independent of Alloy attributes and pipeline matching.
   map<string, string> labels = 12;
+  // last_refused_reason is set while the agent API's latest refusal of a poll
+  // for this collector is newer than its last successful poll (instances are
+  // never written on a refused poll, so last_seen and remote_config_status
+  // still describe the last poll that passed). One of "token_unbound",
+  // "claim_denied" (cluster not permitted, or claimed by another org) or
+  // "role_denied"; empty when the collector is not being refused. A string,
+  // per this repo's enum-like-field rule.
+  string last_refused_reason = 13;
+  // last_refused_at is when that refusal was recorded (refreshed at most once
+  // per refusal-log window while refusals continue); unset with the reason.
+  google.protobuf.Timestamp last_refused_at = 14;
 }
 
 message SetCollectorLabelRequest {
@@ -142,6 +153,11 @@ message Finding {
 
 message GetReconciliationResponse {
   repeated Finding findings = 1;
+  // observed_known is false when the beacon has reported no component
+  // inventory for this collector (never reported, or every row aged out):
+  // observed state is UNKNOWN, so no findings does not mean "in sync"
+  // (internal/reconcile: absence is never agreement either).
+  bool observed_known = 2;
 }
 
 message ListAssignmentsRequest {

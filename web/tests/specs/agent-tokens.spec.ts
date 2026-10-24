@@ -44,6 +44,12 @@ test('app admin: unbound tokens sort first, are flagged, and bind in place', asy
   await expect(page.getByTestId('token-unbound-tok-legacy')).toBeVisible();
   await expect(rows.nth(2)).toContainText('prod-org');
   await expect(rows.nth(2)).toContainText('prod-eu-1');
+  // 0.22 -> 0.23 upgrade walkthrough: an unbound token's empty allowlists
+  // read "any", as if it could act for every cluster and role; it is refused
+  // outright. "any" is only for a bound token's empty allowlist.
+  await expect(page.getByTestId('token-clusters-tok-legacy')).toHaveText('— (unbound: refused)');
+  await expect(page.getByTestId('token-roles-tok-legacy')).toHaveText('— (unbound: refused)');
+  await expect(page.getByTestId('token-roles-tok-bound')).toHaveText('any');
   expect(api.calls('AdminService/ListAgentTokens')[0].body).not.toHaveProperty('orgId');
 
   await page.getByTestId('token-bind-tok-legacy').click();

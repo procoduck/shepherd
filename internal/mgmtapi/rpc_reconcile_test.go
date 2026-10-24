@@ -149,6 +149,30 @@ var _ = Describe("shepherd.mgmt.v1.FleetService/GetReconciliation", Label("integ
 		Expect(findings()).To(BeEmpty())
 	})
 
+	// 0.22 -> 0.23 upgrade walkthrough: with no beacon data the tab said
+	// "In sync — declared, served and observed all agree". internal/reconcile
+	// treats an empty inventory as UNKNOWN; the response now says so.
+	observedKnown := func() bool {
+		body := map[string]any{"org_id": orgID.String(), "id": collID.String()}
+		resp := postConnectJSON(server, "/shepherd.mgmt.v1.FleetService/GetReconciliation", viewer, body)
+		defer resp.Body.Close() //nolint:errcheck // test cleanup
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+		var out map[string]any
+		Expect(json.NewDecoder(resp.Body).Decode(&out)).To(Succeed())
+		// protojson omits a false bool, so an absent key reads false.
+		return out["observedKnown"] == true
+	}
+
+	It("reports observed state unknown while the beacon has reported nothing", func() {
+		Expect(findings()).To(BeEmpty())
+		Expect(observedKnown()).To(BeFalse())
+	})
+
+	It("reports observed state known once the beacon reports, even only unmanaged components", func() {
+		observe("prometheus.scrape.self", true)
+		Expect(observedKnown()).To(BeTrue())
+	})
+
 	// #378, at the layer it is consumed at: a beacon write in the label shape
 	// the pinned Alloy really emits (controller_path = parent, controller_id =
 	// the loader's own id), through beacon.Project and the same upsert the
