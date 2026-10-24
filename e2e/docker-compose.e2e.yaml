@@ -227,6 +227,11 @@ services:
       # already hit once). Must equal networks.default.ipv4_address below.
       SHEPHERD_SERVER_LISTEN: "172.28.0.10:8080"
       SHEPHERD_SERVER_METRICS_LISTEN: "172.28.0.10:9090"
+      # The D6 baseline's remote_write URL is base_url + /beacon/v1/write, so
+      # base_url must be an address the alloy service can dial. The default
+      # (https://shepherd.example.internal) resolves nowhere, which left the
+      # beacon writing into the void here even after B-BEACON-SCRAPE.
+      SHEPHERD_SERVER_BASE_URL: http://shepherd:8080
       # The first administrator is created by `serve`, not by `migrate up`, so
       # these belong here and nowhere else. Seeded explicitly so the suite is
       # not blocked by the forced password change, which applies only to a

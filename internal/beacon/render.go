@@ -199,8 +199,31 @@ func RenderBaselinePipeline(cfg BaselineConfig) (string, error) {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "prometheus.exporter.self %q { }\n\n", cfg.Label)
 
+	// B-BEACON-SCRAPE: scrape Alloy's ROOT /metrics, not the exporter's own
+	// component path. The exporter's target points at
+	// /api/v0/component/remotecfg/prometheus.exporter.self.<label>/metrics,
+	// which Alloy (verified v1.20.1; same route code in v1.18.1) answers with
+	// HTTP 400 when the exporter is delivered through remotecfg — and this
+	// baseline only ever is. The scrape then forwarded nothing but synthetic
+	// up/scrape_* series, the keep rule below dropped them, and the beacon
+	// never carried a sample. Root /metrics is served by the same router on
+	// the same in-memory listener (__address__ stays the exporter's
+	// alloy.internal:12345) and exposes the identical registry, every
+	// remotecfg loader's runningComponentsMetric included. Relabeling the
+	// exporter's target, rather than writing a literal one, keeps its
+	// per-host `instance` label, which Project requires and beacon_inventory
+	// keys on.
+	fmt.Fprintf(&sb, "discovery.relabel %q {\n", cfg.Label)
+	fmt.Fprintf(&sb, "  targets = prometheus.exporter.self.%s.targets\n\n", cfg.Label)
+	sb.WriteString("  rule {\n")
+	sb.WriteString("    target_label = \"__metrics_path__\"\n")
+	sb.WriteString("    replacement  = \"/metrics\"\n")
+	sb.WriteString("    action       = \"replace\"\n")
+	sb.WriteString("  }\n")
+	sb.WriteString("}\n\n")
+
 	fmt.Fprintf(&sb, "prometheus.scrape %q {\n", cfg.Label)
-	fmt.Fprintf(&sb, "  targets         = prometheus.exporter.self.%s.targets\n", cfg.Label)
+	fmt.Fprintf(&sb, "  targets         = discovery.relabel.%s.output\n", cfg.Label)
 	fmt.Fprintf(&sb, "  forward_to      = [prometheus.relabel.%s.receiver]\n", cfg.Label)
 	fmt.Fprintf(&sb, "  job_name        = \"shepherd-beacon\"\n")
 	fmt.Fprintf(&sb, "  scrape_interval = %q\n", cfg.ScrapeInterval)

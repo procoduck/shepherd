@@ -1,8 +1,9 @@
 // Package beacon implements the D6 beacon: parse, project, discard.
 //
 // docs/gateway-tier-plan.md D6 serves every collector a small, non-opt-in
-// baseline pipeline (prometheus.exporter.self -> prometheus.scrape ->
-// prometheus.relabel -> prometheus.remote_write, see RenderBaselinePipeline)
+// baseline pipeline (prometheus.exporter.self -> discovery.relabel (root
+// /metrics) -> prometheus.scrape -> prometheus.relabel ->
+// prometheus.remote_write, see RenderBaselinePipeline)
 // that reports back to Shepherd over the same Prometheus remote_write wire
 // format Alloy already speaks, authenticated by the same agent-token Basic
 // Auth collectors already use for remotecfg (internal/agentapi/auth.go).
