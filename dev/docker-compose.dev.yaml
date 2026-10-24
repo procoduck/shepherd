@@ -189,6 +189,12 @@ services:
       # already hit once). Must equal networks.default.ipv4_address below.
       SHEPHERD_SERVER_LISTEN: "172.29.0.10:8080"
       SHEPHERD_SERVER_METRICS_LISTEN: "172.29.0.10:9090"
+      # The served beacon baseline writes to base_url + /beacon/v1/write, so
+      # base_url must be an address the alloy-* services can dial (the same
+      # one their remotecfg url uses). The default
+      # (https://shepherd.example.internal) resolves nowhere, which left the
+      # dev stack's beacon writing into the void. Mirrors the e2e stack.
+      SHEPHERD_SERVER_BASE_URL: http://shepherd:8080
       SHEPHERD_GRAPH_BASE_URL: http://mockmsft:9090
       SHEPHERD_ADO_BASE_URL: http://mockmsft:9090
       # Empty by default so the default stack exercises the "simulator not

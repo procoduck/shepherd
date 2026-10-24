@@ -18,7 +18,7 @@
       <h2 id="installing">Installing</h2>
       <div class="code-block" data-lang="shell">
         <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
-        <pre><code>helm install shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.22.0 \
+        <pre><code>helm install shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.23.0 \
   --namespace shepherd --create-namespace \
   --set existingSecret=shepherd-secrets</code></pre>
       </div>
@@ -30,8 +30,8 @@
         release it was published for.
       </p>
       <p class="note">
-        <strong>Chart version is not the app version.</strong> <code>--version 0.22.0</code> is the
-        <em>chart&rsquo;s</em>; Shepherd&rsquo;s is the chart&rsquo;s <code>appVersion</code> (<code>0.18.0</code> for chart <code>0.22.0</code>). They move independently, so a
+        <strong>Chart version is not the app version.</strong> <code>--version 0.23.0</code> is the
+        <em>chart&rsquo;s</em>; Shepherd&rsquo;s is the chart&rsquo;s <code>appVersion</code> (<code>0.19.0</code> for chart <code>0.23.0</code>). They move independently, so a
         chart-only change bumps only the chart. Run
         <code>helm show chart oci://ghcr.io/procoduck/charts/shepherd</code> to see which Shepherd
         release a chart version installs.
@@ -80,7 +80,7 @@
       <p>
         Nothing is exposed outside the cluster unless you ask for it. To see exactly what an install
         would create before creating it, render it locally:
-        <code>helm template shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.22.0</code>.
+        <code>helm template shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.23.0</code>.
       </p>
 
       <h2 id="migrations">Migrations run before the new code</h2>
@@ -176,6 +176,27 @@ kubectl -n shepherd port-forward svc/shepherd 8080:8080</code></pre>
         Migrations run ahead of the new pods automatically.
       </p>
 
+      <h3 id="upgrading-to-0-23">Upgrading to chart 0.23.0: bind your agent tokens</h3>
+      <p>
+        <strong>Agent tokens are now bound to an organisation, and an unbound token is refused.</strong>
+        Tokens created before 0.23.0 are left unbound, so every collector stops receiving new config
+        (it keeps running its last one) until an app admin binds its token on the
+        <a href="agent-tokens.html">Agent Tokens</a> page or with <code>shepherd token bind</code>;
+        plan to bind every token right after the upgrade. Meanwhile the Collectors page shows those
+        collectors as <strong>REFUSED</strong>, and
+        <code>shepherd_agent_refused_total{reason="token_unbound"}</code> counts the refusals. Seven
+        migrations (<code>0035</code>&ndash;<code>0041</code>) run ahead of the new pods, and old pods
+        answer errors on some calls until the rollout finishes. Every beacon-enabled collector reloads
+        once (serve format 4, the beacon now reports); its beacon needs
+        <code>SHEPHERD_AGENT_TOKEN_ID</code> / <code>SHEPHERD_AGENT_TOKEN_SECRET</code> in the
+        collector&rsquo;s environment and a <code>config.server.base_url</code> the collectors can
+        reach. Management-API scripts break (roles are enums, <code>SetOrgTenantID</code> is gone,
+        <code>CreateAgentToken</code> needs <code>org_id</code>) and new size limits apply. Work
+        through the numbered steps in
+        <a href="https://github.com/procoduck/shepherd/blob/main/deploy/helm/shepherd/UPGRADING.md">UPGRADING.md</a>
+        in order.
+      </p>
+
       <h3 id="upgrading-to-0-22">Upgrading to chart 0.22.0: local sign-in and removed git files</h3>
       <p>
         An ordinary <code>helm upgrade</code>. Migration <code>0034</code> adds a column, a trigger
@@ -250,7 +271,7 @@ kubectl -n shepherd port-forward svc/shepherd 8080:8080</code></pre>
         <pre><code>kubectl -n shepherd label pod \
   -l 'app.kubernetes.io/instance=shepherd,app.kubernetes.io/name=shepherd,!app.kubernetes.io/component' \
   app.kubernetes.io/component=server
-helm upgrade shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.22.0 \
+helm upgrade shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.23.0 \
   --namespace shepherd --reuse-values</code></pre>
       </div>
       <p>

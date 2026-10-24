@@ -136,7 +136,7 @@ kubectl -n shepherd create secret generic shepherd-secrets \
       </p>
       <div class="code-block" data-lang="shell">
         <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
-        <pre><code>helm install shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.22.0 \
+        <pre><code>helm install shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.23.0 \
   --namespace shepherd \
   --set existingSecret=shepherd-secrets \
   --set config.server.base_url=http://shepherd.shepherd.svc.cluster.local:8080
@@ -266,7 +266,7 @@ kubectl -n shepherd rollout status deploy/shepherd</code></pre>
 <footer>
   <div class="wrap">
     <div class="foot-left">
-      <span class="pill">v0.18.0</span>
+      <span class="pill">v0.19.0</span>
       <span>self-hosted Grafana Alloy fleet manager</span>
     </div>
     <div class="foot-links">
