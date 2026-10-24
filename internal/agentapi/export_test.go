@@ -80,3 +80,7 @@ func SetDBWorkFloor(d time.Duration) (restore func()) {
 	dbWorkFloor = d
 	return func() { dbWorkFloor = prev }
 }
+
+// SetCollectorRefusalWindow replaces how long a recorded collector refusal
+// suppresses rewriting the row for the same reason. Test-only.
+func SetCollectorRefusalWindow(s *Service, d time.Duration) { s.refusalWriteWindow = d }

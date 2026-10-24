@@ -23,6 +23,24 @@
 # demo-visual and Pod Logs). Without it both fail at runtime with "forbidden" while the
 # collector still reads APPLIED (found by the 2026-10-08 walkthrough). The namespace in
 # the ClusterRoleBinding subject is the script's fixed NAMESPACE (shepherd-dev).
+#
+# Token: the agents authenticate with the dev seed's fixed agent token (`shepherd dev
+# seed`, internal/cli/dev.go) from the alloy-agent-token Secret below, as
+# SHEPHERD_AGENT_TOKEN_ID / SHEPHERD_AGENT_TOKEN_SECRET — the env the remotecfg block
+# (dev/alloy-*.alloy) and the beacon baseline Shepherd appends to every served config
+# both read. Without them the beacon never authenticated on this stack (0.22 -> 0.23
+# upgrade walkthrough) and the Reconciliation tab had no observed data.
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: alloy-agent-token
+  labels:
+    shepherd.dev/component: alloy
+type: Opaque
+stringData:
+  SHEPHERD_AGENT_TOKEN_ID: 00000000-de00-4000-a000-000000000001
+  SHEPHERD_AGENT_TOKEN_SECRET: dev-only-agent-secret-32byteslong
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -113,6 +131,17 @@ spec:
             - --storage.path=/tmp/alloy
             - --server.http.listen-addr=0.0.0.0:12345
             - --disable-reporting
+          env:
+            - name: SHEPHERD_AGENT_TOKEN_ID
+              valueFrom:
+                secretKeyRef:
+                  name: alloy-agent-token
+                  key: SHEPHERD_AGENT_TOKEN_ID
+            - name: SHEPHERD_AGENT_TOKEN_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: alloy-agent-token
+                  key: SHEPHERD_AGENT_TOKEN_SECRET
           ports:
             - name: http
               containerPort: 12345
@@ -157,6 +186,17 @@ spec:
             - --storage.path=/tmp/alloy
             - --server.http.listen-addr=0.0.0.0:12345
             - --disable-reporting
+          env:
+            - name: SHEPHERD_AGENT_TOKEN_ID
+              valueFrom:
+                secretKeyRef:
+                  name: alloy-agent-token
+                  key: SHEPHERD_AGENT_TOKEN_ID
+            - name: SHEPHERD_AGENT_TOKEN_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: alloy-agent-token
+                  key: SHEPHERD_AGENT_TOKEN_SECRET
           ports:
             - name: http
               containerPort: 12345
@@ -201,6 +241,17 @@ spec:
             - --storage.path=/tmp/alloy
             - --server.http.listen-addr=0.0.0.0:12345
             - --disable-reporting
+          env:
+            - name: SHEPHERD_AGENT_TOKEN_ID
+              valueFrom:
+                secretKeyRef:
+                  name: alloy-agent-token
+                  key: SHEPHERD_AGENT_TOKEN_ID
+            - name: SHEPHERD_AGENT_TOKEN_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: alloy-agent-token
+                  key: SHEPHERD_AGENT_TOKEN_SECRET
           ports:
             - name: http
               containerPort: 12345

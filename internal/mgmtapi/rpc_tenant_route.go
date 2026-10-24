@@ -314,7 +314,9 @@ func (s *TenantRouteService) CreateTenantRoute(ctx context.Context, req *connect
 
 	segment, err := gateway.GenerateSegment(ctx, format, kind, tenantID, s.segmentExists)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("minting tenant route segment: %w", err))
+		// segmentExists reads the store: its error text stays in the log.
+		s.logger.Error("minting tenant route segment", "err", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to mint a tenant route segment"))
 	}
 
 	r, err := txQ.CreateTenantRoute(ctx, sqlc.CreateTenantRouteParams{
@@ -412,7 +414,9 @@ func (s *TenantRouteService) RotateTenantRoute(ctx context.Context, req *connect
 
 	segment, err := gateway.GenerateSegment(ctx, format, kind, current.TenantID, s.segmentExists)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("minting tenant route segment: %w", err))
+		// segmentExists reads the store: its error text stays in the log.
+		s.logger.Error("minting tenant route segment", "err", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to mint a tenant route segment"))
 	}
 
 	tx, err := s.store.Pool().Begin(ctx)

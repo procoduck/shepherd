@@ -290,6 +290,11 @@ services:
       - --storage.path=/tmp/alloy
       - --server.http.listen-addr=0.0.0.0:12345
       - --disable-reporting
+    # The token alloy/config.alloy authenticates with, for the beacon baseline
+    # Shepherd appends to the served config (it reads these two vars).
+    environment:
+      SHEPHERD_AGENT_TOKEN_ID: 00000000-e2e0-4000-a000-000000000001
+      SHEPHERD_AGENT_TOKEN_SECRET: e2e-static-secret-32byteslong1234
     volumes:
       - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
     ports:

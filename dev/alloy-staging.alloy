@@ -1,9 +1,13 @@
 // Alloy instance: cluster=staging-eu-1, role=metrics
 remotecfg {
   url = "http://shepherd:8080"
+  // The dev seed's agent token (shepherd dev seed), from the environment —
+  // the same two vars the beacon baseline Shepherd appends reads, so both
+  // authenticate with one token: compose sets them per service, kind from
+  // the alloy-agent-token Secret (dev/kind/alloy.yaml).
   basic_auth {
-    username = "00000000-de00-4000-a000-000000000001"
-    password = "dev-only-agent-secret-32byteslong"
+    username = sys.env("SHEPHERD_AGENT_TOKEN_ID")
+    password = sys.env("SHEPHERD_AGENT_TOKEN_SECRET")
   }
   attributes = {
     cluster = "staging-eu-1",

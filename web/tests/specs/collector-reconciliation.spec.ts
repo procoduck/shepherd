@@ -2,20 +2,56 @@
 // tab surfaces declared/served/observed drift from FleetService.GetReconciliation.
 import { expect } from '@playwright/test';
 import { basicScenario, collector } from '../fixtures/factories';
-import { appAdmin } from '../fixtures/personas';
+import { appAdmin, viewer } from '../fixtures/personas';
 import { test } from '../fixtures/test';
 
-test('reconciliation tab shows "in sync" when there are no findings', async ({ page, api }) => {
+test('reconciliation tab shows "in sync" when there are no findings and the beacon reported', async ({
+  page,
+  api,
+}) => {
   await api.loginAs(appAdmin);
   const s = basicScenario();
   const c = collector({ id: 'col-recon-1', role: 'singleton' });
-  api.seed({ orgs: [s.org], collectors: [c], reconciliation: { findings: [] } });
+  api.seed({
+    orgs: [s.org],
+    collectors: [c],
+    reconciliation: { findings: [], observed_known: true },
+  });
 
   await page.goto(`/collectors/${c.id}`);
   await page.getByRole('button', { name: 'Reconciliation' }).click();
 
   await expect(page.getByTestId('reconciliation-in-sync')).toBeVisible();
+  await expect(page.getByTestId('reconciliation-observed-unknown')).toHaveCount(0);
   await expect(page.getByTestId('reconciliation-findings')).toHaveCount(0);
+});
+
+// 0.22 -> 0.23 upgrade walkthrough: with no beacon data the tab said "In sync —
+// declared, served and observed all agree". Observed is UNKNOWN then
+// (internal/reconcile), and the tab says so, with where to look.
+test('reconciliation tab says observed state is unknown when the beacon has reported nothing', async ({
+  page,
+  api,
+}) => {
+  await api.loginAs(viewer);
+  const s = basicScenario();
+  const c = collector({ id: 'col-recon-unknown', role: 'metrics' });
+  api.seed({
+    orgs: [s.org],
+    collectors: [c],
+    reconciliation: { findings: [], observed_known: false },
+  });
+
+  await page.goto(`/collectors/${c.id}`);
+  await page.getByRole('button', { name: 'Reconciliation' }).click();
+
+  const unknown = page.getByTestId('reconciliation-observed-unknown');
+  await expect(unknown).toContainText(
+    'Observed state unknown — no beacon data from this collector yet',
+  );
+  await expect(unknown).toContainText('SHEPHERD_AGENT_TOKEN_ID');
+  await expect(unknown.getByRole('link')).toHaveAttribute('href', /docs\/collectors\.html/);
+  await expect(page.getByTestId('reconciliation-in-sync')).toHaveCount(0);
 });
 
 test('reconciliation tab lists a drift finding', async ({ page, api }) => {

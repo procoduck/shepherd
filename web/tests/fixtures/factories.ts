@@ -37,6 +37,9 @@ interface Collector {
   local_attributes?: Record<string, string>;
   labels?: Record<string, string>;
   instances?: unknown[];
+  /** 0041: the latest refusal while newer than the last successful poll. */
+  last_refused_reason?: 'token_unbound' | 'claim_denied' | 'role_denied';
+  last_refused_at?: string;
 }
 interface Pipeline {
   id: string;

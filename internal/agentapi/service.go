@@ -61,6 +61,11 @@ type Service struct {
 	afterRecompute func(context.Context)
 	// refusals rate-limits the Warn log of identity refusals.
 	refusals *refusalLog
+	// refusalWriteWindow is how long a refusal recorded on a collector row
+	// (recordCollectorRefusal) suppresses rewriting it for the same reason —
+	// the refusal log's window, so a refused fleet costs one UPDATE per
+	// collector per window, not one per poll.
+	refusalWriteWindow time.Duration
 	// lastServed is the outage fallback (WithOutageCache); nil = disabled.
 	lastServed *lastServed
 	// identities remembers OIDC callers' agent_identities bindings for the
@@ -115,7 +120,7 @@ func (s *Service) servedKey(p Principal, cluster, role string) string {
 func New(st *store.Store, v *validate.Validator, logger *slog.Logger, reg *schema.Registry, opts ...ServiceOption) *Service {
 	s := &Service{
 		store: st, validator: v, logger: logger.With("component", "agentapi"), schema: reg,
-		refusals: newRefusalLog(refusalLogWindow, refusalLogMax),
+		refusals: newRefusalLog(refusalLogWindow, refusalLogMax), refusalWriteWindow: refusalLogWindow,
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -195,8 +200,9 @@ func (s *Service) register(ctx context.Context, msg *collectorv1.RegisterCollect
 		return connect.NewError(connect.CodeInternal, err)
 	}
 	if _, err := s.resolveOrg(ctx, cluster, role, coll); err != nil {
-		return s.refused(err, "RegisterCollector", msg.Id, coll.ID, cluster, role)
+		return s.refused(ctx, err, "RegisterCollector", msg.Id, coll, cluster, role)
 	}
+	s.clearCollectorRefusal(ctx, coll)
 	if err := s.bindInstance(ctx, msg.Id, name, coll, attrs); err != nil {
 		return connect.NewError(connect.CodeInternal, err)
 	}
@@ -301,8 +307,9 @@ func (s *Service) resolveServed(
 
 	orgID, err := s.resolveOrg(ctx, cluster, role, coll)
 	if err != nil {
-		return servedConfig{}, s.refused(err, "GetConfig", msg.Id, coll.ID, cluster, role)
+		return servedConfig{}, s.refused(ctx, err, "GetConfig", msg.Id, coll, cluster, role)
 	}
+	s.clearCollectorRefusal(ctx, coll)
 
 	// PR-9's match-drift short-circuit needs the instance's PREVIOUS
 	// local_attributes before bindInstance overwrites it. This read runs on
@@ -489,7 +496,7 @@ func (s *Service) UnregisterCollector(
 	var r *refusal
 	if errors.As(err, &r) {
 		// An unbound token: refused outright, like its other RPCs.
-		return nil, s.refused(err, "UnregisterCollector", req.Msg.Id, pgtype.UUID{}, "", "")
+		return nil, s.refused(ctx, err, "UnregisterCollector", req.Msg.Id, sqlc.Collector{}, "", "")
 	}
 	if errors.Is(err, errUnknownAssertedOrg) {
 		// The caller's scope is empty: nothing is in it.
@@ -600,16 +607,66 @@ func (r *refusal) Unwrap() error { return r.err }
 func refuse(reason string, err error) error { return &refusal{reason: reason, err: err} }
 
 // refused converts a handler error into the RPC's error. A refusal is
-// counted, logged (rate-limited, see refusalLog) and returned as
+// counted, logged (rate-limited, see refusalLog), recorded on the collector
+// row when there is one (recordCollectorRefusal) and returned as
 // PermissionDenied; any other error passes through unchanged.
-func (s *Service) refused(err error, rpc, instanceID string, collectorID pgtype.UUID, cluster, role string) error {
+func (s *Service) refused(ctx context.Context, err error, rpc, instanceID string, coll sqlc.Collector, cluster, role string) error {
 	var r *refusal
 	if !errors.As(err, &r) {
 		return err
 	}
 	s.refusals.record(s.logger, rpc, r.reason, instanceID,
-		"collector_id", collectorID.String(), "cluster", cluster, "role", role)
+		"collector_id", coll.ID.String(), "cluster", cluster, "role", role)
+	s.recordCollectorRefusal(ctx, coll, r.reason)
 	return connect.NewError(connect.CodePermissionDenied, r.err)
+}
+
+// recordedRefusalReason reports whether reason is one migration 0041's CHECK
+// accepts on collectors.last_refused_reason: the refusals a poll for a
+// collector can get. unregister_denied and beacon_denied never name one.
+func recordedRefusalReason(reason string) bool {
+	switch reason {
+	case metrics.AgentRefusedTokenUnbound, metrics.AgentRefusedClaimDenied, metrics.AgentRefusedRoleDenied:
+		return true
+	default:
+		return false
+	}
+}
+
+// recordCollectorRefusal records a refused poll on the collector row the poll
+// upserted (migration 0041) — the instance row is deliberately not written on
+// a refusal (#370), so this is what lets the Collectors page show "refused"
+// instead of the last successful poll's status. coll is the row as the
+// upsert returned it, so whether to write is decided without another read:
+// only when the row records no refusal, a different reason, or one older
+// than refusalWriteWindow. A refused fleet therefore costs one UPDATE per
+// collector per window. Best effort: a failed write is logged, never turned
+// into the RPC's error.
+func (s *Service) recordCollectorRefusal(ctx context.Context, coll sqlc.Collector, reason string) {
+	if !coll.ID.Valid || !recordedRefusalReason(reason) {
+		return
+	}
+	if coll.LastRefusedReason.Valid && coll.LastRefusedReason.String == reason &&
+		coll.LastRefusedAt.Valid && time.Since(coll.LastRefusedAt.Time) < s.refusalWriteWindow {
+		return
+	}
+	if err := s.store.Queries.RecordCollectorRefusal(ctx, sqlc.RecordCollectorRefusalParams{
+		ID: coll.ID, Reason: reason,
+	}); err != nil {
+		s.logger.Warn("failed to record collector refusal", "collector_id", coll.ID.String(), "reason", reason, "err", err)
+	}
+}
+
+// clearCollectorRefusal clears a recorded refusal once a poll for the
+// collector passes the org check. Like recordCollectorRefusal it reads the
+// upserted row, so the common case — nothing recorded — issues no statement.
+func (s *Service) clearCollectorRefusal(ctx context.Context, coll sqlc.Collector) {
+	if !coll.LastRefusedAt.Valid {
+		return
+	}
+	if err := s.store.Queries.ClearCollectorRefusal(ctx, coll.ID); err != nil {
+		s.logger.Warn("failed to clear collector refusal", "collector_id", coll.ID.String(), "err", err)
+	}
 }
 
 // upsertCollector upserts the cluster and collector rows a request names.

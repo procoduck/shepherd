@@ -5,9 +5,10 @@
 First published as the release candidates **0.23.0-rc.1** and **0.23.0-rc.2** (Shepherd
 v0.19.0-rc.1 / v0.19.0-rc.2); install one with `--version 0.23.0-rc.2`, or `--devel`. Everything
 below applies to the release candidates and to 0.23.0. Coming from 0.23.0-rc.1, the migration Job
-applies only `0038`–`0040`; read *Agent tokens are bound to an organisation* first.
+applies only `0038`–`0041` (from 0.23.0-rc.2, only `0041`); read *Agent tokens are bound to an
+organisation* first.
 
-A `helm upgrade` with six migrations (0035–0040), **agent tokens to bind right after the
+A `helm upgrade` with seven migrations (0035–0041), **agent tokens to bind right after the
 upgrade**, one recompute per collector, a short burst of errors during the rollout,
 management-API breaks and new size limits. Update API scripts first, and have the list of agent
 tokens and the org each belongs to at hand.
@@ -23,6 +24,17 @@ app admin binds them. Binding changes neither the token id nor the secret, so co
 their credentials, and a refused collector keeps running its last loaded config until its next
 successful poll. Bind every existing token as soon as the new pods are up, or mint new bound
 tokens and roll them out to the collectors instead.
+
+**How to tell which collectors are waiting.** Until a token is bound, the Collectors page shows
+each collector using it as **REFUSED**, and the collector page says *Refused — agent token not
+bound to an organisation* with a link to Agent Tokens; the status and last-seen time beside it
+are from the collector's last successful poll (a refused poll records nothing on the instance).
+The Agent Tokens page's banner counts the unbound tokens, and their *Clusters* / *Roles* read
+*— (unbound: refused)*. To watch the fleet rather than the UI, use
+`shepherd_agent_refused_total{reason="token_unbound"}`: it stops increasing once every token in
+use is bound. *Refused — cluster not allowed* / *role not allowed* after binding means the
+binding's org or allowlists do not cover what that collector reports
+(`reason="claim_denied"` / `"role_denied"`).
 
 Bind from the Agent Tokens page (unbound tokens are listed first, with a **Bind** action) or from
 the CLI in the Shepherd pod:
@@ -41,10 +53,10 @@ argument added. Org admins can now create, list and revoke their own org's token
 serve only clusters the org already claims (`AgentToken.may_claim` is false — claiming stays app
 admin only, as does binding a token to an org).
 
-### Migrations 0035–0040
+### Migrations 0035–0041
 
 The migration Job (a `pre-upgrade` hook, on by default) applies them before the new pods start;
-if you turned it off, run `shepherd migrate up` yourself first. All six are quick:
+if you turned it off, run `shepherd migrate up` yourself first. All seven are quick:
 
 - `0035` adds `serve_cache.last_failed_seq` (default `-1`), which lets a failed recompute be
   audited once per collector and generation.
@@ -65,6 +77,11 @@ if you turned it off, run `shepherd migrate up` yourself first. All six are quic
   every start, which is also their backfill; a pipeline it cannot read is logged, never a failed
   start. Rows an old pod leaves stale during the rollout are re-read when a tenant is next
   assigned. Its down migration drops all three, turning strict mode off for every org.
+- `0041` adds two nullable columns to `collectors`, `last_refused_at` and `last_refused_reason`
+  (`token_unbound`, `claim_denied` or `role_denied`): the agent API records a refused poll there
+  (at most once per collector and reason every five minutes) and clears it on the next poll that
+  passes, which is what the Collectors page's **REFUSED** reads. Metadata-only; old pods neither
+  read nor write them. Its down migration drops them.
 
 ### Errors during the rollout
 
@@ -80,6 +97,28 @@ Both fail closed — nothing is written with a missing tenant — and Alloy keep
 config and retries, so nothing changes on the collectors. Expect a burst of agent-RPC and
 management-API errors (and alerts on them) until every pod runs the new image. Finish the rollout
 promptly.
+
+What the collectors log meanwhile: the old pods predate the error mapping below, so Alloy logs
+their store error verbatim, e.g. `level=error msg="failed to fetch remote config" service=remotecfg
+err="internal: upserting instance: ERROR: there is no unique or exclusion constraint matching the
+ON CONFLICT specification (SQLSTATE 42P10)"`. It is the old pod talking to the migrated schema,
+not a broken database, and it stops once the old pods are gone. From 0.23.0 on, Shepherd never
+sends a store error to a collector: a schema mismatch (`42P10`, an undefined column or table — a
+pod on the other side of a migration) answers `unavailable: server temporarily unavailable
+(schema mismatch, likely an upgrade in progress); retry`, any other store error
+`internal: internal error`, and the detail is logged by the Shepherd pod. Management-API handlers
+that map store errors answer the same `Unavailable`.
+
+### The beacon needs the agent token in the collectors' environment
+
+The self-monitoring beacon in every served config authenticates its `remote_write` with
+`sys.env("SHEPHERD_AGENT_TOKEN_ID")` and `sys.env("SHEPHERD_AGENT_TOKEN_SECRET")` (with OIDC
+beacon auth, `SHEPHERD_OIDC_CLIENT_ID` / `SHEPHERD_OIDC_CLIENT_SECRET`). A collector that does not
+expose both variables still gets and runs its config, but its beacon never authenticates, so its
+**Reconciliation** tab now says *Observed state unknown — no beacon data from this collector yet*
+(it used to say *In sync*). Set them on every collector — the same token its `remotecfg` block
+uses — see [Collectors](https://procoduck.github.io/shepherd/docs/collectors.html) and
+[Agent tokens](https://procoduck.github.io/shepherd/docs/agent-tokens.html).
 
 ### One recompute per collector (serve format 3)
 

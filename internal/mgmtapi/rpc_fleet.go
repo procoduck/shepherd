@@ -221,6 +221,7 @@ func (s *FleetService) ListCollectors(ctx context.Context, req *connect.Request[
 			AlloyVersion:       summary.AlloyVersion.String,
 			Labels:             labels,
 		}
+		items[i].LastRefusedReason, items[i].LastRefusedAt = presentRefusal(c, summary.LastSeen)
 	}
 	return connect.NewResponse(&mgmtv1.ListCollectorsResponse{Items: items, Total: int32(len(items))}), nil //nolint:gosec // org collector counts never approach int32 overflow
 }
@@ -317,6 +318,11 @@ func (s *FleetService) getCollector(ctx context.Context, orgIDStr, idStr string)
 	if err != nil {
 		return nil, err
 	}
+	var lastSeen pgtype.Timestamptz
+	if len(rows) > 0 {
+		lastSeen = rows[0].LastSeen
+	}
+	resp.LastRefusedReason, resp.LastRefusedAt = presentRefusal(&c, lastSeen)
 	if len(instances) > 0 {
 		latest := instances[0]
 		resp.RemoteConfigStatus = latest.RemoteConfigStatus
@@ -326,6 +332,22 @@ func (s *FleetService) getCollector(ctx context.Context, orgIDStr, idStr string)
 		resp.LocalAttributes = latest.LocalAttributes
 	}
 	return resp, nil
+}
+
+// presentRefusal returns the collector's recorded refusal (migration 0041,
+// written by the agent API on a refused poll) while it is newer than the
+// collector's last successful poll — lastSeen, the newest instance's, since a
+// refused poll writes no instance row. The agent API clears the refusal on the
+// next poll that passes, but a pod predating 0041 serving that poll does not:
+// the comparison keeps such a leftover from outliving the recovery.
+func presentRefusal(c *sqlc.Collector, lastSeen pgtype.Timestamptz) (string, *timestamppb.Timestamp) {
+	if !c.LastRefusedAt.Valid || !c.LastRefusedReason.Valid {
+		return "", nil
+	}
+	if lastSeen.Valid && !c.LastRefusedAt.Time.After(lastSeen.Time) {
+		return "", nil
+	}
+	return c.LastRefusedReason.String, timestamppb.New(c.LastRefusedAt.Time)
 }
 
 func decodeCollectorLabels(raw []byte) (map[string]string, error) {

@@ -27,10 +27,12 @@ const MaxIdentifierBytes = 256
 
 // NewHandler is the collector.v1 Connect handler with the request size limit
 // applied; internal/server mounts exactly this. opts carry the auth gate and
-// interceptors.
+// interceptors. sanitizeErrors runs innermost, after opts' interceptors, so
+// they (telemetry) see the code the agent is answered with.
 func NewHandler(svc *Service, opts ...connect.HandlerOption) (string, http.Handler) {
-	return collectorv1connect.NewCollectorServiceHandler(svc,
-		append([]connect.HandlerOption{connect.WithReadMaxBytes(MaxRequestBytes)}, opts...)...)
+	all := append([]connect.HandlerOption{connect.WithReadMaxBytes(MaxRequestBytes)}, opts...)
+	all = append(all, connect.WithInterceptors(sanitizeErrors(svc.logger)))
+	return collectorv1connect.NewCollectorServiceHandler(svc, all...)
 }
 
 // requireInstanceID refuses an empty or over-long wire id before any DB work.

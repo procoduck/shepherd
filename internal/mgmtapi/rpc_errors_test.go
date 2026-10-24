@@ -2,6 +2,8 @@ package mgmtapi
 
 import (
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 
 	"connectrpc.com/connect"
@@ -39,6 +41,9 @@ func TestMapError(t *testing.T) {
 		{"pgconn unique violation (23505)", uniqueViolation, connect.CodeAlreadyExists},
 		{"pgconn FK violation (23503)", fkViolation, connect.CodeAlreadyExists},
 		{"an unrecognized pgconn error", otherPgError, connect.CodeInternal},
+		{"a schema mismatch mid-rollout (42P10)", &pgconn.PgError{Code: "42P10"}, connect.CodeUnavailable},
+		{"an undefined column mid-rollout (42703)", &pgconn.PgError{Code: "42703"}, connect.CodeUnavailable},
+		{"an undefined table mid-rollout (42P01)", &pgconn.PgError{Code: "42P01"}, connect.CodeUnavailable},
 		{"an unrecognized plain error", plainErr, connect.CodeInternal},
 	}
 
@@ -57,6 +62,21 @@ func TestMapError(t *testing.T) {
 			}
 		})
 	}
+
+	// 0.22 -> 0.23 upgrade walkthrough: no Postgres text (constraint names,
+	// SQLSTATEs) reaches a client through mapError, whatever the code.
+	t.Run("no Postgres error text is leaked to the client", func(t *testing.T) {
+		for _, pgErr := range []*pgconn.PgError{
+			{Code: "23505", Message: `duplicate key value violates unique constraint "orgs_name_key"`},
+			{Code: "23503", Message: `insert or update on table "x" violates foreign key constraint "x_fkey"`},
+			{Code: "42P10", Message: "there is no unique or exclusion constraint matching the ON CONFLICT specification"},
+		} {
+			got := mapError(fmt.Errorf("upserting instance: %w", pgErr)).Error()
+			if strings.Contains(got, "SQLSTATE") || strings.Contains(got, "constraint") || strings.Contains(got, "upserting") {
+				t.Fatalf("mapError(%s) leaked the store error: %q", pgErr.Code, got)
+			}
+		}
+	})
 
 	t.Run("unrecognized error message is not leaked to the client", func(t *testing.T) {
 		got := mapError(errors.New("dsn=postgres://shepherd:s3cr3t@db/shepherd sensitive detail"))

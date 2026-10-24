@@ -69,12 +69,14 @@ type Cluster struct {
 }
 
 type Collector struct {
-	ID        pgtype.UUID        `json:"id"`
-	ClusterID pgtype.UUID        `json:"cluster_id"`
-	Role      string             `json:"role"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
-	Labels    json.RawMessage    `json:"labels"`
+	ID                pgtype.UUID        `json:"id"`
+	ClusterID         pgtype.UUID        `json:"cluster_id"`
+	Role              string             `json:"role"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+	Labels            json.RawMessage    `json:"labels"`
+	LastRefusedAt     pgtype.Timestamptz `json:"last_refused_at"`
+	LastRefusedReason pgtype.Text        `json:"last_refused_reason"`
 }
 
 type CollectorInstance struct {

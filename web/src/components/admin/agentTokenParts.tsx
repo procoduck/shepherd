@@ -36,6 +36,37 @@ function OrgCell({ token }: { token: AgentToken }) {
   return <span>{token.orgName || token.orgId}</span>;
 }
 
+/**
+ * A token's cluster or role allowlist. An empty allowlist means "any" only on
+ * a bound token: an unbound one is refused on every collector RPC whatever its
+ * allowlists say, so it reads as refused, never "any" (0.22 -> 0.23 upgrade
+ * walkthrough).
+ */
+function TokenAllowlistCell({
+  token,
+  values,
+  kind,
+}: {
+  token: AgentToken;
+  values: string[];
+  kind: 'clusters' | 'roles';
+}) {
+  return (
+    <span data-testid={`token-${kind}-${token.id}`}>
+      {isUnbound(token) ? (
+        <span
+          className='text-muted-3'
+          title='An unbound token is refused on every collector request until it is bound'
+        >
+          — (unbound: refused)
+        </span>
+      ) : (
+        <AllowlistCell values={values} />
+      )}
+    </span>
+  );
+}
+
 export function tokenColumns(
   isAppAdmin: boolean,
   setRevokeToken: (t: AgentToken) => void,
@@ -62,8 +93,16 @@ export function tokenColumns(
       ),
     },
     { key: 'org', header: 'Organisation', render: (t) => <OrgCell token={t} /> },
-    { key: 'clusters', header: 'Clusters', render: (t) => <AllowlistCell values={t.clusters} /> },
-    { key: 'roles', header: 'Roles', render: (t) => <AllowlistCell values={t.roles} /> },
+    {
+      key: 'clusters',
+      header: 'Clusters',
+      render: (t) => <TokenAllowlistCell token={t} values={t.clusters} kind='clusters' />,
+    },
+    {
+      key: 'roles',
+      header: 'Roles',
+      render: (t) => <TokenAllowlistCell token={t} values={t.roles} kind='roles' />,
+    },
     {
       key: 'status',
       header: 'Status',

@@ -9,6 +9,7 @@ import {
   CollectorReconciliation,
   CollectorRejectionNote,
 } from '@/components/CollectorReconciliation';
+import { CollectorRefusedBanner, RefusedBadge } from '@/components/CollectorRefusal';
 import { QueryError } from '@/components/QueryError';
 import { DataTable } from '@/components/ui/DataTable';
 import { Field, Input } from '@/components/ui/Field';
@@ -176,15 +177,21 @@ export function CollectorDetailPage() {
         </div>
         <div className='flex items-center gap-3'>
           <CollectorLabelsButton canEdit={isOrgAdmin} onClick={() => setTab('attributes')} />
-          <span
-            data-testid='collector-status'
-            title={statusTitle(status)}
-            className={`text-xs font-medium px-2 py-0.5 rounded border ${statusTone}`}
-          >
-            {status || 'UNKNOWN'}
-          </span>
+          {detail?.lastRefusedReason ? (
+            <RefusedBadge collector={detail} testId='collector-status' />
+          ) : (
+            <span
+              data-testid='collector-status'
+              title={statusTitle(status)}
+              className={`text-xs font-medium px-2 py-0.5 rounded border ${statusTone}`}
+            >
+              {status || 'UNKNOWN'}
+            </span>
+          )}
         </div>
       </div>
+
+      {detail && <CollectorRefusedBanner collector={detail} />}
 
       {detail?.remoteConfigError && (
         <div className='rounded-lg border border-danger/30 bg-danger-surface px-4 py-3 text-sm text-danger'>

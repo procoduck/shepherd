@@ -136,7 +136,18 @@ type Collector struct {
 	LocalAttributes    *structpb.Struct       `protobuf:"bytes,10,opt,name=local_attributes,json=localAttributes,proto3" json:"local_attributes,omitempty"`
 	Instances          []*CollectorInstance   `protobuf:"bytes,11,rep,name=instances,proto3" json:"instances,omitempty"`
 	// UI-managed grouping labels, independent of Alloy attributes and pipeline matching.
-	Labels        map[string]string `protobuf:"bytes,12,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Labels map[string]string `protobuf:"bytes,12,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// last_refused_reason is set while the agent API's latest refusal of a poll
+	// for this collector is newer than its last successful poll (instances are
+	// never written on a refused poll, so last_seen and remote_config_status
+	// still describe the last poll that passed). One of "token_unbound",
+	// "claim_denied" (cluster not permitted, or claimed by another org) or
+	// "role_denied"; empty when the collector is not being refused. A string,
+	// per this repo's enum-like-field rule.
+	LastRefusedReason string `protobuf:"bytes,13,opt,name=last_refused_reason,json=lastRefusedReason,proto3" json:"last_refused_reason,omitempty"`
+	// last_refused_at is when that refusal was recorded (refreshed at most once
+	// per refusal-log window while refusals continue); unset with the reason.
+	LastRefusedAt *timestamppb.Timestamp `protobuf:"bytes,14,opt,name=last_refused_at,json=lastRefusedAt,proto3" json:"last_refused_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -251,6 +262,20 @@ func (x *Collector) GetInstances() []*CollectorInstance {
 func (x *Collector) GetLabels() map[string]string {
 	if x != nil {
 		return x.Labels
+	}
+	return nil
+}
+
+func (x *Collector) GetLastRefusedReason() string {
+	if x != nil {
+		return x.LastRefusedReason
+	}
+	return ""
+}
+
+func (x *Collector) GetLastRefusedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.LastRefusedAt
 	}
 	return nil
 }
@@ -845,8 +870,13 @@ func (x *Finding) GetStale() bool {
 }
 
 type GetReconciliationResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Findings      []*Finding             `protobuf:"bytes,1,rep,name=findings,proto3" json:"findings,omitempty"`
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Findings []*Finding             `protobuf:"bytes,1,rep,name=findings,proto3" json:"findings,omitempty"`
+	// observed_known is false when the beacon has reported no component
+	// inventory for this collector (never reported, or every row aged out):
+	// observed state is UNKNOWN, so no findings does not mean "in sync"
+	// (internal/reconcile: absence is never agreement either).
+	ObservedKnown bool `protobuf:"varint,2,opt,name=observed_known,json=observedKnown,proto3" json:"observed_known,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -886,6 +916,13 @@ func (x *GetReconciliationResponse) GetFindings() []*Finding {
 		return x.Findings
 	}
 	return nil
+}
+
+func (x *GetReconciliationResponse) GetObservedKnown() bool {
+	if x != nil {
+		return x.ObservedKnown
+	}
+	return false
 }
 
 type ListAssignmentsRequest struct {
@@ -1581,7 +1618,7 @@ const file_shepherd_mgmt_v1_fleet_proto_rawDesc = "" +
 	"\tlast_seen\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\blastSeen\x120\n" +
 	"\x14remote_config_status\x18\x05 \x01(\tR\x12remoteConfigStatus\x12.\n" +
 	"\x13remote_config_error\x18\x06 \x01(\tR\x11remoteConfigError\x12B\n" +
-	"\x10local_attributes\x18\a \x01(\v2\x17.google.protobuf.StructR\x0flocalAttributes\"\xc2\x04\n" +
+	"\x10local_attributes\x18\a \x01(\v2\x17.google.protobuf.StructR\x0flocalAttributes\"\xb6\x05\n" +
 	"\tCollector\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1d\n" +
 	"\n" +
@@ -1596,7 +1633,9 @@ const file_shepherd_mgmt_v1_fleet_proto_rawDesc = "" +
 	"\x10local_attributes\x18\n" +
 	" \x01(\v2\x17.google.protobuf.StructR\x0flocalAttributes\x12A\n" +
 	"\tinstances\x18\v \x03(\v2#.shepherd.mgmt.v1.CollectorInstanceR\tinstances\x12?\n" +
-	"\x06labels\x18\f \x03(\v2'.shepherd.mgmt.v1.Collector.LabelsEntryR\x06labels\x1a9\n" +
+	"\x06labels\x18\f \x03(\v2'.shepherd.mgmt.v1.Collector.LabelsEntryR\x06labels\x12.\n" +
+	"\x13last_refused_reason\x18\r \x01(\tR\x11lastRefusedReason\x12B\n" +
+	"\x0flast_refused_at\x18\x0e \x01(\v2\x1a.google.protobuf.TimestampR\rlastRefusedAt\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"|\n" +
@@ -1639,9 +1678,10 @@ const file_shepherd_mgmt_v1_fleet_proto_rawDesc = "" +
 	"\asummary\x18\x03 \x01(\tR\asummary\x12#\n" +
 	"\rpipeline_name\x18\x04 \x01(\tR\fpipelineName\x12'\n" +
 	"\x0fcontroller_path\x18\x05 \x01(\tR\x0econtrollerPath\x12\x14\n" +
-	"\x05stale\x18\x06 \x01(\bR\x05stale\"R\n" +
+	"\x05stale\x18\x06 \x01(\bR\x05stale\"y\n" +
 	"\x19GetReconciliationResponse\x125\n" +
-	"\bfindings\x18\x01 \x03(\v2\x19.shepherd.mgmt.v1.FindingR\bfindings\"R\n" +
+	"\bfindings\x18\x01 \x03(\v2\x19.shepherd.mgmt.v1.FindingR\bfindings\x12%\n" +
+	"\x0eobserved_known\x18\x02 \x01(\bR\robservedKnown\"R\n" +
 	"\x16ListAssignmentsRequest\x12\x15\n" +
 	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x12!\n" +
 	"\fcollector_id\x18\x02 \x01(\tR\vcollectorId\"\xa0\x01\n" +
@@ -1754,40 +1794,41 @@ var file_shepherd_mgmt_v1_fleet_proto_depIdxs = []int32{
 	27, // 3: shepherd.mgmt.v1.Collector.local_attributes:type_name -> google.protobuf.Struct
 	0,  // 4: shepherd.mgmt.v1.Collector.instances:type_name -> shepherd.mgmt.v1.CollectorInstance
 	24, // 5: shepherd.mgmt.v1.Collector.labels:type_name -> shepherd.mgmt.v1.Collector.LabelsEntry
-	25, // 6: shepherd.mgmt.v1.CollectorLabelsResponse.labels:type_name -> shepherd.mgmt.v1.CollectorLabelsResponse.LabelsEntry
-	1,  // 7: shepherd.mgmt.v1.ListCollectorsResponse.items:type_name -> shepherd.mgmt.v1.Collector
-	26, // 8: shepherd.mgmt.v1.GetServedConfigResponse.computed_at:type_name -> google.protobuf.Timestamp
-	11, // 9: shepherd.mgmt.v1.GetReconciliationResponse.findings:type_name -> shepherd.mgmt.v1.Finding
-	26, // 10: shepherd.mgmt.v1.Assignment.created_at:type_name -> google.protobuf.Timestamp
-	14, // 11: shepherd.mgmt.v1.ListAssignmentsResponse.items:type_name -> shepherd.mgmt.v1.Assignment
-	27, // 12: shepherd.mgmt.v1.ListAttributesResponse.attributes:type_name -> google.protobuf.Struct
-	5,  // 13: shepherd.mgmt.v1.FleetService.ListCollectors:input_type -> shepherd.mgmt.v1.ListCollectorsRequest
-	7,  // 14: shepherd.mgmt.v1.FleetService.GetCollector:input_type -> shepherd.mgmt.v1.GetCollectorRequest
-	8,  // 15: shepherd.mgmt.v1.FleetService.GetServedConfig:input_type -> shepherd.mgmt.v1.GetServedConfigRequest
-	10, // 16: shepherd.mgmt.v1.FleetService.GetReconciliation:input_type -> shepherd.mgmt.v1.GetReconciliationRequest
-	13, // 17: shepherd.mgmt.v1.FleetService.ListAssignments:input_type -> shepherd.mgmt.v1.ListAssignmentsRequest
-	16, // 18: shepherd.mgmt.v1.FleetService.CreateAssignment:input_type -> shepherd.mgmt.v1.CreateAssignmentRequest
-	18, // 19: shepherd.mgmt.v1.FleetService.DeleteAssignment:input_type -> shepherd.mgmt.v1.DeleteAssignmentRequest
-	20, // 20: shepherd.mgmt.v1.FleetService.ListAttributes:input_type -> shepherd.mgmt.v1.ListAttributesRequest
-	2,  // 21: shepherd.mgmt.v1.FleetService.SetCollectorLabel:input_type -> shepherd.mgmt.v1.SetCollectorLabelRequest
-	3,  // 22: shepherd.mgmt.v1.FleetService.DeleteCollectorLabel:input_type -> shepherd.mgmt.v1.DeleteCollectorLabelRequest
-	22, // 23: shepherd.mgmt.v1.FleetService.RenderChartValues:input_type -> shepherd.mgmt.v1.RenderChartValuesRequest
-	6,  // 24: shepherd.mgmt.v1.FleetService.ListCollectors:output_type -> shepherd.mgmt.v1.ListCollectorsResponse
-	1,  // 25: shepherd.mgmt.v1.FleetService.GetCollector:output_type -> shepherd.mgmt.v1.Collector
-	9,  // 26: shepherd.mgmt.v1.FleetService.GetServedConfig:output_type -> shepherd.mgmt.v1.GetServedConfigResponse
-	12, // 27: shepherd.mgmt.v1.FleetService.GetReconciliation:output_type -> shepherd.mgmt.v1.GetReconciliationResponse
-	15, // 28: shepherd.mgmt.v1.FleetService.ListAssignments:output_type -> shepherd.mgmt.v1.ListAssignmentsResponse
-	17, // 29: shepherd.mgmt.v1.FleetService.CreateAssignment:output_type -> shepherd.mgmt.v1.CreateAssignmentResponse
-	19, // 30: shepherd.mgmt.v1.FleetService.DeleteAssignment:output_type -> shepherd.mgmt.v1.DeleteAssignmentResponse
-	21, // 31: shepherd.mgmt.v1.FleetService.ListAttributes:output_type -> shepherd.mgmt.v1.ListAttributesResponse
-	4,  // 32: shepherd.mgmt.v1.FleetService.SetCollectorLabel:output_type -> shepherd.mgmt.v1.CollectorLabelsResponse
-	4,  // 33: shepherd.mgmt.v1.FleetService.DeleteCollectorLabel:output_type -> shepherd.mgmt.v1.CollectorLabelsResponse
-	23, // 34: shepherd.mgmt.v1.FleetService.RenderChartValues:output_type -> shepherd.mgmt.v1.RenderChartValuesResponse
-	24, // [24:35] is the sub-list for method output_type
-	13, // [13:24] is the sub-list for method input_type
-	13, // [13:13] is the sub-list for extension type_name
-	13, // [13:13] is the sub-list for extension extendee
-	0,  // [0:13] is the sub-list for field type_name
+	26, // 6: shepherd.mgmt.v1.Collector.last_refused_at:type_name -> google.protobuf.Timestamp
+	25, // 7: shepherd.mgmt.v1.CollectorLabelsResponse.labels:type_name -> shepherd.mgmt.v1.CollectorLabelsResponse.LabelsEntry
+	1,  // 8: shepherd.mgmt.v1.ListCollectorsResponse.items:type_name -> shepherd.mgmt.v1.Collector
+	26, // 9: shepherd.mgmt.v1.GetServedConfigResponse.computed_at:type_name -> google.protobuf.Timestamp
+	11, // 10: shepherd.mgmt.v1.GetReconciliationResponse.findings:type_name -> shepherd.mgmt.v1.Finding
+	26, // 11: shepherd.mgmt.v1.Assignment.created_at:type_name -> google.protobuf.Timestamp
+	14, // 12: shepherd.mgmt.v1.ListAssignmentsResponse.items:type_name -> shepherd.mgmt.v1.Assignment
+	27, // 13: shepherd.mgmt.v1.ListAttributesResponse.attributes:type_name -> google.protobuf.Struct
+	5,  // 14: shepherd.mgmt.v1.FleetService.ListCollectors:input_type -> shepherd.mgmt.v1.ListCollectorsRequest
+	7,  // 15: shepherd.mgmt.v1.FleetService.GetCollector:input_type -> shepherd.mgmt.v1.GetCollectorRequest
+	8,  // 16: shepherd.mgmt.v1.FleetService.GetServedConfig:input_type -> shepherd.mgmt.v1.GetServedConfigRequest
+	10, // 17: shepherd.mgmt.v1.FleetService.GetReconciliation:input_type -> shepherd.mgmt.v1.GetReconciliationRequest
+	13, // 18: shepherd.mgmt.v1.FleetService.ListAssignments:input_type -> shepherd.mgmt.v1.ListAssignmentsRequest
+	16, // 19: shepherd.mgmt.v1.FleetService.CreateAssignment:input_type -> shepherd.mgmt.v1.CreateAssignmentRequest
+	18, // 20: shepherd.mgmt.v1.FleetService.DeleteAssignment:input_type -> shepherd.mgmt.v1.DeleteAssignmentRequest
+	20, // 21: shepherd.mgmt.v1.FleetService.ListAttributes:input_type -> shepherd.mgmt.v1.ListAttributesRequest
+	2,  // 22: shepherd.mgmt.v1.FleetService.SetCollectorLabel:input_type -> shepherd.mgmt.v1.SetCollectorLabelRequest
+	3,  // 23: shepherd.mgmt.v1.FleetService.DeleteCollectorLabel:input_type -> shepherd.mgmt.v1.DeleteCollectorLabelRequest
+	22, // 24: shepherd.mgmt.v1.FleetService.RenderChartValues:input_type -> shepherd.mgmt.v1.RenderChartValuesRequest
+	6,  // 25: shepherd.mgmt.v1.FleetService.ListCollectors:output_type -> shepherd.mgmt.v1.ListCollectorsResponse
+	1,  // 26: shepherd.mgmt.v1.FleetService.GetCollector:output_type -> shepherd.mgmt.v1.Collector
+	9,  // 27: shepherd.mgmt.v1.FleetService.GetServedConfig:output_type -> shepherd.mgmt.v1.GetServedConfigResponse
+	12, // 28: shepherd.mgmt.v1.FleetService.GetReconciliation:output_type -> shepherd.mgmt.v1.GetReconciliationResponse
+	15, // 29: shepherd.mgmt.v1.FleetService.ListAssignments:output_type -> shepherd.mgmt.v1.ListAssignmentsResponse
+	17, // 30: shepherd.mgmt.v1.FleetService.CreateAssignment:output_type -> shepherd.mgmt.v1.CreateAssignmentResponse
+	19, // 31: shepherd.mgmt.v1.FleetService.DeleteAssignment:output_type -> shepherd.mgmt.v1.DeleteAssignmentResponse
+	21, // 32: shepherd.mgmt.v1.FleetService.ListAttributes:output_type -> shepherd.mgmt.v1.ListAttributesResponse
+	4,  // 33: shepherd.mgmt.v1.FleetService.SetCollectorLabel:output_type -> shepherd.mgmt.v1.CollectorLabelsResponse
+	4,  // 34: shepherd.mgmt.v1.FleetService.DeleteCollectorLabel:output_type -> shepherd.mgmt.v1.CollectorLabelsResponse
+	23, // 35: shepherd.mgmt.v1.FleetService.RenderChartValues:output_type -> shepherd.mgmt.v1.RenderChartValuesResponse
+	25, // [25:36] is the sub-list for method output_type
+	14, // [14:25] is the sub-list for method input_type
+	14, // [14:14] is the sub-list for extension type_name
+	14, // [14:14] is the sub-list for extension extendee
+	0,  // [0:14] is the sub-list for field type_name
 }
 
 func init() { file_shepherd_mgmt_v1_fleet_proto_init() }
