@@ -319,7 +319,9 @@ Fixed after v0.19.0-rc.2 (unreleased):
   baseline reports observed state" (real Alloy → `/beacon/v1/write` → `GetReconciliation`), which
   also needed the e2e stack's `server.base_url` set to an address Alloy can dial. The compose dev
   stack (`make dev`) still leaves `base_url` at its unreachable default, so its beacon writes go
-  nowhere; kind is unaffected.
+  nowhere; kind is unaffected. Only top-level remotecfg components hit the 400: an exporter inside a
+  pipeline's `declare` (e.g. the Self Monitoring wizard's) answers 200 (checked live on kind), so
+  managed pipelines were never affected. Upstream issue drafted, not filed.
 
 **2026-10-08 pre-release walkthrough** (kind dev stack, Playwright MCP): four high and six medium
 findings, all fixed in v0.15.0 — the builder save landing on stale data (H1), App
