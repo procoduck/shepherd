@@ -358,6 +358,35 @@ var _ = Describe("Shepherd E2E", Ordered, func() {
 			}).WithTimeout(60 * time.Second).WithPolling(2 * time.Second).Should(Succeed())
 		})
 
+		// B-BEACON-SCRAPE at the consumed layer: the spec above feeds Project
+		// what Alloy's /metrics exposes, but never ran the SERVED baseline. That
+		// baseline scraped the exporter's remotecfg component path, which Alloy
+		// answers with 400, so no beacon write ever carried a sample and
+		// observed state stayed unknown on every collector since D6 shipped.
+		// This waits for the real chain — served baseline -> scrape ->
+		// relabel -> remote_write -> /beacon/v1/write -> beacon_inventory ->
+		// GetReconciliation. Red run: fails on the pre-fix baseline (observed
+		// state never becomes known). The timeout covers one 60s scrape
+		// interval plus remote_write's batching.
+		It("the served beacon baseline reports observed state", func() {
+			var collectors struct {
+				Items []struct {
+					ID string `json:"id"`
+				} `json:"items"`
+			}
+			adminClient.mustRPC("FleetService", "ListCollectors", map[string]string{"org_id": orgID}, &collectors)
+			Expect(collectors.Items).NotTo(BeEmpty())
+			collID := collectors.Items[0].ID
+			Eventually(func() bool {
+				var rec struct {
+					ObservedKnown bool `json:"observedKnown"`
+				}
+				adminClient.mustRPC("FleetService", "GetReconciliation", map[string]string{"org_id": orgID, "id": collID}, &rec)
+				return rec.ObservedKnown
+			}).WithTimeout(180*time.Second).WithPolling(5*time.Second).Should(BeTrue(),
+				"no beacon inventory for the collector: the served baseline's scrape produced no samples")
+		})
+
 		It("disabling the pipeline returns header-only config", func() {
 			status := adminClient.rpc("PipelineService", "DisablePipeline", map[string]string{
 				"org_id": orgID, "id": pipelineID,
