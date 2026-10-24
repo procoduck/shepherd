@@ -11,6 +11,273 @@ Categories used here:
 - **RPC only** — the API exists and is callable; there is no UI.
 - **Built, not wired** — the code and tests exist, nothing calls them in production yet.
 
+## v0.19.0
+
+Chart 0.23.0, released 2026-10-24. **Agent tokens are bound to an organisation, and an unbound
+token is refused** — bind every existing token right after upgrading. An organisation can own
+several tenants and tenant prefixes, an opt-in strict tenant mode keeps an org's destinations,
+routes and pipelines on tenants it owns, collectors keep running through a database outage, and
+one pipeline or visual graph can no longer cost the server unbounded memory or recursion. **The
+D6 beacon reports for the first time** (it never delivered a sample before), so the
+Reconciliation tab shows observed state; refused collectors show as **REFUSED** with the reason.
+The first whole-project review's remediation lands here too: git sync applies a commit whole or
+not at all, collector instance ids are bound to their org, failed recomputes are audited, Stage 3
+validates only the affected collectors, and roles are one model end to end. Release tags are
+signed and every artifact is attested. **Management-API clients break** (roles are enums,
+`SetOrgTenantID` is gone, `CreateAgentToken` needs `org_id`), the served config format moves to
+4 (one reload per beacon-enabled collector), and migrations `0035`–`0041` are new. First published
+as the prereleases v0.19.0-rc.1 and v0.19.0-rc.2 (entries below); this entry covers everything
+since v0.18.0.
+
+**Upgrade:** `helm upgrade` to chart 0.23.0 — read `deploy/helm/shepherd/UPGRADING.md`
+(0.22.x → 0.23.0) first and follow its numbered steps in order:
+
+1. **Plan to bind every agent token immediately after the upgrade.** Tokens created before this
+   release are left unbound by migration `0038`, and every collector RPC from an unbound token is
+   refused (`PermissionDenied`). A refused collector keeps running its last loaded config but
+   gets nothing new; the Collectors page shows it as **REFUSED** (*Refused — agent token not
+   bound to an organisation* on the collector page), and
+   `shepherd_agent_refused_total{reason="token_unbound"}` counts the refusals. Have the list of
+   tokens and the org each belongs to at hand, and update management-API scripts (step 4) first.
+   (#386, #395)
+2. **Upgrade.** Migrations `0035`–`0041` run in the pre-upgrade Job (`0035`
+   `serve_cache.last_failed_seq`; `0036` the `collector_instances` key, lossy down migration;
+   `0037` `viewer_group_id`; `0038` the agent-token binding; `0039` `org_tenants`, `orgs.tenant_id`
+   dropped, its down migration keeps only each org's default; `0040` `strict_tenants` and the
+   pipeline tenant tables; `0041` `collectors.last_refused_*`). Until every pod runs the new
+   image, old pods answer `Internal` on collector polls (after `0036`) and on org queries (after
+   `0039`); both fail closed and collectors keep their last config — finish the rollout promptly.
+   From 0.23.0 on Shepherd never sends a store error to a collector: a schema mismatch is a
+   retryable `Unavailable`. **Serve format 4:** every beacon-enabled collector's served config
+   changes once and each reloads once (with `server.beacon_disabled: true` the bytes do not
+   change, except one reload for collectors last written by an eager recompute on 0.22.x).
+   (#367, #370, #372, #381, #386, #387, #388, #395, #396)
+3. **Bind the tokens** on the Agent Tokens page (unbound tokens are listed first, with **Bind**)
+   or with `shepherd token bind --id <token-id> --org <org-slug>` in the Shepherd pod — to the org
+   that already claims its collectors' clusters. The id and secret do not change. Or mint new,
+   bound tokens and roll them out. (#386)
+4. **Management-API breaks** (details under *API*): roles are `ROLE_VIEWER` / `ROLE_EDITOR` /
+   `ROLE_ADMIN` enums; `CreateServiceAccount` requires `role`; `Org.reader_group_id` is now
+   `viewer_group_id` — **a JSON client still sending `readerGroupId` to `UpdateOrg` clears the
+   org's viewer group**; `SetOrgTenantID` is replaced by `AddOrgTenant` / `RemoveOrgTenant` /
+   `SetDefaultOrgTenant` with `Org.tenants`; `CreateAgentToken` requires `org_id` and
+   `shepherd token create` requires `--org`. Reload any browser tab left open across the upgrade
+   before editing an org. (#381, #386, #387)
+5. **New limits for every organisation** (no real configuration comes near them): pipeline
+   contents ≤ 1 MiB, management-API requests ≤ 4 MiB, nesting ≤ 512 levels, expression chains ≤
+   4096 links and parse trees ≤ 1024 deep (Stage 1 errors), `config.gitsync.max_file_bytes` ≤ 1 MiB
+   (a larger value is refused by the chart schema and at startup — check your values), visual
+   labels and component names ≤ 256 bytes, no duplicate edges, rendered output ≤ 1 MiB; collector
+   requests refuse an empty instance id, an id or `cluster` over 256 bytes, or a message over
+   8 MiB. (#370, #388, #393)
+6. **The beacon needs `SHEPHERD_AGENT_TOKEN_ID` / `SHEPHERD_AGENT_TOKEN_SECRET`** in every
+   collector's environment (the same token its `remotecfg` uses) and a `config.server.base_url`
+   the collectors can reach. Without them a collector still runs its config, but its
+   Reconciliation tab says *Observed state unknown*. (#395, #396)
+
+New chart values, all additive: `config.validate.stage3_timeout` (`"30s"`),
+`config.agent.outage_cache_ttl` (`"60s"`) and `config.tenants.require_owned` (`false`). (#379,
+#385, #388)
+
+### Added
+
+- **Agent tokens are bound to an organisation.** Shipped. A token carries an org and optional
+  cluster and role allowlists, resolved exactly like an OIDC collector binding: it is refused
+  (`claim_denied` / `role_denied`) for a cluster another org claims or outside its allowlists, and
+  claims an allowed unclaimed cluster for its org only when an app admin minted or bound it
+  (`AgentToken.may_claim`). Org admins (and admin-tier service accounts) can create, list and
+  revoke their own org's tokens, which serve only clusters the org already claims. The Agent
+  Tokens page moved under **Access**, shows each token's org and allowlists, lists unbound tokens
+  first and offers **Bind** / **Rebind** to an app admin; `shepherd token bind` is new. A bound
+  token's beacon write naming another org's collector is dropped (`reason="beacon_denied"`). (#386)
+- **An organisation can own several tenants and tenant prefixes.** Shipped. An app admin adds
+  exact tenants and prefixes on **Admin → Organisations** (Edit) and picks the default; a tenant
+  belongs to at most one organisation, so overlaps across orgs are refused. A tenant can be
+  removed unless a live route, destination or binding of the org would be left on a tenant it no
+  longer owns. Tenant routes take a tenant the org owns (picker in the route form, default
+  preselected, a new Tenant column), destination bindings refuse another org's tenant as
+  destinations did, and chart values use the default tenant. Every write is audited
+  (`org.tenant.add|remove|set_default`). (#387)
+- **Strict tenant mode** (opt-in, off by default). Shipped. Per organisation (an app admin's toggle
+  on **Admin → Organisations**, `SetOrgStrictTenants`) or for every org
+  (`config.tenants.require_owned`), an org's destinations, bindings, routes and pipelines may use
+  only tenants it owns. The gate lints pipeline text for tenant headers, `tenant_id` attributes,
+  `stage.tenant`, Loki's `__tenant_id__` label and push sources, and in strict mode refuses any
+  tenant it does not own or cannot verify (`sys.env`, data-derived values, external `import.*`
+  modules). Turning it on is refused, with the list of what to fix, until nothing of the org
+  breaks the rule; `AdminService.TenantPreflight` and `shepherd admin tenant-preflight` report
+  that list, and with `require_owned` Shepherd refuses to start while it is not empty. The lint is
+  defence in depth: a backend's own tenant authentication stays the boundary. (#388)
+- **Refused collectors are visible.** Shipped. While a collector's polls are refused, the
+  Collectors list shows **REFUSED** in place of its instance status and the collector page shows a
+  banner — *Refused — agent token not bound to an organisation* (with a link to Agent Tokens for
+  admins), *cluster not allowed* or *role not allowed*. The agent API records the refusal on the
+  collector row (migration `0041`, at most once per collector and reason every five minutes, no
+  instance row written) and the next poll that passes clears it. (#395)
+- **`shepherd dev ensure-org`** (dev-only): creates an organisation idempotently, so a compose
+  stack can mint a bound token before any Alloy starts. (#392)
+
+### Fixed
+
+- **The beacon never reported (B-BEACON-SCRAPE).** Shipped. The D6 baseline never delivered a
+  sample: it scraped the exporter's remotecfg component path, which Alloy answers with HTTP 400.
+  It now scrapes Alloy's root `/metrics`, so `beacon_inventory` fills and reconciliation shows
+  observed state. Serve format 4: **every beacon-enabled collector's config changes once (one
+  reload)**. `config.server.base_url` must be reachable from the collectors. Exporters inside a
+  pipeline's `declare` (such as the Self Monitoring wizard's) were never affected. (#396)
+- **The beacon never reported per pipeline.** Shipped. Inventory was keyed on `controller_path`
+  alone, which every declare-wrapped pipeline shares, so reconciliation's observed side was
+  always empty. The projection now joins `controller_path` and `controller_id`, rolls nested
+  module loaders up into their pipeline (unhealthy if any is) and drops the root and bootstrap
+  loaders. (B-BEACON-KEY, part of #378, #384)
+- **Reconciliation said *In sync* without beacon data.** Shipped. It now says *Observed state
+  unknown — no beacon data from this collector yet*, names the beacon env vars and links the
+  Collectors docs; *In sync* needs observed data. (#395)
+- **Collectors received raw database errors.** Shipped. A new innermost collector.v1 interceptor
+  logs any internal error with its detail and answers `unavailable: server temporarily
+  unavailable (schema mismatch, likely an upgrade in progress); retry` for a schema mismatch
+  (`42P10`, `42703`, `42P01`, `42883`) and `internal: internal error` for anything else. The
+  management API's `mapError` no longer sends Postgres text for unique/FK violations and maps
+  schema mismatches to `Unavailable`; the OIDC-settings and tenant-route segment paths no longer
+  wrap raw errors. (#395)
+- **An unbound token's allowlists read "any".** Shipped. Clusters and Roles read
+  "— (unbound: refused)"; "any" is shown only for a bound token with empty allowlists. (#395)
+- **Collectors could not restart while the database was down.** Shipped. Alloy stops its
+  remote-config service when `RegisterCollector` fails at start-up, so a database outage turned
+  every restart into a crash loop. Outage-class database errors now answer `Unavailable` (never
+  `Unauthenticated`), and for `agent.outage_cache_ttl` (default 60s, `0` turns it off) each
+  replica keeps a bounded cache of recently verified tokens (the stored hash, never the secret)
+  and of the last config it served each collector: during an outage a known collector is
+  acknowledged and re-served that config, everyone else gets `Unavailable`. Revoking or rebinding
+  a token, and changing an agent identity, evicts it on the serving replica. The beacon answers
+  503 instead of 401 in the same case, so remote_write retries. (#374, #385)
+- **A git sync could apply part of a commit.** Shipped. A commit now applies whole or not at all:
+  any failing file (Stage 1/2, ownership, a name clash, the dry run, role enforcement) or a
+  tripped prune guard writes nothing, the link shows `error` (or `warning` for a guard) naming up
+  to five failing files, and the collector keeps serving the previous commit. The commit is
+  dry-run once as one merged config for the link's collector, with role enforcement and the D6
+  baseline; an error already present before the commit applies with a `warning` naming the
+  already-broken pipelines, but a check that could not complete refuses it. Sync audit rows carry
+  `commit`, `git_path` and `repo_link_id`, and only the link's collector is recomputed.
+  (B-GITSYNC-ATOMIC, #373)
+- **Collector instance ids were not bound to an org.** Shipped. Any valid agent token could rebind
+  another org's instance id through `GetConfig`, and `UnregisterCollector` had no org check.
+  Instances are now keyed per collector (migration `0036`), the instance row is written only after
+  the org check, a poll clears `unregistered_at`, and an OIDC-bound or mode-2 caller unregisters
+  only its own org's rows. New metric `shepherd_agent_refused_total{reason}`, with rate-limited
+  refusal logs. (B-AGENT-INSTANCE, #370)
+- **A failed recompute left no audit trail.** Shipped. Both serve paths log at Error, count
+  `shepherd_serve_recompute_failures_total`, keep the previous entry and write one
+  `serve.recompute_failed` audit row per collector and generation (migration `0035`). Stage 3
+  validates the merged config with the D6 baseline appended — the bytes that are served.
+  (B-SERVE-AUDIT, #367)
+- **A beacon-disabled collector's config flipped between two versions.** Shipped. The eager
+  recompute paths appended the beacon baseline and the lazy path did not; one derivation
+  (`serve.BeaconBaseline`) now feeds every path. (#372)
+- **Saving a pipeline in a large org could exceed the Stage 3 budget.** Shipped. Stage 3 now
+  validates only collectors the old or new matchers select, once per distinct merged config, and
+  reports a failure against every cluster/role that shares it; the budget is the chart value
+  `config.validate.stage3_timeout`. (#379)
+- **Restoring a revision switched a live pipeline off.** Shipped. A restore now keeps the
+  pipeline's current enabled state; an enabled pipeline's restore still passes Stage 3 first.
+  (#377, #383)
+- **A pipeline with pathologically deep nesting could crash the server.** Shipped. Such config is
+  refused at Stage 1: every parse goes through one guarded entry point that refuses nesting over
+  512 levels, expression chains over 4096 links and parsed trees deeper than 1024. (#388)
+- **A small visual graph could expand to gigabytes of rendered text.** Shipped. Render output is
+  bounded at 1 MiB while it is written (`output_too_large`), duplicate edges are refused
+  (`duplicate_edge`), labels and component names over 256 bytes are refused, diagnostics are
+  capped, and the quadratic steps in the render sort and the graph parser are gone. Rendered bytes
+  are unchanged for every valid graph. (#391, #393)
+- **Request sizes were bounded only for collectors.** Shipped. Management-API requests are capped
+  at 4 MiB, pipeline contents at 1 MiB on every write and on every RPC that takes Alloy text or a
+  graph, and `gitsync.max_file_bytes` at 1 MiB; collector requests are bounded too. (#370, #388)
+- **Deleting a repository link recomputed every dirty collector in the org**, not just the link's;
+  it now recomputes that collector only, and the org's served-config and revision views refresh.
+  (#371, #364)
+- **Serve path internals and small fixes:** one shared serve-cache write (`serve.Store`) for both
+  paths; a component schema that fails to load is fatal at boot instead of serving without role
+  enforcement; errors wrapped with context in tenant-route apply and destination encoding; the
+  graph view builds its module index once per graph; the database docs page says Shepherd calls
+  the Kubernetes API when the receiver tier applies tenant routes. (#364, #366, #367)
+
+### Changed
+
+- **One role model, viewer < editor < admin, end to end.** Shipped. The `reader` / `orgeditor` /
+  `orgadmin` spellings are gone from Go, the database, the API, the SPA and the docs; labels in the
+  UI are unchanged. No human principal's permissions change — a golden file over all procedures
+  proves it — with two deliberate tightenings: a service account with an unknown stored tier is
+  denied, and `CreateServiceAccount` refuses an unset role. (#381)
+- `shepherd token create` requires `--org`, also with `SHEPHERD_DEV_ALLOW_STATIC_TOKEN=true` (which
+  now only allows a fixed `--id` / `--secret`); `dev seed` binds its token to `platform-org`.
+  (#386, #392)
+- Pipeline diagnostics can be warnings, drawn as warnings in the editor and the wizard preview and
+  never blocking a save. (#388)
+- **Spec catch-up:** collector OIDC gets its own §7.3b; §4.1, §6, §7.2 and §6.2 (the beacon
+  baseline's shape) describe what is implemented. (#366, #396)
+
+### API
+
+**Breaking:**
+
+- Roles are the `shepherd.mgmt.v1.Role` enum (`ROLE_VIEWER`, `ROLE_EDITOR`, `ROLE_ADMIN`) in
+  `OrgMember`, `SetOrgMemberRequest`, `OrgMembership`, `ServiceAccount`,
+  `CreateServiceAccountRequest` and `CreateServiceAccountResponse`; the old string fields' numbers
+  are reserved. `ROLE_UNSPECIFIED` — which is what an old JSON client's `"admin"` decodes to — is
+  refused on every write. `CreateServiceAccount` requires `role`. (#381)
+- `Org.reader_group_id` → `viewer_group_id` in `Org`, `CreateOrgRequest` and `UpdateOrgRequest`
+  (same field numbers; JSON `viewerGroupId`) — see the `UpdateOrg` caveat above. (#381)
+- `TenantRoute.status` and `apply_status` are the enums `TenantRouteStatus` /
+  `TenantRouteApplyStatus`. (#381)
+- `AdminService.SetOrgTenantID` is removed; `AddOrgTenant`, `RemoveOrgTenant` and
+  `SetDefaultOrgTenant` (app admin) replace it. `Org.tenant_id` and `OrgMembership.tenant_id` are
+  reserved and replaced by `repeated OrgTenant tenants` (`tenant`, `kind`
+  `ORG_TENANT_KIND_EXACT|PREFIX`, `is_default`). `CreateOrgRequest.tenant_id` becomes the initial
+  default tenant. (#387)
+- `CreateAgentTokenRequest.org_id` is required. (#386)
+
+**Additive:**
+
+- `BindAgentToken`; `AgentToken.org_id`, `org_name`, `clusters`, `roles`, `may_claim`;
+  `ListAgentTokensRequest.org_id`, `CreateAgentTokenRequest.clusters` / `roles`,
+  `RevokeAgentTokenRequest.org_id`. (#386)
+- `CreateTenantRouteRequest.tenant` (empty = the org's default). (#387)
+- `SetOrgStrictTenants`, `TenantPreflight`; `Org.strict_tenants`, `tenants_required`, `warnings`;
+  `OrgMembership.tenants_required`; `Diagnostic.warning`; `VisualNodeDiagnostic.warning`. (#388)
+- `Collector.last_refused_reason` (13) and `last_refused_at` (14), set only while the refusal is
+  newer than the newest instance's `last_seen`; `GetReconciliationResponse.observed_known`. (#395)
+
+Collector API (`collector.v1`): no schema change. Unbound or disallowed tokens get
+`PermissionDenied`, an outage or a mid-rollout schema mismatch `Unavailable`, and requests are
+bounded (*Upgrade*, step 5).
+
+### Build & CI
+
+- **Signed releases** (#380): `release.yml` refuses a lightweight or unsigned tag (keys in
+  `.github/allowed_signers`); the chart gets build provenance by digest; each image gets
+  provenance and an SPDX-JSON SBOM attestation, pushed to the registry as well as GitHub's store;
+  a `verify-attestations` job re-checks them with the documented commands. New docs page
+  *Verifying releases*.
+- **Prereleases:** a `-rc` tag publishes a GitHub prerelease, and `make check-docs-version` /
+  `make docs` keep the public docs on the last stable version while `Chart.yaml` carries one.
+- **Dev and test stacks:** the compose stacks create their org and mint a bound agent token before
+  Alloy starts (#392); the kind, compose and e2e Alloy agents set `SHEPHERD_AGENT_TOKEN_ID` /
+  `_SECRET` from one token source, kept in agreement by a repocheck spec, and
+  `make dev-kind-status` tells refusals, unreachability and config rejections apart (#395); the
+  e2e stack (#396) and the dev compose stack (this release) set `server.base_url` to an address
+  their Alloy agents can reach, so the beacon's writes arrive.
+- New repository guards: `TestNoDirectParserImports` keeps every package off the raw Alloy parser,
+  and `TestRawAlloyProceduresAreCapped` fails until a new procedure carrying Alloy text or a graph
+  is capped (#388); an e2e spec drives the served beacon baseline end to end (#396).
+- **Go 1.27.3** (GO-2026-6809, `crypto/x509`). (#365)
+- **Docs:** README fixes restored; the review-remediation plan, now archived. (#363)
+
+### Dependencies
+
+- `connectrpc.com/connect` 1.21.1, `go-chi/chi/v5` 5.5.0, `onsi/ginkgo/v2` 2.33.1,
+  `prometheus/common` 0.72.1. (#352)
+- GitHub Actions: CodeQL 4.39.0, `goreleaser-action` 7.3.0, `scorecard-action` 2.5.0. (#353)
+
 ## v0.19.0-rc.2 (prerelease)
 
 Chart 0.23.0-rc.2, the second **release candidate** for v0.19.0, published as a GitHub

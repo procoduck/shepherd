@@ -2,58 +2,43 @@
 
 ## 0.22.x → 0.23.0
 
-First published as the release candidates **0.23.0-rc.1** and **0.23.0-rc.2** (Shepherd
-v0.19.0-rc.1 / v0.19.0-rc.2); install one with `--version 0.23.0-rc.2`, or `--devel`. Everything
-below applies to the release candidates and to 0.23.0. Coming from 0.23.0-rc.1, the migration Job
-applies only `0038`–`0041` (from 0.23.0-rc.2, only `0041`); read *Agent tokens are bound to an
-organisation* first.
+Shepherd v0.19.0. A `helm upgrade` with seven migrations (`0035`–`0041`), **agent tokens to bind
+right after the upgrade**, one reload per beacon-enabled collector, a short burst of retryable
+errors during the rollout, management-API breaks and new size limits. Work through the numbered
+steps in order; everything after step 6 is additive and needs nothing from you.
 
-A `helm upgrade` with seven migrations (0035–0041), **agent tokens to bind right after the
-upgrade**, one recompute per collector, a short burst of errors during the rollout,
-management-API breaks and new size limits. Update API scripts first, and have the list of agent
-tokens and the org each belongs to at hand.
+**Already on a release candidate?** The same notes apply; only the newer migrations remain. From
+0.23.0-rc.2 the migration Job applies `0041`; from 0.23.0-rc.1 it applies `0038`–`0041`, and
+unbound tokens start being refused (step 1). From either, every beacon-enabled collector
+recomputes once to serve format 4 and reloads once (step 2).
 
-### Agent tokens are bound to an organisation — bind them right after upgrading
+### 1. Before you upgrade: unbound agent tokens are refused
 
-**Every collector stops receiving config until its agent token is bound.** Agent tokens are now
-bound to an organisation (optionally narrowed to cluster and role allowlists), and Shepherd
-refuses every collector RPC from a token that is not. Tokens created before this release are left
-**unbound** by migration `0038` — it does not guess an org — so their collectors are refused
-(`PermissionDenied`, counted as `shepherd_agent_refused_total{reason="token_unbound"}`) until an
-app admin binds them. Binding changes neither the token id nor the secret, so collectors keep
-their credentials, and a refused collector keeps running its last loaded config until its next
-successful poll. Bind every existing token as soon as the new pods are up, or mint new bound
-tokens and roll them out to the collectors instead.
+**Every collector stops receiving new config until its agent token is bound — plan to bind every
+token immediately after the upgrade.** Agent tokens are now bound to an organisation (optionally
+narrowed to cluster and role allowlists), and Shepherd refuses every collector RPC from a token
+that is not. Tokens created before this release are left **unbound** by migration `0038` — it
+does not guess an org — so their collectors are refused (`PermissionDenied`) until an app admin
+binds them. Binding changes neither the token id nor the secret, so collectors keep their
+credentials, and a refused collector keeps running its last loaded config — it just gets nothing
+new until its next successful poll. Meanwhile the Collectors page shows it as **REFUSED** and its
+collector page says *Refused — agent token not bound to an organisation*; across the fleet, watch
+`shepherd_agent_refused_total{reason="token_unbound"}`, which stops increasing once every token in
+use is bound.
 
-**How to tell which collectors are waiting.** Until a token is bound, the Collectors page shows
-each collector using it as **REFUSED**, and the collector page says *Refused — agent token not
-bound to an organisation* with a link to Agent Tokens; the status and last-seen time beside it
-are from the collector's last successful poll (a refused poll records nothing on the instance).
-The Agent Tokens page's banner counts the unbound tokens, and their *Clusters* / *Roles* read
-*— (unbound: refused)*. To watch the fleet rather than the UI, use
-`shepherd_agent_refused_total{reason="token_unbound"}`: it stops increasing once every token in
-use is bound. *Refused — cluster not allowed* / *role not allowed* after binding means the
-binding's org or allowlists do not cover what that collector reports
-(`reason="claim_denied"` / `"role_denied"`).
+Before running `helm upgrade`, list your agent tokens (`shepherd token list`) and note the org
+that already claims each one's clusters, and update any management-API scripts (step 4). If you
+would rather not have a refusal window at all, mint new bound tokens after the upgrade and roll
+them out instead of binding the old ones.
 
-Bind from the Agent Tokens page (unbound tokens are listed first, with a **Bind** action) or from
-the CLI in the Shepherd pod:
+### 2. Upgrade: migrations 0035–0041 and a short rollout window
 
 ```sh
-kubectl -n shepherd exec svc/shepherd -- /usr/local/bin/shepherd token list
-kubectl -n shepherd exec svc/shepherd -- /usr/local/bin/shepherd token bind \
-  --id <token-id> --org <org-slug> [--clusters prod-eu-1] [--roles metrics]
+helm upgrade shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.23.0 \
+  --namespace shepherd --reuse-values
 ```
 
-Bind each token to the org that already claims the clusters its collectors report: a bound token
-is refused for a cluster another org has claimed, and — because an app admin bound it — claims
-any unclaimed cluster it reports (within its allowlists) for its own org. `shepherd token create`
-now requires `--org`, and `CreateAgentToken` requires `org_id`; scripts that mint tokens need that
-argument added. Org admins can now create, list and revoke their own org's tokens; those tokens
-serve only clusters the org already claims (`AgentToken.may_claim` is false — claiming stays app
-admin only, as does binding a token to an org).
-
-### Migrations 0035–0041
+#### Migrations 0035–0041
 
 The migration Job (a `pre-upgrade` hook, on by default) applies them before the new pods start;
 if you turned it off, run `shepherd migrate up` yourself first. All seven are quick:
@@ -83,7 +68,7 @@ if you turned it off, run `shepherd migrate up` yourself first. All seven are qu
   passes, which is what the Collectors page's **REFUSED** reads. Metadata-only; old pods neither
   read nor write them. Its down migration drops them.
 
-### Errors during the rollout
+#### Errors during the rollout
 
 The migrations run before the old pods are replaced, and two of them break queries old pods make:
 
@@ -109,18 +94,7 @@ pod on the other side of a migration) answers `unavailable: server temporarily u
 `internal: internal error`, and the detail is logged by the Shepherd pod. Management-API handlers
 that map store errors answer the same `Unavailable`.
 
-### The beacon needs the agent token in the collectors' environment
-
-The self-monitoring beacon in every served config authenticates its `remote_write` with
-`sys.env("SHEPHERD_AGENT_TOKEN_ID")` and `sys.env("SHEPHERD_AGENT_TOKEN_SECRET")` (with OIDC
-beacon auth, `SHEPHERD_OIDC_CLIENT_ID` / `SHEPHERD_OIDC_CLIENT_SECRET`). A collector that does not
-expose both variables still gets and runs its config, but its beacon never authenticates, so its
-**Reconciliation** tab now says *Observed state unknown — no beacon data from this collector yet*
-(it used to say *In sync*). Set them on every collector — the same token its `remotecfg` block
-uses — see [Collectors](https://procoduck.github.io/shepherd/docs/collectors.html) and
-[Agent tokens](https://procoduck.github.io/shepherd/docs/agent-tokens.html).
-
-### One reload per beacon-enabled collector (serve format 4)
+#### One reload per beacon-enabled collector (serve format 4)
 
 The new pods compute serve format 4 and recompute every cached config once, on its collector's
 next poll. The D6 beacon baseline changed (B-BEACON-SCRAPE): it now scrapes Alloy's root
@@ -128,12 +102,42 @@ next poll. The D6 beacon baseline changed (B-BEACON-SCRAPE): it now scrapes Allo
 path answers HTTP 400 and the beacon had never delivered data. With the beacon enabled (the
 default) **every collector's served config changes once and each reloads once**; from then on
 `beacon_inventory` fills and the **Reconciliation** tab shows observed state. The beacon writes to
-`config.server.base_url` + `/beacon/v1/write`, so `base_url` must be reachable from the collectors.
-With `config.server.beacon_disabled: true` the bytes do not change, except that a collector whose
+`config.server.base_url` + `/beacon/v1/write`, so `base_url` must be reachable from the collectors
+(step 6). With `config.server.beacon_disabled: true` the bytes do not change, except that a collector whose
 config was last written by an eager recompute on 0.22.x loses a beacon `remote_write` block that
-pointed at an endpoint the server does not mount (format 3, rc.1) and reloads once.
+pointed at an endpoint the server does not mount (#372) and reloads once.
 
-### Management API changes
+### 3. Bind the agent tokens
+
+**How to tell which collectors are waiting.** Until a token is bound, the Collectors page shows
+each collector using it as **REFUSED**, and the collector page says *Refused — agent token not
+bound to an organisation* with a link to Agent Tokens; the status and last-seen time beside it
+are from the collector's last successful poll (a refused poll records nothing on the instance).
+The Agent Tokens page's banner counts the unbound tokens, and their *Clusters* / *Roles* read
+*— (unbound: refused)*. To watch the fleet rather than the UI, use
+`shepherd_agent_refused_total{reason="token_unbound"}`: it stops increasing once every token in
+use is bound. *Refused — cluster not allowed* / *role not allowed* after binding means the
+binding's org or allowlists do not cover what that collector reports
+(`reason="claim_denied"` / `"role_denied"`).
+
+Bind from the Agent Tokens page (unbound tokens are listed first, with a **Bind** action) or from
+the CLI in the Shepherd pod:
+
+```sh
+kubectl -n shepherd exec svc/shepherd -- /usr/local/bin/shepherd token list
+kubectl -n shepherd exec svc/shepherd -- /usr/local/bin/shepherd token bind \
+  --id <token-id> --org <org-slug> [--clusters prod-eu-1] [--roles metrics]
+```
+
+Bind each token to the org that already claims the clusters its collectors report: a bound token
+is refused for a cluster another org has claimed, and — because an app admin bound it — claims
+any unclaimed cluster it reports (within its allowlists) for its own org. `shepherd token create`
+now requires `--org`, and `CreateAgentToken` requires `org_id`; scripts that mint tokens need that
+argument added. Org admins can now create, list and revoke their own org's tokens; those tokens
+serve only clusters the org already claims (`AgentToken.may_claim` is false — claiming stays app
+admin only, as does binding a token to an org).
+
+### 4. Management API changes
 
 Scripts and service-account clients that call the management API must be updated **before** the
 upgrade:
@@ -162,37 +166,7 @@ upgrade:
   organisation owns (`invalid_argument`, "tenant_id is not available to this org"), as
   destinations already did.
 
-### An organisation can own several tenants and tenant prefixes
-
-Nothing to do on the cluster: every organisation keeps its tenant, now as its **default** tenant,
-and its routes, destinations and chart values carry on unchanged. An application administrator
-can then give an organisation more exact tenants and tenant prefixes on **Admin → Organisations**
-(Edit). A tenant still belongs to at most one organisation. A tenant is no longer set once: it can
-be removed unless a live tenant route, destination or destination binding of the org would be
-left on a tenant the org no longer owns.
-
-### Strict tenant mode (optional)
-
-Additive and **off by default**: nothing changes until you turn it on. In strict tenant mode an
-organisation's destinations, destination bindings, tenant routes and pipelines may only use
-tenants it owns, and pipeline text that sets a tenant it does not own, or that it cannot verify
-(a tenant from `sys.env`, from the log data, an `import.git`/`import.http`/`import.file` module),
-fails validation; see the docs' *Destinations* page for exactly what is refused.
-
-- **Per organisation:** an application administrator ticks *Strict tenant mode* on **Admin →
-  Organisations** (Edit), or calls `AdminService.SetOrgStrictTenants`. It is refused, with the
-  list of what to fix, while the org owns no tenant or anything of it breaks the rule;
-  `AdminService.TenantPreflight` returns that list on its own.
-- **Every organisation:** `config.tenants.require_owned: true`. Before setting it, run
-  `shepherd admin tenant-preflight` (same database config as the server) and clear what it lists:
-  with the setting on, **Shepherd refuses to start** while anything stored breaks the rule, and
-  the error names each object. Setting it back to `false` undoes it.
-
-New API fields, all additive: `Org.strict_tenants` / `Org.tenants_required` / `Org.warnings`
-(caveats of an `AddOrgTenant`), `OrgMembership.tenants_required`, and `Diagnostic.warning` /
-`VisualNodeDiagnostic.warning` (a diagnostic that does not fail validation).
-
-### New limits
+### 5. New limits
 
 These apply to every organisation, strict or not. No real configuration comes close to any of
 them:
@@ -214,14 +188,61 @@ them:
   is a UUID and a hostname is at most 253 bytes, so this only matters if you set long custom ids
   or cluster names.
 
-### Git sync applies a commit whole or not at all
+### 6. The beacon needs the agent token in the collectors' environment
+
+The self-monitoring beacon in every served config authenticates its `remote_write` with
+`sys.env("SHEPHERD_AGENT_TOKEN_ID")` and `sys.env("SHEPHERD_AGENT_TOKEN_SECRET")` (with OIDC
+beacon auth, `SHEPHERD_OIDC_CLIENT_ID` / `SHEPHERD_OIDC_CLIENT_SECRET`). A collector that does not
+expose both variables still gets and runs its config, but its beacon never authenticates, so its
+**Reconciliation** tab now says *Observed state unknown — no beacon data from this collector yet*
+(it used to say *In sync*). Set them on every collector — the same token its `remotecfg` block
+uses — see [Collectors](https://procoduck.github.io/shepherd/docs/collectors.html) and
+[Agent tokens](https://procoduck.github.io/shepherd/docs/agent-tokens.html).
+
+The beacon also writes to `config.server.base_url` + `/beacon/v1/write`, so `base_url` must be a
+URL the collectors can reach; with the placeholder default the beacon's writes go nowhere and
+Reconciliation stays *Observed state unknown*.
+
+### Also in this release (nothing to do)
+
+#### An organisation can own several tenants and tenant prefixes
+
+Nothing to do on the cluster: every organisation keeps its tenant, now as its **default** tenant,
+and its routes, destinations and chart values carry on unchanged. An application administrator
+can then give an organisation more exact tenants and tenant prefixes on **Admin → Organisations**
+(Edit). A tenant still belongs to at most one organisation. A tenant is no longer set once: it can
+be removed unless a live tenant route, destination or destination binding of the org would be
+left on a tenant the org no longer owns.
+
+#### Strict tenant mode (optional)
+
+Additive and **off by default**: nothing changes until you turn it on. In strict tenant mode an
+organisation's destinations, destination bindings, tenant routes and pipelines may only use
+tenants it owns, and pipeline text that sets a tenant it does not own, or that it cannot verify
+(a tenant from `sys.env`, from the log data, an `import.git`/`import.http`/`import.file` module),
+fails validation; see the docs' *Destinations* page for exactly what is refused.
+
+- **Per organisation:** an application administrator ticks *Strict tenant mode* on **Admin →
+  Organisations** (Edit), or calls `AdminService.SetOrgStrictTenants`. It is refused, with the
+  list of what to fix, while the org owns no tenant or anything of it breaks the rule;
+  `AdminService.TenantPreflight` returns that list on its own.
+- **Every organisation:** `config.tenants.require_owned: true`. Before setting it, run
+  `shepherd admin tenant-preflight` (same database config as the server) and clear what it lists:
+  with the setting on, **Shepherd refuses to start** while anything stored breaks the rule, and
+  the error names each object. Setting it back to `false` undoes it.
+
+New API fields, all additive: `Org.strict_tenants` / `Org.tenants_required` / `Org.warnings`
+(caveats of an `AddOrgTenant`), `OrgMembership.tenants_required`, and `Diagnostic.warning` /
+`VisualNodeDiagnostic.warning` (a diagnostic that does not fail validation).
+
+#### Git sync applies a commit whole or not at all
 
 A commit with one failing file now applies nothing (before, the files that passed synced); the
 link shows `error` naming the failing files and the collector keeps serving the previous commit.
 A commit held back by the prune guard applies nothing either, including updates to existing
 files. Nothing to do; fix or revert the failing file and the next poll applies the commit.
 
-### New chart values
+#### New chart values
 
 All additive, with the server's defaults:
 
@@ -234,7 +255,7 @@ All additive, with the server's defaults:
   See "When Shepherd or its database is down" on the docs' Kubernetes page.
 - `config.tenants.require_owned` (`false`): strict tenant mode for every organisation, above.
 
-### Signed releases
+#### Signed releases
 
 From this release, tags are signed and every archive, image (provenance and SBOM) and the chart
 carries attestations in GitHub's store and in the registry. Optional: verify what you pull with

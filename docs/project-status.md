@@ -12,19 +12,17 @@
 > fixed in v0.16.0; the parts of #301, #308 and #309 that needed a proto or served-config change
 > were approved on 2026-10-12 and ship in v0.17.0 (#332, #333) — all three are closed.
 >
-> Baseline re-verified 2026-10-15 for v0.18.0 (commit `f6ce7d4`, chart 0.22.0) from the CI,
-> CodeQL, security-scan and e2e runs on main, not from a summary. The public docs were reviewed
-> against v0.17.0 and the screenshots retaken on 2026-10-15 (#346, #347); the review's leftovers
-> (#348) found the repository-link delete bug and B-GITSYNC-PRUNE (#349), and the local sign-in
-> throttle bypass through spoofed forwarding headers was fixed in #350 — all ship in v0.18.0.
-> The 2026-10-22 review remediation's steps 1–6, 4b–4d and 7a (#363–#381) ship in the prerelease
-> **v0.19.0-rc.1** (chart 0.23.0-rc.1), together with signed releases (#380). The external
-> evaluation's fixes — restore keeping the enabled state (#383), the beacon reporting per pipeline
-> (#384), collectors riding out a database outage (#385), org-bound agent tokens (#386), several
-> tenants per organisation (#387), strict tenant mode and the config size and nesting limits
-> (#388), and bounded visual render output (#393) — ship in the prerelease **v0.19.0-rc.2**
-> (chart 0.23.0-rc.2). Step 7b (#362) and #375, #389, #390 and the rest of #378 are open. The
-> baseline below stays v0.18.0 until v0.19.0 is re-verified.
+> Baseline re-verified 2026-10-24 for v0.19.0 (commit `c2d8a13`, chart 0.23.0) from the CI,
+> CodeQL, security-scan and e2e runs on main, not from a summary. v0.19.0 is the 2026-10-22
+> review remediation (steps 1–6, 4b–4d and 7a, #363–#381) with signed releases (#380), first
+> published as the prerelease **v0.19.0-rc.1** (chart 0.23.0-rc.1); the external evaluation's
+> fixes and the tenancy work — restore keeping the enabled state (#383), the beacon reporting per
+> pipeline (#384), collectors riding out a database outage (#385), org-bound agent tokens (#386),
+> several tenants per organisation (#387), strict tenant mode and the config size and nesting
+> limits (#388), and bounded visual render output (#393) — first published as **v0.19.0-rc.2**
+> (chart 0.23.0-rc.2); and the rc.2 upgrade walkthrough's gaps (#395) and B-BEACON-SCRAPE, the
+> beacon that never reported (#396). Step 7b (#362), #375, #389, #390, the rest of #378 and the
+> in-browser preview caps are open (§4).
 > Completed rounds live in `docs/archive/` — the history this ledger used to carry inline is
 > `docs/archive/completed-2026-09-11.md`. Do not start a second ledger.
 
@@ -34,7 +32,7 @@
 |---|---|
 | `docs/project-status.md` | this ledger — verified baseline, open bugs, unbuilt features, open follow-ups |
 | `docs/spec.md` | authoritative product/build specification (§ numbers referenced below) |
-| `docs/plans/` | dated per-PR implementation plans while their work is unreleased; a plan moves to `docs/archive/plans/` once it has shipped in a tag. **Live: `2026-10-22-review-remediation.md`** (the v0.19.0 line; archived once v0.19.0 is tagged). The last two shipped, `2026-10-01-destination-auth.md` (#229/#262, v0.15.0) and `2026-10-06-destination-tenant-tls.md` (#261, v0.16.0), are in `docs/archive/plans/` |
+| `docs/plans/` | dated per-PR implementation plans while their work is unreleased; a plan moves to `docs/archive/plans/` once it has shipped in a tag. Empty between releases. The last shipped, `2026-10-22-review-remediation.md` (the v0.19.0 line, #363–#396), is in `docs/archive/plans/` with every earlier plan |
 | `docs/visual-builder-design-VB1.md` | visual builder design — M1–M8 built; §6.4 (S3) is the live spec for the sandbox feature (enabled by default in the Helm chart since v0.0.1) |
 | `docs/reviews/` | **live decision records only**: `canvas-framework-evaluation.md` (the React Flow decision and the controlled-mode contract `CanvasPane` depends on). Closed reviews move to `docs/archive/reviews/` |
 | `docs/dev-guide.md` | running the dev stack |
@@ -48,32 +46,34 @@
 
 ---
 
-## 1. Verified baseline (2026-10-15, v0.18.0)
+## 1. Verified baseline (2026-10-24, v0.19.0)
 
-The baseline commit is `f6ce7d4` (#349, the last merge before the v0.18.0 release PR); its CI,
-CodeQL and security-scan runs (38744221662, 38744221618, 38744221672) are green, every CI job
-ran there (#349 touched Go, proto, SQL and web code), and its E2E run on push, 38744221646, is
-green (the agent-protocol suite; the sandbox `e2e-sim` job is path-filtered and last ran on
-`dd85f59`, run 38636903475). The E2E K8s dispatch on `f6ce7d4`, 38764159489, is pending and
-recorded after merge. The previous release: **v0.17.0 is released**, tag `v0.17.0` on
-`1c79ddc`, release run 38702024932 (verify, publish, attest, scan of the published images)
-green. Each row cites the run that last exercised the
-surface — CI's `changes` gate skips the jobs a commit does not touch — so the claim is checkable by
-run id rather than by trusting this table.
+The baseline commit is `c2d8a13` (#396, the last merge before the v0.19.0 release PR); its CI,
+CodeQL and security-scan runs (40082542789, 40082542767, 40082542755) are green, every CI job but
+`generated-drift` ran there (#396 touched Go, compose and docs; the drift job last ran on
+#395's proto and sqlc regenerate, `9103f11`, run 40080823596), and its E2E run on push,
+40082542810, is green — the agent-protocol suite, now including "the served beacon baseline
+reports observed state" (real Alloy → `/beacon/v1/write` → `GetReconciliation`). The sandbox
+`e2e-sim` job is path-filtered and last ran on #396's head `8b90700`, run 40081450080 (green).
+The previous releases: **v0.18.0** (tag on `f367c70`, release run 38769359463), the prereleases
+**v0.19.0-rc.1** (run 39836585311) and **v0.19.0-rc.2** (run 40043204621), all green. Each row
+cites the run that last exercised the surface — CI's `changes` gate skips the jobs a commit does
+not touch — so the claim is checkable by run id rather than by trusting this table.
 
 | Check | Where it ran | Result |
 |---|---|---|
-| Go build, vet, `govulncheck`, `go vet -tags e2ek8s ./e2e/k8s/` | CI `build` job, run 38744221662 (`f6ce7d4`) | clean (Go 1.27.2) |
-| `golangci-lint` + config verify, all ten `make guards`, `helm lint` (incl. the dev-kind values), `scripts/repocheck`, generated-code drift | CI `lint`, `guards` + `generated-drift` jobs, run 38744221662 (`f6ce7d4`, #349's proto and sqlc regenerate) | 0 issues |
-| `go test ./...` with coverage (testcontainers Postgres), incl. every wizard golden loaded by a real Alloy v1.20.1, the six fuzz targets' seed corpora (#339), the k8s-monitoring graph-view fixtures (#341, #342), the client-address and login-throttle specs (#350), the git-sync prune and guard specs against a real Gitea, and the migration `0034` store spec (#349) | CI `test` job, run 38744221662 (`f6ce7d4`) | green |
+| Go build, vet, `govulncheck`, `go vet -tags e2ek8s ./e2e/k8s/` | CI `build` job, run 40082542789 (`c2d8a13`) | clean (Go 1.27.3) |
+| `golangci-lint` + config verify, all ten `make guards`, `helm lint` (incl. the dev-kind values), `scripts/repocheck` (incl. the beacon-env agreement and `alloy_log_verdict` specs, #395) | CI `lint` + `guards` jobs, run 40082542789 (`c2d8a13`); `generated-drift` on `9103f11`, run 40080823596 | 0 issues |
+| `go test ./...` with coverage (testcontainers Postgres), incl. the org-bound token, multi-tenant and strict-tenant specs (#386–#388), the outage-cache specs (#385), the nesting and render bounds (#388, #393), the agent error-mapping interceptor and migration `0041` store spec (#395), and `TestRenderBaselinePipeline_Golden` (#396) | CI `test` job, run 40082542789 (`c2d8a13`) | green |
 | `pnpm typecheck`, `biome check`, Vitest (unit + jsdom component) | CI `web` job, same run | clean |
 | Mocked Playwright (`make test-ui`) | CI `test-ui` job, same run | green |
-| `make smoke` + fullstack Playwright against the compose stack, incl. a seeded `declare` pipeline opening laid out with the elkjs worker served from the embedded SPA | CI `test-fullstack` job, same run | green |
-| Compose e2e, agent protocol incl. the `ssh` GitOps scenario (`make e2e`) | `e2e.yml` on push to `f6ce7d4`, run 38744221646 | green |
-| Sandbox e2e (`make e2e-sim`) | `e2e.yml` `e2e-sim` job, manual dispatch on `dd85f59`, run 38636903475 (path-filtered; nothing since touches the sandbox surface) | green |
-| Kubernetes e2e, kind (`make e2e-k8s`) — incl. destination Secret auth (#260) and tenant + TLS (#281) through a real Alloy | `e2e-k8s.yml` on the pull-request heads of #348 (`001692b`, run 38719437966), #350 (`ac8170d`, run 38738405931) and #349 (`b1d491b`, run 38742910198); manual dispatch on `dd85f59`, run 38636908019; manual dispatch on `f6ce7d4`, run 38764159489 | green (`001692b`, `ac8170d`, `b1d491b`, `dd85f59`); `f6ce7d4` pending, recorded after merge |
-| CodeQL (actions, go, javascript-typescript, python; `security-extended`) | `codeql.yml` on `f6ce7d4`, run 38744221618 | green |
-| gitleaks, Trivy config + image scans, OpenSSF Scorecard | `security-scan.yml` on `f6ce7d4`, run 38744221672 | green |
+| `make smoke` + fullstack Playwright against the compose stack | CI `test-fullstack` job, same run | green |
+| Compose e2e, agent protocol (`make e2e`), incl. the beacon end-to-end spec (#396) | `e2e.yml` on push to `c2d8a13`, run 40082542810 | green |
+| Sandbox e2e (`make e2e-sim`) | `e2e.yml` `e2e-sim` job on #396's head `8b90700`, run 40081450080 | green |
+| Kubernetes e2e, kind (`make e2e-k8s`) | `e2e-k8s.yml` on the pull-request heads of the v0.19.0 line, latest #396 (`728cd6b`, run 40081975423), before it `ef19bbd` (40050896909) and `80e2a3a` (40018212569) | green |
+| CodeQL (actions, go, javascript-typescript, python; `security-extended`) | `codeql.yml` on `c2d8a13`, run 40082542767 | green |
+| gitleaks, Trivy config + image scans, OpenSSF Scorecard | `security-scan.yml` on `c2d8a13`, run 40082542755 | green |
+| Upgrade walkthrough 0.22.0 → 0.23.0-rc.2 on the kind dev stack | 2026-10-24: refused collectors shown as APPLIED, *In sync* without beacon data, "any" on unbound tokens, raw `42P10` text to Alloy — all fixed in #395; the empty beacon traced to B-BEACON-SCRAPE, fixed in #396 and confirmed live (`beacon_inventory`'s first rows, Reconciliation *In sync* with observed data) | fixed before the tag |
 | Public docs review and screenshots | 2026-10-15, against v0.17.0 (`1c79ddc`): 21 docs pages, `site/index.html` and the README checked against the code (#347); all nine screenshots retaken on the kind dev stack plus the graph view (#346) | corrections merged; leftovers fixed in #348, which found the repo-link delete bug (fixed there) and B-GITSYNC-PRUNE (fixed in #349) |
 | Manual walkthrough on the kind dev stack (Playwright MCP) | graph view, 2026-10-14: a real k8s-monitoring import (metrics config, 41 nodes, 1440×900); fixes in #344 | three mediums (zoom controls under the minimap, no zoom-out far enough, *Recreate* offered to viewers) and five lows fixed (#344); the image build context that crashed Docker during the session fixed (#343) |
 | Manual walkthrough on the kind dev stack (Playwright MCP) | v0.16, 2026-10-12 on `b8ce639`; fixes in #329 | all v0.16 features pass; mediums/lows fixed (#329), the rolling-upgrade `(rev 0)` gap fixed (#330) |
@@ -190,6 +190,15 @@ the manual end-to-end pass the list above records. Re-walk them on the next rele
   token before Alloy starts, `shepherd dev ensure-org` (#392); visual render output bounded,
   duplicate edges and labels/components over 256 bytes refused (#393, #391). Not walked in the
   browser.
+- **v0.19.0** (chart 0.23.0) — everything in rc.1 and rc.2 above, plus: refused collectors
+  shown as **REFUSED** with the reason on the Collectors list and collector page, Reconciliation
+  saying *Observed state unknown* without beacon data, "— (unbound: refused)" for an unbound
+  token's allowlists, no store error text to collectors (schema mismatch → retryable
+  `Unavailable`) or in the management API's `mapError`, the beacon env vars in the kind, compose
+  and e2e stacks, `dev-kind.sh status` telling refusals apart (#395, migration `0041`); the D6
+  beacon reporting at all — the baseline scrapes Alloy's root `/metrics`, serve format 4,
+  B-BEACON-SCRAPE (#396); the dev compose stack's `server.base_url` set to an address its Alloy
+  agents can reach (release PR). The 0.22.0 → 0.23.0-rc.2 upgrade was walked on kind (#395, #396).
 
 ### History
 
@@ -219,13 +228,16 @@ remediation with its D1–D14 decisions, and the v0.5.0 dependency and toolchain
   without "prod", wizard-follow badge, fuzzing), chart 0.21.0, release run 38702024932 (tag on
   `1c79ddc`).
 - 2026-10-15 — v0.18.0 (local sign-in throttle bypass fixed, git sync deletes removed files'
-  pipelines, repository-link delete, docs review and screenshots), chart 0.22.0; release run
-  recorded after the tag.
+  pipelines, repository-link delete, docs review and screenshots), chart 0.22.0, release run
+  38769359463.
 - 2026-10-22 — v0.19.0-rc.1, prerelease (review remediation steps 1–6, 4b–4d, 7a; signed
   releases), chart 0.23.0-rc.1; release run recorded after the tag.
 - 2026-10-23 — v0.19.0-rc.2, prerelease (org-bound agent tokens, several tenants per org, strict
   tenant mode, database-outage tolerance, config and render bounds), chart 0.23.0-rc.2; release
-  run recorded after the tag.
+  run 40043204621 (rc.1: 39836585311; v0.18.0: 38769359463).
+- 2026-10-24 — v0.19.0 (review remediation, org-bound agent tokens, several tenants per org,
+  strict tenant mode, outage tolerance, config and render bounds, refused collectors visible, the
+  beacon reporting), chart 0.23.0; release run recorded after the tag.
 
 ---
 
@@ -259,8 +271,8 @@ more-than-half-and-more-than-three guard (spec §10, "Removed files"); red-first
 `True-Client-IP` / `X-Real-IP` / `X-Forwarded-For` from any client) ships fixed in v0.18.0
 (#350); forwarding headers are read only from peers in `server.trusted_proxies`.
 
-The three bugs the 2026-10-22 review found ship fixed in the prerelease v0.19.0-rc.1
-(`docs/plans/2026-10-22-review-remediation.md`):
+The three bugs the 2026-10-22 review found ship fixed in v0.19.0, first in the prerelease
+v0.19.0-rc.1 (`docs/archive/plans/2026-10-22-review-remediation.md`):
 
 - **B-GITSYNC-ATOMIC** (medium; R8, step 6, #373) — a git sync wrote the files of a commit that
   passed, dropped the failing ones, and under a prune guard still applied the commit's updates,
@@ -282,7 +294,7 @@ The three bugs the 2026-10-22 review found ship fixed in the prerelease v0.19.0-
   audit row per collector and generation (migration `0035`); Stage 3 validates the merged config
   with the D6 baseline appended.
 
-Fixed in the prerelease v0.19.0-rc.2:
+Fixed in v0.19.0, first in the prerelease v0.19.0-rc.2:
 
 - **B-BEACON-KEY** (medium; part of #378, #384) — `beacon.Project` keyed inventory on
   `controller_path` alone, which every declare-wrapped pipeline shares (`/remotecfg`), so all
@@ -302,7 +314,7 @@ Fixed in the prerelease v0.19.0-rc.2:
 - **A small visual graph could render to gigabytes** (#391, #393) — output bounded at 1 MiB,
   duplicate edges and labels/components over 256 bytes refused, diagnostics capped.
 
-Fixed after v0.19.0-rc.2 (unreleased):
+Fixed in v0.19.0 after rc.2:
 
 - **B-BEACON-SCRAPE** (high; found live on kind 2026-10-24) — the D6 beacon had **never produced
   data** since it shipped (c276e9c). The served baseline scraped
@@ -317,11 +329,20 @@ Fixed after v0.19.0-rc.2 (unreleased):
   `instance` label); serve format 4, so every beacon-enabled collector reloads once (approved
   2026-10-24). Red-first: `TestRenderBaselinePipeline_Golden` and the e2e spec "the served beacon
   baseline reports observed state" (real Alloy → `/beacon/v1/write` → `GetReconciliation`), which
-  also needed the e2e stack's `server.base_url` set to an address Alloy can dial. The compose dev
-  stack (`make dev`) still leaves `base_url` at its unreachable default, so its beacon writes go
-  nowhere; kind is unaffected. Only top-level remotecfg components hit the 400: an exporter inside a
+  also needed the e2e stack's `server.base_url` set to an address Alloy can dial; the compose dev
+  stack (`make dev`) gets the same fix in the v0.19.0 release PR (`SHEPHERD_SERVER_BASE_URL:
+  http://shepherd:8080`); kind was unaffected. Only top-level remotecfg components hit the 400: an exporter inside a
   pipeline's `declare` (e.g. the Self Monitoring wizard's) answers 200 (checked live on kind), so
-  managed pipelines were never affected. Upstream issue drafted, not filed.
+  managed pipelines were never affected. Upstream issue drafted, not filed. (#396)
+- **Refused collectors looked healthy** (found in the 0.22.0 → 0.23.0-rc.2 kind upgrade
+  walkthrough, #395) — every poll was refused (`token_unbound`) while the Collectors list and the
+  collector page still showed APPLIED; Reconciliation said *In sync* with no beacon data; an
+  unbound token's allowlists read "any"; Alloy logged an old pod's raw Postgres error (`SQLSTATE
+  42P10`) during the rollout. Fixed: **REFUSED** with the reason (migration `0041`,
+  `Collector.last_refused_reason` / `last_refused_at`), `GetReconciliationResponse.observed_known`,
+  "— (unbound: refused)", and an innermost collector.v1 interceptor that maps schema mismatches to
+  retryable `Unavailable` and anything else to `internal error` (the management API's `mapError`
+  likewise).
 
 **2026-10-08 pre-release walkthrough** (kind dev stack, Playwright MCP): four high and six medium
 findings, all fixed in v0.15.0 — the builder save landing on stale data (H1), App
@@ -451,11 +472,11 @@ B1–B3 come from the v0.6.0 manual UI walkthrough (`docs/archive/plans/2026-09-
 first live bring-up (`docs/archive/plans/2026-09-14-kind-dev-stack.md`); every other finding from both
 was closed in the same batches (`CHANGELOG.md` v0.7.0).
 
-The 2026-10-22 whole-project review's findings are decided and sequenced in
-`docs/plans/2026-10-22-review-remediation.md`. Steps 1–6, 4b–4d and 7a (the serve-cache write, the
-nil-schema divergence, the role-vocabulary refactor and the smaller fixes) ship in v0.19.0-rc.1;
-the plan's §6 fixes (#374 via #385, #377 via #383, the beacon half of #378 via #384) and the
-tenancy work (#386, #387, #388, #393) ship in v0.19.0-rc.2. Open:
+The 2026-10-22 whole-project review's findings were decided and sequenced in
+`docs/archive/plans/2026-10-22-review-remediation.md`; everything it scheduled except the items
+below ships in v0.19.0 — steps 1–6, 4b–4d and 7a (first in rc.1), the plan's §6 fixes (#374 via
+#385, #377 via #383, the beacon half of #378 via #384) and the tenancy work (#386, #387, #388,
+#393, first in rc.2), and the walkthrough fixes #395 and #396. Open:
 
 - **Step 7b** — a service-account viewer tier, R14 (#362).
 - **#375** — validation ignores each collector's Alloy version.
