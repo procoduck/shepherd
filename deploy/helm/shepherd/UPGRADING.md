@@ -130,8 +130,11 @@ kubectl -n shepherd exec svc/shepherd -- /usr/local/bin/shepherd token bind \
 ```
 
 Bind each token to the org that already claims the clusters its collectors report: a bound token
-is refused for a cluster another org has claimed, and — because an app admin bound it — claims
-any unclaimed cluster it reports (within its allowlists) for its own org. `shepherd token create`
+is refused for a cluster another org has claimed. On chart 0.23.0 an app admin's bind also lets
+the token claim any unclaimed cluster it reports (within its allowlists) for its own org; from the
+next release a bind keeps the token's claim right as it was (a legacy token's is off), so a token
+bound then serves only clusters its org already claims — claim new clusters as an app admin, or
+mint a new token for them. `shepherd token create`
 now requires `--org`, and `CreateAgentToken` requires `org_id`; scripts that mint tokens need that
 argument added. Org admins can now create, list and revoke their own org's tokens; those tokens
 serve only clusters the org already claims (`AgentToken.may_claim` is false — claiming stays app

@@ -48,7 +48,7 @@ const runningComponentsMetric = "alloy_component_controller_running_components"
 // whose served config produced the baseline. Project reads it so a beacon write
 // can be attributed to a collector for reconciliation (#110). Absent on writes
 // from a collector still running a pre-#110 baseline; Project then returns an
-// empty collector id and the write is stored unattributed.
+// empty collector id, and the agentapi handler drops the write (#389).
 const CollectorIDLabel = "shepherd_collector_id"
 
 // healthTypeHealthy is the health_type label value the pinned metric uses

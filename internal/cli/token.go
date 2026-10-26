@@ -47,7 +47,9 @@ var tokenBindCmd = &cobra.Command{
 	Use:   "bind",
 	Short: "Bind an existing agent token to an organisation, in place (the secret is unchanged)",
 	Long: "Bind (or rebind) a live agent token to an organisation and replace its cluster/role\n" +
-		"allowlists. The secret does not change, so collectors keep their credentials.",
+		"allowlists. The secret does not change, so collectors keep their credentials, and\n" +
+		"neither does whether the token may claim unclaimed clusters — that is set when the\n" +
+		"token is created; create a new token to get a claiming one.",
 	RunE: runTokenBind,
 }
 

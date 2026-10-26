@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
 	"github.com/prometheus/prometheus/prompb"
 
@@ -59,14 +60,26 @@ var _ = Describe("BeaconHandler", Label("integration"), func() {
 	// controllerSeries is the label shape the pinned Alloy really emits (see
 	// internal/beacon/project_test.go's ctrlSeries): controller_path is the
 	// PARENT loader's path, controller_id the loader's own id.
-	controllerSeries := func(instance, controllerPath, controllerID, healthType string) []prompb.Label {
-		return []prompb.Label{
+	// collectorSeries also carries the shepherd_collector_id label the
+	// rendered baseline stamps on every series; "" leaves it off.
+	collectorSeries := func(collectorID, instance, controllerPath, controllerID, healthType string) []prompb.Label {
+		labels := []prompb.Label{
 			{Name: "__name__", Value: "alloy_component_controller_running_components"},
 			{Name: "controller_id", Value: controllerID},
 			{Name: "controller_path", Value: controllerPath},
 			{Name: "health_type", Value: healthType},
 			{Name: "instance", Value: instance},
 		}
+		if collectorID != "" {
+			labels = append(labels, prompb.Label{Name: beacon.CollectorIDLabel, Value: collectorID})
+		}
+		return labels
+	}
+	// anyCollector is a well-formed collector id for writes from an unbound
+	// token or identity, whose collector the beacon does not check.
+	const anyCollector = "6f1c2a4e-0000-4000-8000-000000000001"
+	controllerSeries := func(instance, controllerPath, controllerID, healthType string) []prompb.Label {
+		return collectorSeries(anyCollector, instance, controllerPath, controllerID, healthType)
 	}
 	// componentSeries is a series from the loader inside declare-wrapped
 	// pipeline pipe under remotecfg.
@@ -101,6 +114,33 @@ var _ = Describe("BeaconHandler", Label("integration"), func() {
 		resp, err := server.Client().Do(req)
 		Expect(err).NotTo(HaveOccurred())
 		return resp
+	}
+
+	counter := func(c *prometheus.CounterVec, label string) float64 {
+		m := &dto.Metric{}
+		Expect(c.WithLabelValues(label).Write(m)).To(Succeed())
+		return m.Counter.GetValue()
+	}
+	denied := func() float64 { return counter(metrics.AgentRefusedTotal, metrics.AgentRefusedBeaconDenied) }
+
+	// collectorIn seeds a collector in cluster, claimed by org (nil leaves the
+	// cluster unclaimed), and returns its id.
+	collectorIn := func(cluster string, org *sqlc.Org) string {
+		cl, err := st.Queries.UpsertCluster(ctx, cluster)
+		Expect(err).NotTo(HaveOccurred())
+		if org != nil {
+			Expect(st.Queries.ClaimCluster(ctx, sqlc.ClaimClusterParams{ID: cl.ID, OrgID: org.ID})).To(Succeed())
+		}
+		c, err := st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: cl.ID, Role: "metrics"})
+		Expect(err).NotTo(HaveOccurred())
+		return c.ID.String()
+	}
+
+	bindToken := func(org sqlc.Org) {
+		var id pgtype.UUID
+		Expect(id.Scan(tokenID)).To(Succeed())
+		_, err := st.Queries.BindAgentToken(ctx, sqlc.BindAgentTokenParams{ID: id, OrgID: org.ID, Clusters: json.RawMessage(`[]`), Roles: json.RawMessage(`[]`)})
+		Expect(err).NotTo(HaveOccurred())
 	}
 
 	BeforeEach(func() {
@@ -273,8 +313,9 @@ var _ = Describe("BeaconHandler", Label("integration"), func() {
 			ID: id, OrgID: org.ID, Clusters: json.RawMessage(`["prod-eu-1"]`), Roles: json.RawMessage(`["metrics"]`),
 		})
 		Expect(err).NotTo(HaveOccurred())
+		collector := collectorIn("prod-eu-1", &org)
 
-		resp := postRaw(encodeWrite([][]prompb.Label{healthySeries("10.0.0.7:12345", "pipe_bound")}, 1), authHeader)
+		resp := postRaw(encodeWrite([][]prompb.Label{collectorSeries(collector, "10.0.0.7:12345", "/remotecfg", "pipe_bound.default", "healthy")}, 1), authHeader)
 		Expect(resp.StatusCode).To(Equal(http.StatusNoContent))
 
 		rows, err := st.Queries.ListBeaconInventoryByPrincipal(ctx, tokenID)
@@ -291,26 +332,10 @@ var _ = Describe("BeaconHandler", Label("integration"), func() {
 		Expect(err).NotTo(HaveOccurred())
 		orgB, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{Name: "beacon-b", DisplayName: "B", AdminGroupID: "gb"})
 		Expect(err).NotTo(HaveOccurred())
-		collectorIn := func(cluster string, org sqlc.Org) string {
-			cl, err := st.Queries.UpsertCluster(ctx, cluster)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(st.Queries.ClaimCluster(ctx, sqlc.ClaimClusterParams{ID: cl.ID, OrgID: org.ID})).To(Succeed())
-			c, err := st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: cl.ID, Role: "metrics"})
-			Expect(err).NotTo(HaveOccurred())
-			return c.ID.String()
-		}
-		mine, theirs := collectorIn("a-prod", orgA), collectorIn("b-prod", orgB)
-		var id pgtype.UUID
-		Expect(id.Scan(tokenID)).To(Succeed())
-		_, err = st.Queries.BindAgentToken(ctx, sqlc.BindAgentTokenParams{ID: id, OrgID: orgA.ID, Clusters: json.RawMessage(`[]`), Roles: json.RawMessage(`[]`)})
-		Expect(err).NotTo(HaveOccurred())
+		mine, theirs := collectorIn("a-prod", &orgA), collectorIn("b-prod", &orgB)
+		bindToken(orgA)
 		series := func(instance, path, collectorID string) []prompb.Label {
-			return append(healthySeries(instance, path), prompb.Label{Name: beacon.CollectorIDLabel, Value: collectorID})
-		}
-		denied := func() float64 {
-			m := &dto.Metric{}
-			Expect(metrics.AgentRefusedTotal.WithLabelValues(metrics.AgentRefusedBeaconDenied).Write(m)).To(Succeed())
-			return m.Counter.GetValue()
+			return collectorSeries(collectorID, instance, "/remotecfg", path+".default", "healthy")
 		}
 		before := denied()
 
@@ -324,6 +349,77 @@ var _ = Describe("BeaconHandler", Label("integration"), func() {
 		resp = postRaw(encodeWrite([][]prompb.Label{series("10.0.0.8:1", "pipe_mine", mine)}, 1), authHeader)
 		Expect(resp.StatusCode).To(Equal(http.StatusNoContent))
 		rows, err = st.Queries.ListBeaconInventoryByPrincipal(ctx, tokenID)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(rows).To(HaveLen(1))
+		Expect(rows[0].ComponentName).To(Equal("pipe_mine"))
+	})
+
+	// #389: a bound token naming a collector whose cluster no org has claimed
+	// is outside its org too — dropped and counted like another org's.
+	It("drops a bound token's write naming a collector in an unclaimed cluster", func() {
+		org, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{Name: "beacon-u", DisplayName: "U", AdminGroupID: "gu"})
+		Expect(err).NotTo(HaveOccurred())
+		unclaimed := collectorIn("nobody-prod", nil)
+		bindToken(org)
+		before := denied()
+
+		body := encodeWrite([][]prompb.Label{collectorSeries(unclaimed, "10.0.0.4:1", "/remotecfg", "pipe_u.default", "healthy")}, 1)
+		Expect(postRaw(body, authHeader).StatusCode).To(Equal(http.StatusNoContent))
+		rows, err := st.Queries.ListBeaconInventoryByPrincipal(ctx, tokenID)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(rows).To(BeEmpty(), "an unclaimed cluster's collector gets no inventory row from a bound token")
+		Expect(denied() - before).To(Equal(1.0))
+	})
+
+	// #389: the collector id is how a write is attributed and how a bound
+	// writer's write is checked against its org. A write without one, or with
+	// one that is not a UUID, is dropped and counted by reason — never stored
+	// under the writer's own principal.
+	It("drops a write whose collector id is missing or unparseable, counted by reason", func() {
+		for _, tc := range []struct{ collectorID, reason string }{
+			{"", metrics.BeaconDroppedCollectorIDMissing},
+			{"not-a-uuid", metrics.BeaconDroppedCollectorIDInvalid},
+		} {
+			before := counter(metrics.BeaconDroppedTotal, tc.reason)
+			body := encodeWrite([][]prompb.Label{collectorSeries(tc.collectorID, "10.0.0.3:1", "/remotecfg", "pipe_z.default", "healthy")}, 1)
+			Expect(postRaw(body, authHeader).StatusCode).To(Equal(http.StatusNoContent))
+			Expect(counter(metrics.BeaconDroppedTotal, tc.reason)-before).To(Equal(1.0), tc.reason)
+		}
+		rows, err := st.Queries.ListBeaconInventoryByPrincipal(ctx, tokenID)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(rows).To(BeEmpty())
+	})
+
+	// #389: an OIDC caller with an agent_identities binding acts for that
+	// binding's org, so its beacon gets the same collector-in-org check a
+	// bound token's does.
+	It("drops a bound OIDC identity's write naming another org's collector, and stores its own", func() {
+		orgA, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{Name: "beacon-oa", DisplayName: "OA", AdminGroupID: "goa"})
+		Expect(err).NotTo(HaveOccurred())
+		orgB, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{Name: "beacon-ob", DisplayName: "OB", AdminGroupID: "gob"})
+		Expect(err).NotTo(HaveOccurred())
+		mine, theirs := collectorIn("oa-prod", &orgA), collectorIn("ob-prod", &orgB)
+		_, err = st.Queries.CreateAgentIdentity(ctx, sqlc.CreateAgentIdentityParams{
+			Issuer: "https://idp/", AppID: "alloy-app", OrgID: orgA.ID,
+			Clusters: json.RawMessage(`[]`), Roles: json.RawMessage(`[]`), CreatedBy: "test",
+		})
+		Expect(err).NotTo(HaveOccurred())
+		startServerWithVerifier(beacon.DefaultLimits, func(context.Context, string) (auth.AgentClaims, error) {
+			return auth.AgentClaims{Issuer: "https://idp/", Subject: "alloy-sub", AppID: "alloy-app"}, nil
+		})
+		const principal = "oidc:https://idp/|alloy-sub"
+		before := denied()
+
+		body := encodeWrite([][]prompb.Label{collectorSeries(theirs, "10.0.0.2:1", "/remotecfg", "pipe_theirs.default", "healthy")}, 1)
+		Expect(postRaw(body, "Bearer t").StatusCode).To(Equal(http.StatusNoContent))
+		rows, err := st.Queries.ListBeaconInventoryByPrincipal(ctx, principal)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(rows).To(BeEmpty(), "org B's collector must get no inventory row from an org-A identity")
+		Expect(denied() - before).To(Equal(1.0))
+
+		body = encodeWrite([][]prompb.Label{collectorSeries(mine, "10.0.0.2:1", "/remotecfg", "pipe_mine.default", "healthy")}, 1)
+		Expect(postRaw(body, "Bearer t").StatusCode).To(Equal(http.StatusNoContent))
+		rows, err = st.Queries.ListBeaconInventoryByPrincipal(ctx, principal)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(rows).To(HaveLen(1))
 		Expect(rows[0].ComponentName).To(Equal("pipe_mine"))

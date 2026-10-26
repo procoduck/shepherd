@@ -55,6 +55,15 @@ var (
 		Help:      "Total collector RPCs refused on an identity check, by reason (claim_denied, role_denied, unregister_denied, token_unbound, beacon_denied).",
 	}, []string{"reason"})
 
+	// BeaconDroppedTotal counts beacon writes dropped because they carry no
+	// usable collector id, by reason — a closed set (BeaconDropped* below).
+	// The writer still gets 204; nothing is stored.
+	BeaconDroppedTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "shepherd",
+		Name:      "beacon_dropped_total",
+		Help:      "Total beacon writes dropped for carrying no usable collector id, by reason (collector_id_missing, collector_id_invalid).",
+	}, []string{"reason"})
+
 	// SyncTotal counts gitsync reconciliation attempts by result.
 	SyncTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "shepherd",
@@ -148,6 +157,17 @@ const (
 	// named a collector whose cluster is not claimed by the token's org. The
 	// write is dropped (the writer still gets 204) and only counted.
 	AgentRefusedBeaconDenied = "beacon_denied"
+)
+
+// The shepherd_beacon_dropped_total reasons.
+const (
+	// BeaconDroppedCollectorIDMissing: no series in the write carried the
+	// shepherd_collector_id label (a baseline from before it was stamped, or
+	// a write the rendered baseline did not produce).
+	BeaconDroppedCollectorIDMissing = "collector_id_missing"
+	// BeaconDroppedCollectorIDInvalid: the shepherd_collector_id label is not
+	// a UUID.
+	BeaconDroppedCollectorIDInvalid = "collector_id_invalid"
 )
 
 // init publishes the build-info series as soon as the package loads, so

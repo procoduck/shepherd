@@ -21,6 +21,24 @@ Categories used here:
   label or component name over 256 bytes, as the server does; past a size limit the Generated
   config tab says "Too large to render" instead of showing a partial config. (#400)
 
+### Changed
+
+- **Beacon ingest hardening.** Shipped. A beacon write with no `shepherd_collector_id` label, or
+  one that is not a UUID, is now dropped instead of stored unattributed under the writer's
+  credential, and counted in the new `shepherd_beacon_dropped_total{reason}`
+  (`collector_id_missing`, `collector_id_invalid`); the writer still gets 204. Every baseline
+  Shepherd has served since v0.19.0 stamps the label, so only writes from an older baseline or
+  from outside the served config are affected. A collector authenticating with OIDC whose client
+  identity has an organisation binding now gets the same check at the beacon that a bound agent
+  token gets: a write naming a collector outside the binding's org is dropped and counted
+  (`shepherd_agent_refused_total{reason="beacon_denied"}`). (#389)
+- **Binding or rebinding an agent token keeps its cluster-claim right.** Shipped.
+  `BindAgentToken` and `shepherd token bind` no longer set `may_claim`: a token an org admin or a
+  service account created stays unable to claim unclaimed clusters when an app admin rebinds it,
+  and a legacy unbound token bound from now on serves only clusters its org already claims. To
+  get a token that claims clusters, an app admin creates a new one. Tokens bound before this
+  release keep the right they have. No API change. (#389)
+
 ## v0.19.0
 
 Chart 0.23.0, released 2026-10-24. **Agent tokens are bound to an organisation, and an unbound

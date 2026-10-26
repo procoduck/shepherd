@@ -9,6 +9,7 @@ import (
 	"unicode"
 
 	"connectrpc.com/connect"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"shepherd/internal/beacon"
@@ -68,8 +69,10 @@ func NewBeaconHandler(st *store.Store, logger *slog.Logger, limits beacon.Limits
 // mirroring the Connect gate: a `Bearer` OIDC access token yields
 // "oidc:<issuer>|<sub>", a `Basic` agent token yields the token UUID. The
 // returned string is the beacon inventory identity and the rate-limit key;
-// the org is an agent token's bound org (invalid for an unbound token and for
-// OIDC), which scopes the collectors the write may name.
+// the org is the principal's bound org — an agent token's, or an OIDC
+// caller's agent_identities binding (#389) — and scopes the collectors the
+// write may name. It is invalid for an unbound token and for an OIDC caller
+// without a binding.
 func (h *BeaconHandler) authenticate(ctx context.Context, authz string) (string, pgtype.UUID, error) {
 	if raw, ok := strings.CutPrefix(authz, "Bearer "); ok {
 		if h.verifyAgent == nil {
@@ -84,7 +87,24 @@ func (h *BeaconHandler) authenticate(ctx context.Context, authz string) (string,
 		// https URL and the subject comes from a signature-verified JWT, so
 		// this is belt-and-braces — but it stops a hostile IdP from smuggling a
 		// newline into the beacon key or the logs (CodeQL log-injection).
-		return "oidc:" + stripControl(claims.Issuer) + "|" + stripControl(claims.Subject), pgtype.UUID{}, nil
+		principal := "oidc:" + stripControl(claims.Issuer) + "|" + stripControl(claims.Subject)
+		// The same binding the agent API resolves the caller's org from
+		// (Service.resolveOrg): a bound identity may only report collectors its
+		// org claimed, exactly like a bound token.
+		binding, err := h.store.Queries.GetAgentIdentityByAppID(ctx, sqlc.GetAgentIdentityByAppIDParams{
+			Issuer: claims.Issuer,
+			AppID:  claims.AppID,
+		})
+		switch {
+		case err == nil:
+			return principal, binding.OrgID, nil
+		case errors.Is(err, pgx.ErrNoRows):
+			return principal, pgtype.UUID{}, nil
+		default:
+			// Unknown whether the caller is bound: answer 503 (retried) rather
+			// than accept a write the org check might have dropped.
+			return "", pgtype.UUID{}, errAuthUnavailable
+		}
 	}
 	// The beacon keys inventory and its rate limit on the token id. A bound
 	// token (migration 0038) may only report collectors its org claimed —
@@ -143,7 +163,7 @@ func (h *BeaconHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	principal, tokenOrg, err := h.authenticate(r.Context(), r.Header.Get("Authorization"))
+	principal, boundOrg, err := h.authenticate(r.Context(), r.Header.Get("Authorization"))
 	if errors.Is(err, errAuthUnavailable) {
 		http.Error(w, "beacon: database unavailable, retry later", http.StatusServiceUnavailable)
 		return
@@ -195,22 +215,33 @@ func (h *BeaconHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// #110: the baseline stamps the collector id (shepherd_collector_id) onto
 	// every beacon series so the reconciliation surface can attribute this write
-	// to a collector. An absent or unparseable id (a pre-#110 baseline) stores
-	// as NULL — the row is kept, just unattributed.
+	// to a collector. A write with no id, or one that is not a UUID, cannot be
+	// attributed or checked against the writer's org, so it is dropped and
+	// counted by reason (#389) — never stored under the writer's principal.
+	// Still 204: remote_write would retry anything else, and a retry cannot
+	// supply the label.
+	if collectorID == "" {
+		metrics.BeaconDroppedTotal.WithLabelValues(metrics.BeaconDroppedCollectorIDMissing).Inc()
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	var collectorUUID pgtype.UUID
-	if collectorID != "" {
-		_ = collectorUUID.Scan(collectorID) //nolint:errcheck // invalid scan leaves Valid=false → stored NULL
+	if collectorUUID.Scan(collectorID) != nil || !collectorUUID.Valid {
+		metrics.BeaconDroppedTotal.WithLabelValues(metrics.BeaconDroppedCollectorIDInvalid).Inc()
+		w.WriteHeader(http.StatusNoContent)
+		return
 	}
 
-	// The collector id is a label the writer chose. An org-bound token may
-	// only report a collector whose cluster its org claimed; a write naming
-	// any other collector (another org's, an unclaimed one, or none known)
-	// is dropped and counted, never stored — so one org cannot write health
-	// into another org's reconciliation view. The answer is the same 204, so
-	// the call reveals nothing about other orgs' collectors.
-	if tokenOrg.Valid && collectorUUID.Valid {
+	// The collector id is a label the writer chose. An org-bound principal (a
+	// bound token, or an OIDC identity with a binding) may only report a
+	// collector whose cluster its org claimed; a write naming any other
+	// collector (another org's, an unclaimed one, or none known) is dropped
+	// and counted, never stored — so one org cannot write health into another
+	// org's reconciliation view. The answer is the same 204, so the call
+	// reveals nothing about other orgs' collectors.
+	if boundOrg.Valid {
 		owner, err := h.store.Queries.GetCollectorOrgID(r.Context(), collectorUUID)
-		if err != nil || owner != tokenOrg {
+		if err != nil || owner != boundOrg {
 			h.refusals.record(h.logger, "BeaconWrite", metrics.AgentRefusedBeaconDenied, instanceLabel,
 				"collector_id", collectorUUID.String(), "principal", principal)
 			w.WriteHeader(http.StatusNoContent)
