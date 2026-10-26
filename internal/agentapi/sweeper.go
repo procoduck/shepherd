@@ -31,6 +31,12 @@ var tableRowsGauge = promauto.NewGaugeVec(prometheus.GaugeOpts{
 // (unlike inactiveAfter/deleteAfter below): this expiry is a property of the
 // baseline pipeline's own cadence, which this package also controls, rather
 // than an independent operator-tunable knob.
+//
+// Reconciliation does not wait for this expiry to stop counting a row as
+// running: reconcile.ObserveBeacon drops a row its instance's latest report
+// did not refresh (a pipeline disabled and dropped by a reload). This sweep is
+// what bounds the table and retires the last report of an instance that
+// stopped reporting altogether.
 const beaconInventoryExpireAfter = 5 * time.Minute
 
 // Sweeper hard-deletes collector instances after deleteAfter and keeps the

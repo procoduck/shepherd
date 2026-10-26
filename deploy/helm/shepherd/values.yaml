@@ -274,6 +274,11 @@ config:
     # off; at most "1h". See "When Shepherd or its database is down" in the
     # Kubernetes docs.
     outage_cache_ttl: "60s"
+    # refusal_visible_for: how long a refused collector poll (a token bound to
+    # another org or cluster, a role the token does not allow) stays visible on
+    # the Collectors page after the last refusal, even while other instances of
+    # the same collector poll successfully. Between "5m" and "24h".
+    refusal_visible_for: "15m"
   validate:
     # alloy_binary: path to the bundled `alloy` binary Stage 2 validation
     # execs. Empty skips Stage 2 entirely (reported as "skipped", not

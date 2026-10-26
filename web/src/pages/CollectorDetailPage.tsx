@@ -9,7 +9,7 @@ import {
   CollectorReconciliation,
   CollectorRejectionNote,
 } from '@/components/CollectorReconciliation';
-import { CollectorRefusedBanner, RefusedBadge } from '@/components/CollectorRefusal';
+import { CollectorRefusedBanner, RefusedBadge, refusalState } from '@/components/CollectorRefusal';
 import { CollectorVersionWarningBanner } from '@/components/CollectorVersionWarning';
 import { QueryError } from '@/components/QueryError';
 import { DataTable } from '@/components/ui/DataTable';
@@ -178,7 +178,7 @@ export function CollectorDetailPage() {
         </div>
         <div className='flex items-center gap-3'>
           <CollectorLabelsButton canEdit={isOrgAdmin} onClick={() => setTab('attributes')} />
-          {detail?.lastRefusedReason ? (
+          {detail && refusalState(detail) === 'refused' ? (
             <RefusedBadge collector={detail} testId='collector-status' />
           ) : (
             <span

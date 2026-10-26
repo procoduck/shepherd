@@ -112,7 +112,7 @@ var _ = Describe("Collector refusal recording", Label("integration"), func() {
 		Expect(st.Queries.ClaimCluster(ctx, sqlc.ClaimClusterParams{ID: cl.ID, OrgID: org.ID})).To(Succeed())
 	}
 
-	It("records token_unbound on the collector, and the next successful poll clears it", func(ctx context.Context) {
+	It("records token_unbound on the collector, and a successful poll clears it only once it is older than the window", func(ctx context.Context) {
 		claim(ctx, "prod", orgA)
 		c, id := mint(ctx, nil)
 
@@ -126,9 +126,34 @@ var _ = Describe("Collector refusal recording", Label("integration"), func() {
 		})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(poll(ctx, c, "inst-1", "prod", "metrics")).To(Succeed())
+		Expect(collector(ctx, "prod", "metrics").LastRefusedReason.String).To(Equal("token_unbound"),
+			"a passing poll does not clear a recent refusal")
+
+		// Past the window (here: a zero window), the next passing poll clears it.
+		agentapi.SetRefusalVisibleFor(svc, 0)
+		Expect(poll(ctx, c, "inst-1", "prod", "metrics")).To(Succeed())
 		coll = collector(ctx, "prod", "metrics")
-		Expect(coll.LastRefusedReason.Valid).To(BeFalse(), "a successful poll clears the refusal")
+		Expect(coll.LastRefusedReason.Valid).To(BeFalse(), "an aged-out refusal is cleared")
 		Expect(coll.LastRefusedAt.Valid).To(BeFalse())
+	})
+
+	// 0.20 walkthrough: one pod with a token scoped to another cluster, beside
+	// healthy pods of the same (cluster, role). Each healthy poll used to
+	// clear the refusal the bad pod's poll had just recorded, so the
+	// misconfigured pod was invisible.
+	It("keeps a refusal recorded while a healthy sibling instance keeps polling", func(ctx context.Context) {
+		claim(ctx, "prod", orgA)
+		good, _ := mint(ctx, &orgA)
+		bad, _ := mint(ctx, &orgB)
+
+		Expect(poll(ctx, good, "good-0", "prod", "metrics")).To(Succeed())
+		Expect(connect.CodeOf(poll(ctx, bad, "bad-0", "prod", "metrics"))).To(Equal(connect.CodePermissionDenied))
+		for range 5 {
+			Expect(poll(ctx, good, "good-0", "prod", "metrics")).To(Succeed())
+		}
+		coll := collector(ctx, "prod", "metrics")
+		Expect(coll.LastRefusedReason.String).To(Equal("claim_denied"))
+		Expect(coll.LastRefusedAt.Valid).To(BeTrue())
 	})
 
 	It("records claim_denied and role_denied, and RegisterCollector records too", func(ctx context.Context) {

@@ -69,6 +69,60 @@ test('an app admin is refused turning strict mode on until the preflight is clea
   );
 });
 
+// 0.20 walkthrough: after a refused strict toggle, Save closed the dialog
+// with a plain "Organisation updated" toast while strict stayed off. The
+// toast now says strict mode was not enabled, and why.
+test('Save after a refused strict toggle says strict mode was not enabled', async ({
+  page,
+  api,
+}) => {
+  await api.loginAs(appAdmin);
+  api.seed({
+    orgs: [
+      {
+        ...org,
+        tenants: [{ tenant: 'acme', kind: 'exact', is_default: true }],
+        strict_violations: [
+          {
+            kind: 'destination',
+            name: 'mimir-free',
+            tenant: 'free',
+            message:
+              'destination "mimir-free" uses tenant "free", which the organisation does not own',
+          },
+        ],
+      },
+    ],
+  });
+  await page.goto('/admin/orgs');
+  await page.getByRole('button', { name: 'Edit prod-org' }).click();
+  const strict = page.getByTestId('org-strict-tenants');
+  await strict.getByTestId('org-strict-tenants-toggle').click();
+  await expect(strict.getByTestId('org-strict-tenants-violation')).toHaveCount(1);
+  await expect(strict.getByTestId('org-strict-tenants-toggle')).not.toBeChecked();
+
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect(
+    page.getByText(
+      'Organisation updated — strict tenant mode was not enabled: 1 item uses a tenant this organisation does not own',
+    ),
+  ).toBeVisible();
+  await expect(page.getByText('Organisation updated', { exact: true })).toHaveCount(0);
+  await expect(page.getByTestId('org-strict-prod-org')).toHaveText('off');
+});
+
+test('Save after a strict toggle that took reads as a plain success', async ({ page, api }) => {
+  await api.loginAs(appAdmin);
+  api.seed({ orgs: [{ ...org, tenants: [{ tenant: 'acme', kind: 'exact', is_default: true }] }] });
+  await page.goto('/admin/orgs');
+  await page.getByRole('button', { name: 'Edit prod-org' }).click();
+  await page.getByTestId('org-strict-tenants-toggle').click();
+  await expect(page.getByTestId('org-strict-tenants-toggle')).toBeChecked();
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByText('Organisation updated', { exact: true })).toBeVisible();
+  await expect(page.getByText(/strict tenant mode was not/)).toHaveCount(0);
+});
+
 test('an org without tenants is told it needs one first', async ({ page, api }) => {
   await api.loginAs(appAdmin);
   api.seed({ orgs: [{ ...org, tenants: [] }] });

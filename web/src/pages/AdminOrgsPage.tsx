@@ -6,7 +6,7 @@ import { clients, toApiError } from '@/api/transport';
 import { AdminConfirmDialog } from '@/components/admin/AdminConfirmDialog';
 import { AdminModal, AdminModalActions } from '@/components/admin/AdminModal';
 import { OrgImportReposEditor } from '@/components/admin/OrgImportReposEditor';
-import { OrgStrictTenantsToggle } from '@/components/admin/OrgStrictTenantsToggle';
+import { OrgStrictTenantsToggle, savedToastText } from '@/components/admin/OrgStrictTenantsToggle';
 import { OrgTenantsEditor } from '@/components/admin/OrgTenantsEditor';
 import { QueryError } from '@/components/QueryError';
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
@@ -129,6 +129,9 @@ export function AdminOrgsPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [createForm, setCreateForm] = useState(emptyCreateForm);
   const [editOrg, setEditOrg] = useState<Org | null>(null);
+  // The strict toggle's last attempt, when it was refused: Save then says
+  // strict mode did not change instead of a bare "Organisation updated".
+  const [strictRefusal, setStrictRefusal] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({
     displayName: '',
     adminGroupId: '',
@@ -164,7 +167,9 @@ export function AdminOrgsPage() {
     // (OrgTenantsEditor), applied as soon as it is made.
     mutationFn: () => clients.admin.updateOrg({ orgId: editOrg?.id ?? '', ...editForm }),
     onSuccess: (saved) => {
-      toast.success('Organisation updated');
+      if (strictRefusal) toast.warning(savedToastText(strictRefusal));
+      else toast.success(savedToastText(null));
+      setStrictRefusal(null);
       invalidate();
       // Close the dialog for this org only — not one opened since on another.
       setEditOrg((cur) => (cur?.id === saved.id ? null : cur));
@@ -195,6 +200,7 @@ export function AdminOrgsPage() {
   };
   const closeEdit = () => {
     setEditOrg(null);
+    setStrictRefusal(null);
     updateMut.reset();
   };
   // A refusal was about the form as submitted; the first edit after it
@@ -216,6 +222,7 @@ export function AdminOrgsPage() {
 
   function openEdit(o: Org) {
     setEditOrg(o);
+    setStrictRefusal(null);
     setEditForm({
       displayName: o.displayName,
       adminGroupId: o.adminGroupId,
@@ -371,6 +378,7 @@ export function AdminOrgsPage() {
               key={`strict-${editOrg.id}`}
               org={editOrg}
               onChange={tenantsChanged}
+              onRefusal={setStrictRefusal}
             />
             <OrgImportReposEditor key={`imports-${editOrg.id}`} org={editOrg} />
             <Field label='Admin group ID' hint={GROUP_VALUE_HINT}>

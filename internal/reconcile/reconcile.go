@@ -110,7 +110,7 @@ func servedVsObserved(declared Declared, served []ServedPipeline, observed Obser
 			Kind:    KindUnservedComponentObserved,
 			Sources: [2]Source{SourceServed, SourceObserved},
 			Summary: fmt.Sprintf(
-				"declared role %q; beacon observed component %q running (healthy=%t) that Shepherd never served to this collector%s",
+				"declared role %q; beacon observed component %q running (healthy=%t) but not currently served to this collector%s",
 				declared.Role, oc.ControllerPath, oc.Healthy, staleNote,
 			),
 			ControllerPath: oc.ControllerPath,

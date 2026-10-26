@@ -93,6 +93,9 @@ WHERE id = sqlc.arg(id)
        OR version_checked_at < now() - make_interval(secs => sqlc.arg(stale_after_secs)::float8));
 
 -- name: ClearCollectorRefusal :exec
+-- Clears a refusal only while it is still older than refused_before (now minus
+-- agent.refusal_visible_for): a refused poll that re-recorded it between the
+-- caller's read and this write keeps it.
 UPDATE collectors
 SET last_refused_at = NULL, last_refused_reason = NULL
-WHERE id = $1 AND last_refused_at IS NOT NULL;
+WHERE id = $1 AND last_refused_at < sqlc.arg(refused_before)::timestamptz;

@@ -238,19 +238,21 @@ func (s *FleetService) reconcileObserved(ctx context.Context, collectorID pgtype
 	if err != nil {
 		return reconcile.Observed{}, false, err
 	}
-	cutoff := time.Now().Add(-beaconStaleAfter)
-	var comps []reconcile.ObservedComponent
+	// Only rows the instance's latest report refreshed count as running
+	// (reconcile.ObserveBeacon): a pipeline disabled and dropped by a reload
+	// stops being refreshed while its siblings keep refreshing.
+	beaconRows := make([]reconcile.BeaconRow, 0, len(rows))
 	for i := range rows {
 		r := rows[i]
-		if !strings.HasPrefix(r.ComponentName, managedControllerPrefix) {
+		if !strings.HasPrefix(r.ComponentName, managedControllerPrefix) || !r.LastSeen.Valid {
 			continue
 		}
-		comps = append(comps, reconcile.ObservedComponent{
-			ControllerPath: r.ComponentName,
-			Healthy:        r.Healthy,
-			Stale:          r.LastSeen.Valid && r.LastSeen.Time.Before(cutoff),
+		beaconRows = append(beaconRows, reconcile.BeaconRow{
+			Instance: r.InstanceLabel, Component: r.ComponentName,
+			Healthy: r.Healthy, LastSeen: r.LastSeen.Time,
 		})
 	}
+	comps := reconcile.ObserveBeacon(beaconRows, s.now().Add(-beaconStaleAfter))
 	// known is whether the beacon reported anything at all for this
 	// collector — unmanaged components included: an inventory holding none
 	// of the managed pipelines is a positive "none running", while no rows

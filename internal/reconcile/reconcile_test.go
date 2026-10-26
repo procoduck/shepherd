@@ -155,10 +155,14 @@ func TestCompare_UnservedComponentObserved(t *testing.T) {
 	if f.ControllerPath != "prometheus.scrape.local" {
 		t.Errorf("want ControllerPath prometheus.scrape.local, got %q", f.ControllerPath)
 	}
-	for _, want := range []string{`role "logs"`, "prometheus.scrape.local"} {
+	for _, want := range []string{`role "logs"`, "prometheus.scrape.local", "not currently served"} {
 		if !strings.Contains(f.Summary, want) {
 			t.Errorf("Summary %q does not mention %q", f.Summary, want)
 		}
+	}
+	// A disabled pipeline WAS served: the finding must not claim it never was.
+	if strings.Contains(f.Summary, "never served") {
+		t.Errorf("Summary %q claims the component was never served", f.Summary)
 	}
 }
 
