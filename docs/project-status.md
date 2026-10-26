@@ -21,8 +21,12 @@
 > several tenants per organisation (#387), strict tenant mode and the config size and nesting
 > limits (#388), and bounded visual render output (#393) — first published as **v0.19.0-rc.2**
 > (chart 0.23.0-rc.2); and the rc.2 upgrade walkthrough's gaps (#395) and B-BEACON-SCRAPE, the
-> beacon that never reported (#396). Step 7b (#362), #375, #389, #390, the rest of #378 and the
-> in-browser preview caps (#400) are open (§4).
+> beacon that never reported (#396).
+>
+> **v0.19.1** (chart 0.23.1, 2026-10-26) is a patch on top: beacon ingest hardening (#389, PR
+> #402), the bounded in-browser visual preview (#400, PR #403) and Alloy v1.21.2 (PR #404). Its
+> baseline is `cf235a6` (§1). Step 7b (#362), #375, #390 and the rest of #378 are open (§4) and
+> scheduled for 0.20.
 > Completed rounds live in `docs/archive/` — the history this ledger used to carry inline is
 > `docs/archive/completed-2026-09-11.md`. Do not start a second ledger.
 
@@ -46,9 +50,16 @@
 
 ---
 
-## 1. Verified baseline (2026-10-24, v0.19.0)
+## 1. Verified baseline (2026-10-26, v0.19.1; table from 2026-10-24, v0.19.0)
 
-The baseline commit is `c2d8a13` (#396, the last merge before the v0.19.0 release PR); its CI,
+**v0.19.1:** the baseline commit is `cf235a6` (#404, the last merge before the v0.19.1 release
+PR). Its push runs are CI 40309974049, CodeQL 40309974071, security-scan 40309973911 and E2E
+40309973888, all green. The Kubernetes e2e last ran on #404's head `20ed8ab` (run 40308794316,
+green) and on #402's head `f5aaed3` (run 40297155063, green). #402 adds the beacon scope and collector-id specs
+and #403 the renderTS caps (Vitest). The table below is the v0.19.0 evidence and stays valid for
+every surface the three PRs did not touch.
+
+**v0.19.0:** The baseline commit is `c2d8a13` (#396, the last merge before the v0.19.0 release PR); its CI,
 CodeQL and security-scan runs (40082542789, 40082542767, 40082542755) are green, every CI job but
 `generated-drift` ran there (#396 touched Go, compose and docs; the drift job last ran on
 #395's proto and sqlc regenerate, `9103f11`, run 40080823596), and its E2E run on push,
@@ -199,6 +210,13 @@ the manual end-to-end pass the list above records. Re-walk them on the next rele
   beacon reporting at all — the baseline scrapes Alloy's root `/metrics`, serve format 4,
   B-BEACON-SCRAPE (#396); the dev compose stack's `server.base_url` set to an address its Alloy
   agents can reach (release PR). The 0.22.0 → 0.23.0-rc.2 upgrade was walked on kind (#395, #396).
+- **v0.19.1** (chart 0.23.1) — beacon ingest hardening: the beacon now drops and counts writes
+  from unbound tokens, writes outside a token's or binding's cluster allowlist, OIDC writes naming
+  another org's collector, and batches with a missing, invalid or mixed collector id
+  (`shepherd_beacon_dropped_total`). Rebinding a bound token no longer grants `may_claim` (#389,
+  PR #402). The in-browser visual preview is capped at 4 MiB / 800 diagnostics with 256-byte
+  labels (#400, PR #403). Alloy v1.21.2, which clears the bundled-binary code-scanning alerts (PR #404).
+  Not walked in the browser.
 
 ### History
 
@@ -238,6 +256,8 @@ remediation with its D1–D14 decisions, and the v0.5.0 dependency and toolchain
 - 2026-10-24 — v0.19.0 (review remediation, org-bound agent tokens, several tenants per org,
   strict tenant mode, outage tolerance, config and render bounds, refused collectors visible, the
   beacon reporting), chart 0.23.0; release run recorded after the tag.
+- 2026-10-26 — v0.19.1 (beacon ingest hardening, bounded in-browser preview, Alloy v1.21.2),
+  chart 0.23.1; release run recorded after the tag.
 
 ---
 
@@ -476,23 +496,23 @@ The 2026-10-22 whole-project review's findings were decided and sequenced in
 `docs/archive/plans/2026-10-22-review-remediation.md`; everything it scheduled except the items
 below ships in v0.19.0 — steps 1–6, 4b–4d and 7a (first in rc.1), the plan's §6 fixes (#374 via
 #385, #377 via #383, the beacon half of #378 via #384) and the tenancy work (#386, #387, #388,
-#393, first in rc.2), and the walkthrough fixes #395 and #396. Open:
+#393, first in rc.2), and the walkthrough fixes #395 and #396. Open, unless marked shipped:
 
 - **Step 7b** — a service-account viewer tier, R14 (#362).
 - **#375** — validation ignores each collector's Alloy version.
 - **#378, role-enforcement half** — module-based (chart-generated) pipelines' instances count as
   Unknown and the pipeline is dropped from restricted roles.
-- **#389** — beacon ingest hardening follow-ups.
+- **#389** — beacon ingest hardening follow-ups. **Shipped in v0.19.1** (PR #402).
 - **#390** — strict tenant mode: allow pinned external module imports.
 - **#400** — the in-browser visual preview (`web/src/visual/renderTS.ts`) has no label or output
-  cap; the server's diagnostics are authoritative (#393 follow-up).
+  cap; the server's diagnostics are authoritative (#393 follow-up). **Shipped in v0.19.1** (PR #403).
 
-Their order, releases (0.19.1: #389, #400; 0.20: #378, #362, #390, #375) and design decisions are in
+Their order, releases (0.19.1, shipped: #389, #400; 0.20: #378, #362, #390, #375) and design decisions are in
 `docs/plans/2026-10-26-v020-queue.md`.
 
 In rough priority order; closed items stay in place, marked with the release that shipped them:
 
-- [x] **Bump Alloy to v1.21.x when it is released** — done on main for 0.19.1 (v1.21.2, unreleased):
+- [x] **Bump Alloy to v1.21.x when it is released** — shipped in v0.19.1 (v1.21.2, PR #404):
       `make image-scan` reports 0 CRITICAL/HIGH in `usr/local/bin/alloy` in both images, so alerts
       140–157 and 159 should close on the first post-merge image scan. Original note
       (code-scanning alerts 140–157, 2026-10-13 triage):

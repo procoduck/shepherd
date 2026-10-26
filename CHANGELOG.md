@@ -11,50 +11,67 @@ Categories used here:
 - **RPC only** — the API exists and is callable; there is no UI.
 - **Built, not wired** — the code and tests exist, nothing calls them in production yet.
 
-## Unreleased
+## v0.19.1
+
+Chart 0.23.1, released 2026-10-26. A patch release: **beacon ingest hardening**, a **bounded
+visual-builder preview**, and **Alloy v1.21.2**, which clears the open code-scanning alerts against
+the bundled `alloy` binary. The beacon now checks a writer's scope the way the agent API does, and
+drops (and counts) writes it cannot attribute: from an unbound token, outside a token's or
+binding's cluster allowlist, or in a batch whose collector ids are missing, invalid or mixed.
+Rebinding an already bound agent token no longer grants it the right to claim clusters. No
+migrations, no chart value changes, and the served config format is unchanged, so there is no
+fleet-wide reload.
+
+**Upgrade:** `helm upgrade` to chart 0.23.1. Nothing to do: tokens bound per the 0.23.0 upgrade
+step keep working, and every baseline Shepherd has served since v0.19.0 already stamps the
+collector id the beacon now requires. If you skipped binding a token, its beacon writes are now
+dropped as well as its collector RPCs refused. Bind it as the 0.23.0 notes describe.
 
 ### Changed
 
+- **Beacon ingest hardening.** Shipped. The beacon (`/beacon/v1/write`) now drops these writes and
+  counts them, and the writer still gets 204:
+  - **Writes from an unbound agent token**, counted in
+    `shepherd_agent_refused_total{reason="token_unbound"}`.
+  - **Writes outside a cluster allowlist**: a token's or binding's `clusters`, or a mode-2 token's
+    `clusters` claim. These are counted under `reason="beacon_denied"`.
+  - **Writes from an OIDC collector naming another org's collector.** A collector whose client
+    identity has an organisation binding, or whose identity provider asserts its organisation,
+    gets the same collector-in-org check a bound agent token already got. Also counted under
+    `reason="beacon_denied"`.
+  - **Batches with a missing, invalid or mixed collector id**: no `shepherd_collector_id` label,
+    a value that is not a UUID, or series naming more than one collector. These are counted in the
+    new `shepherd_beacon_dropped_total{reason}` (`collector_id_missing`, `collector_id_invalid`,
+    `collector_id_mixed`). They used to be stored unattributed under the writer's credential. Only
+    writes from a pre-v0.19.0 baseline, or from outside the served config, carry no id.
+
+  A collector-owner lookup the database cannot answer is now a retryable 503, not a denial. (#389)
+- **Rebinding an agent token no longer grants it the cluster-claim right.** Shipped. Binding an
+  unbound token still grants `may_claim`, as before, so binding legacy tokens after the 0.23.0
+  upgrade works unchanged. Rebinding a token that is already bound leaves `may_claim` as it was. A
+  token an org admin or a service account created stays unable to claim unclaimed clusters when an
+  app admin rebinds it; for a token that claims clusters, an app admin creates a new one. This
+  applies to `BindAgentToken` and `shepherd token bind`. No API change. (#389)
 - **Alloy v1.21.2.** Shipped. The bundled Alloy (Stage 2 validation, the receiver tier, the
   sandbox) and the component schema the editor and visual builder use move from v1.20.1 to
-  v1.21.2; this clears the open code-scanning alerts against the bundled `alloy` binary. Removed
+  v1.21.2. The new binary clears the code-scanning alerts against the bundled `alloy`. Removed
   upstream: `prometheus.exporter.catchpoint`. TLS `tpm` `auth`/`owner_auth` and a few `otelcol`
-  credentials are now typed secret, and string literals still work. **Behaviour changes in your
-  pipelines** on v1.21 collectors: `loki.write` with `wal { enabled = true }` needs
-  `--stability.level=experimental`; `otelcol.connector.signaltometrics` `error_mode` defaults to
-  `ignore`; the Kafka receiver/exporter `metadata.retry.max_retries` defaults to 20. Collectors
-  keep running whatever Alloy version you deploy them with; no operator action.
+  credentials are now typed secret, and string literals still work. **Upstream default changes
+  you may notice** in pipelines running on v1.21 collectors:
+  - `loki.write` with `wal { enabled = true }` needs `--stability.level=experimental`.
+  - `otelcol.connector.signaltometrics` `error_mode` defaults to `ignore`.
+  - The Kafka receiver/exporter `metadata.retry.max_retries` defaults to 20.
+
+  Collectors keep running whatever Alloy version you deploy them with. No operator action. (#404)
 
 ### Fixed
 
 - **The visual builder's config preview is bounded.** Shipped. A large or hand-built graph could
-  hang the browser tab: the in-browser renderer had none of the server's output limits. It now
-  stops at 4 MiB of text and 800 diagnostics (the server's are 1 MiB and 200) and refuses a
-  label or component name over 256 bytes, as the server does; past a size limit the Generated
-  config tab says "Too large to render" instead of showing a partial config. (#400)
-
-### Changed
-
-- **Beacon ingest hardening.** Shipped. A beacon write with no `shepherd_collector_id` label, or
-  one that is not a UUID, is now dropped instead of stored unattributed under the writer's
-  credential, and counted in the new `shepherd_beacon_dropped_total{reason}`
-  (`collector_id_missing`, `collector_id_invalid`); a write whose series name more than one
-  collector is dropped too (`collector_id_mixed`). The writer still gets 204. Every baseline
-  Shepherd has served since v0.19.0 stamps the label, so only writes from an older baseline or
-  from outside the served config are affected. The beacon now checks a writer's scope the way
-  the agent API does: a collector authenticating with OIDC whose client identity has an
-  organisation binding, or whose identity provider asserts its organisation, gets the same
-  collector-in-org check a bound agent token gets; a cluster allowlist (a token's or binding's
-  `clusters`, or a mode-2 token's `clusters` claim) applies too; and an unbound token's writes are
-  dropped. Denied writes are counted in `shepherd_agent_refused_total` (`beacon_denied`,
-  `token_unbound`). A collector-owner lookup the database cannot answer is now 503 (retried)
-  rather than a denial. (#389)
-- **Rebinding an agent token keeps its cluster-claim right.** Shipped. `BindAgentToken` and
-  `shepherd token bind` set `may_claim` only on the first bind of an unbound token (as before,
-  so binding legacy tokens after upgrading works unchanged); rebinding a token that is already
-  bound leaves it as it was. A token an org admin or a service account created stays unable to
-  claim unclaimed clusters when an app admin rebinds it; to get a token that claims clusters, an
-  app admin creates a new one. No API change. (#389)
+  hang the browser tab, because the in-browser renderer had none of the server's output limits.
+  It now stops at 4 MiB of text and 800 diagnostics (the server's limits are 1 MiB and 200), and it
+  refuses a label or component name over 256 bytes, as the server does. Past a size limit the
+  Generated config tab says "Too large to render" instead of showing a partial config. The
+  server's diagnostics stay authoritative. (#400)
 
 ## v0.19.0
 
