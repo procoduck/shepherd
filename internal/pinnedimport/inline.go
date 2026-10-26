@@ -41,6 +41,11 @@ type Ref struct {
 // serves exactly what it did before. The content is quoted by
 // alloysyntax.QuoteString (the Alloy syntax package's encoder).
 //
+// The inlined text then gets validate.InsertTenantDrops (#410): a rule
+// dropping __tenant_id__ directly after every labelmap that may write it,
+// in the modules too. Text with neither an import.git nor such a labelmap
+// is returned unchanged.
+//
 // Only the cache is read, through q. The result is at most
 // validate.MaxContentBytes (the pipeline contents cap).
 func Inline(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, repos []sqlc.OrgImportRepository, contents string) (string, error) {
@@ -49,8 +54,12 @@ func Inline(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, repos []sql
 	if err != nil {
 		return "", err
 	}
+	if out, err = validate.InsertTenantDrops(out); err != nil {
+		return "", fmt.Errorf("%w: %w", ErrNotInlinable, err)
+	}
 	if len(out) > validate.MaxContentBytes {
-		return "", fmt.Errorf("%w: with its pinned modules inlined the pipeline is %d bytes, more than the %d a "+
+		return "", fmt.Errorf("%w: as served (pinned modules inlined, __tenant_id__ dropped after "+
+			"each labelmap) the pipeline is %d bytes, more than the %d a "+
 			"pipeline may be", ErrNotInlinable, len(out), validate.MaxContentBytes)
 	}
 	return out, nil

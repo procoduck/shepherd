@@ -15,6 +15,14 @@ Categories used here:
 
 ### Added
 
+- **Strict tenant mode accepts the grafana/k8s-monitoring chart's `labelmap` rules.** Shipped.
+  In a strict org, a `labelmap` that could write `__tenant_id__` (the default `$1` replacement,
+  or one using `$`) is now served with a rule directly after it that drops `__tenant_id__`, and
+  the tenant check accepts it. This covers every relabel component, rules in declares and
+  `foreach` templates, and inlined modules. The stored pipeline text is unchanged. Other orgs,
+  and strict-org pipelines without such a rule, are served byte for byte as before. A labelmap
+  whose replacement is `__tenant_id__`, and a computed `action`, are still refused. (#410)
+
 - **Viewer-tier service accounts.** Shipped. A service account can now hold the viewer tier
   (`ROLE_VIEWER`), and reaches exactly what an org viewer does: reads, never a write, simulate or
   admin procedure. A viewer carries no capability. `CreateServiceAccount` refuses a viewer that

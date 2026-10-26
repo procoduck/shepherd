@@ -72,8 +72,13 @@
           reading a label or field, <code>stage.labels</code> or a relabel rule computing
           <code>__tenant_id__</code>, an OpenTelemetry header copied from the request;</li>
         <li>a header name, relabel target or action it cannot read, a relabel target containing
-          <code>$</code>, and any <code>labelmap</code> rule unless its replacement is a plain
-          label name other than <code>__tenant_id__</code>;</li>
+          <code>$</code>, and a <code>labelmap</code> rule whose replacement is
+          <code>__tenant_id__</code>. Any other <code>labelmap</code> that could write
+          <code>__tenant_id__</code> (the default <code>$1</code>, or a replacement using
+          <code>$</code>) is allowed: Shepherd serves it with a rule right after it that drops
+          <code>__tenant_id__</code>, so the chart&rsquo;s output works as written. Your stored
+          pipeline is not changed, and a later rule that sets the label to a tenant you own still
+          applies;</li>
         <li>a <code>loki.source.api</code>, <code>loki.source.heroku</code>,
           <code>loki.source.awsfirehose</code> or <code>loki.source.gcplog</code> &mdash; which pass
           on the tenant the sending client names &mdash; unless every path from it to a
