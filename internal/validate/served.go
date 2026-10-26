@@ -43,37 +43,56 @@ func servedFormProblem(text string, depth int) error {
 	return servedBody(file.Body, depth, 0)
 }
 
+// servedBody walks every block body, generically: an import block is
+// allowed only as a literal import.string at the top level or directly in a
+// declare (where the lint follows it), its content checked the same way;
+// every other import block — import.git, import.http, import.file, or any
+// import nested in another block such as a foreach template — is refused.
 func servedBody(body ast.Body, depth, nesting int) error {
+	return servedBlocks(body, depth, nesting, true)
+}
+
+func servedBlocks(body ast.Body, depth, nesting int, importable bool) error {
 	if nesting > alloysyntax.MaxNesting {
-		return fmt.Errorf("%w: declares nest too deeply", ErrServedImportGit)
+		return fmt.Errorf("%w: blocks nest too deeply", ErrServedImportGit)
 	}
 	for _, st := range body {
 		b, ok := st.(*ast.BlockStmt)
 		if !ok {
 			continue
 		}
-		switch strings.Join(b.Name, ".") {
-		case "import.git":
-			return fmt.Errorf("%w: import.git %q is still in the served text", ErrServedImportGit, b.Label)
-		case "import.string":
-			for _, inner := range b.Body {
-				a, ok := inner.(*ast.AttributeStmt)
-				if !ok || a.Name.Name != "content" {
-					continue
-				}
-				content, ok := PlainStringLiteral(a.Value)
-				if !ok {
-					return fmt.Errorf("%w: import.string %q content is not a string literal, so it cannot be checked",
-						ErrServedImportGit, b.Label)
-				}
-				if err := servedFormProblem(content, depth+1); err != nil {
-					return fmt.Errorf("import.string %q: %w", b.Label, err)
-				}
-			}
-		case "declare":
-			if err := servedBody(b.Body, depth, nesting+1); err != nil {
+		name := strings.Join(b.Name, ".")
+		switch {
+		case name == "import.string" && importable:
+			if err := servedImportString(b, depth); err != nil {
 				return err
 			}
+		case strings.HasPrefix(name, "import."):
+			return fmt.Errorf("%w: %s %q is in the served text", ErrServedImportGit, name, b.Label)
+		default:
+			// A declare body may import; any other block's body may not.
+			if err := servedBlocks(b.Body, depth, nesting+1, name == "declare" && importable); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// servedImportString checks a literal import.string's module text.
+func servedImportString(b *ast.BlockStmt, depth int) error {
+	for _, inner := range b.Body {
+		a, ok := inner.(*ast.AttributeStmt)
+		if !ok || a.Name.Name != "content" {
+			continue
+		}
+		content, ok := PlainStringLiteral(a.Value)
+		if !ok {
+			return fmt.Errorf("%w: import.string %q content is not a string literal, so it cannot be checked",
+				ErrServedImportGit, b.Label)
+		}
+		if err := servedFormProblem(content, depth+1); err != nil {
+			return fmt.Errorf("import.string %q: %w", b.Label, err)
 		}
 	}
 	return nil

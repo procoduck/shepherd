@@ -642,7 +642,9 @@ Strict mode refuses:
   integrity attribute for them), an `import.git` block that is not a pinned import of an allowed
   repository (below), and an `import.string` whose `content` it cannot read or that does not
   parse. A readable `import.string` module is linted with the same rules (up to 8 levels),
-  including the values the importing text gives its declares.
+  including the values the importing text gives its declares. Imports are followed only at the
+  top level and directly in a declare body; an `import.*` block anywhere else (a `foreach`
+  template, which Alloy also loads imports from, or a declare inside one) is refused.
 
 **Pinned `import.git` (0043, #390).** A strict org may use `import.git` when `repository`,
 `revision` and `path` are plain string literals (not expressions or declare arguments), `revision`
@@ -680,8 +682,9 @@ module being the exact cached bytes, quoted by the Alloy syntax package's encode
 rewritten there and the content re-quoted. Every decision is made from the parse tree, so any
 spelling the parser accepts (`import . git`, comments or newlines between the parts) is treated
 alike. The bound that holds whatever the rewrite did is `validate.ServedFormProblem`: the served
-text, and every `import.string` content in it at any depth, parsed, must hold no `import.git`
-block, and each `import.string` content must be a plain string literal. The save applies it
+text, and every `import.string` content in it at any depth, parsed, with every block body walked,
+must hold no import block other than a plain-literal `import.string` at the top level or directly
+in a declare. The save applies it
 (and lints the served form with no module source), and so does `serve.ServedForm` on every serve
 path. The label is kept, so `<label>.<declare>` instances are unchanged; the
 block's auth sub-blocks and `pull_frequency` are not served. Collectors in strict orgs need no egress

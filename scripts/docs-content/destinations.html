@@ -84,7 +84,9 @@
           <code>import.git</code> module unless it is pinned to a commit of an allowed repository
           (<a href="#pinned-imports">below</a>) &mdash; otherwise inline the module as a
           <code>declare</code> or an <code>import.string</code> with literal content, which is
-          checked the same way;</li>
+          checked the same way. Imports are allowed only at the top level or directly in a
+          <code>declare</code>; one inside another block, such as a <code>foreach</code>
+          template, is refused;</li>
         <li>anything too large or too deeply nested to work out within the check&rsquo;s limits
           (values built from more than 4 KiB, more than 8 levels of modules).</li>
       </ul>

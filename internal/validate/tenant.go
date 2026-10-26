@@ -463,6 +463,10 @@ type scope struct {
 	declare   string
 	// declDepth is how many declares enclose the scope.
 	declDepth int
+	// nested is set inside any block other than a declare (a foreach
+	// template, a component), declares within it included: an import
+	// block there is refused.
+	nested bool
 }
 
 // pathNode is one block of a scope's path, pointing at its parent: a child
@@ -489,7 +493,7 @@ func (s scope) nesting() int {
 }
 
 func (s scope) child(name string) scope {
-	return scope{component: s.component, path: &pathNode{name: name, parent: s.path, depth: s.nesting() + 1}, declare: s.declare, declDepth: s.declDepth}
+	return scope{component: s.component, path: &pathNode{name: name, parent: s.path, depth: s.nesting() + 1}, declare: s.declare, declDepth: s.declDepth, nested: s.nested}
 }
 
 // where spells out "<component> <block>… <attr>" for a refusal.
@@ -648,6 +652,7 @@ func (l *tenantLinter) body(stmts ast.Body, sc scope) {
 		case *ast.BlockStmt:
 			name := strings.Join(n.Name, ".")
 			atTop := sc.component == "" && sc.path == nil
+			importable := atTop && !sc.nested
 			if sc.nesting() >= maxNesting || sc.declDepth >= maxNesting {
 				l.refuse(n, fmt.Sprintf("blocks nested more than %d deep cannot be verified — strict tenant mode refuses them", maxNesting))
 				continue
@@ -657,9 +662,15 @@ func (l *tenantLinter) body(stmts ast.Body, sc scope) {
 				if !l.budget.charge(1 + (len(sc.declare)+len(n.Label))/64) {
 					return
 				}
-				l.body(n.Body, scope{declare: declareKey(sc.declare, n.Label), declDepth: sc.declDepth + 1})
-			case atTop && strings.HasPrefix(name, "import."):
+				l.body(n.Body, scope{declare: declareKey(sc.declare, n.Label), declDepth: sc.declDepth + 1, nested: !importable})
+			case importable && strings.HasPrefix(name, "import."):
 				l.importBlock(n, name, sc, stmts)
+			case strings.HasPrefix(name, "import."):
+				// Alloy loads an import block inside another block too (a
+				// foreach template); the lint follows modules only from the
+				// top level and a declare body, so any other is refused.
+				l.refuse(n, fmt.Sprintf("%s %q is nested in another block, where strict tenant mode cannot verify "+
+					"what it loads — strict tenant mode refuses it; import at the top level or in a declare", name, n.Label))
 			case atTop && (isTenantComponent(name) || name == "otelcol.auth.headers"):
 				l.body(n.Body, scope{component: name, declare: sc.declare, declDepth: sc.declDepth})
 			case atTop && name == "otelcol.auth.bearer":

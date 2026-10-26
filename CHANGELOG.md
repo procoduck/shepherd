@@ -59,6 +59,10 @@ Categories used here:
 
 ### Fixed
 
+- **Strict tenant mode also checks import blocks nested in other blocks.** Shipped. Alloy loads
+  an `import.*` block inside a `foreach` template too. Strict tenant mode follows imports at the
+  top level and directly in a `declare`, and now refuses an import block anywhere else (a
+  `foreach` template, or a declare inside one), whatever its kind. (#390)
 - **Module-based pipelines reach restricted roles.** Shipped. An instance of a module the
   pipeline declares itself (`declare "x" { … }` plus `x "feature" { … }`, the shape the
   grafana/k8s-monitoring chart renders for every feature) counted as an unknown component, so
