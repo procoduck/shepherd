@@ -24,6 +24,7 @@ import (
 	"shepherd/internal/serve"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
+	"shepherd/internal/validate"
 )
 
 // Strict tenant mode's serve-time check on the lazy serve path: a pipeline
@@ -157,6 +158,28 @@ var _ = Describe("The strict tenant check on the lazy serve path", Label("integr
 		Expect(audits(serve.AuditActionTenantCheckCleared)).To(Equal(1))
 		_, err = st.Queries.GetPipelineTenantExclusion(ctx, pipeline.ID)
 		Expect(err).To(HaveOccurred(), "the exclusion row is gone")
+	})
+
+	It("keeps the last good config, and records the failure, when the check cannot finish", func() {
+		setup(true)
+		good := poll()
+		restore := validate.SetTenantLintDeadline(0)
+		// A changed text has no cached verdict.
+		got, err := st.Queries.GetPipelineByID(ctx, pipeline.ID)
+		Expect(err).NotTo(HaveOccurred())
+		_, err = st.Queries.UpdatePipeline(ctx, sqlc.UpdatePipelineParams{
+			ID: pipeline.ID, Name: got.Name, Contents: computed + "// changed\n",
+			Matchers: got.Matchers, UpdatedBy: "test", WizardState: got.WizardState,
+		})
+		Expect(err).NotTo(HaveOccurred())
+		busy := poll()
+		restore()
+		Expect(busy).To(Equal(good), "the last good config, never one without the pipeline or unchecked")
+		c, err := st.Queries.GetCollectorByClusterAndRole(ctx, sqlc.GetCollectorByClusterAndRoleParams{Name: "lazy-cluster", Role: "singleton"})
+		Expect(err).NotTo(HaveOccurred())
+		row, err := st.Queries.GetServeCache(ctx, c.ID)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(row.LastFailedSeq).To(BeNumerically(">", 0))
 	})
 
 	It("serves a non-strict org the same pipeline as stored, and records nothing", func() {

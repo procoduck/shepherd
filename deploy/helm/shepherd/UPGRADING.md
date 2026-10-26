@@ -31,13 +31,21 @@ tenant check now also covers:
 - label and header maps computed at runtime (`external_labels = encoding.from_json(…)`, a source's
   `labels` from another component's export, and the like), and `loki.enrich` without a
   `labels_to_copy` list that leaves out `__tenant_id__`;
-- import blocks inside a `foreach` template, and the other components there.
+- `stage.regex` and `stage.pattern` with `labels_from_groups = true`, whose expression must be a
+  literal with no group named `__tenant_id__`, and `loki.secretfilter`'s `origin_label`;
+- import blocks inside a `foreach` template, the other components there, and module arguments
+  given from a template (refused: the check cannot read them).
+
+`loki.source.podlogs` is accepted as before: the source drops `__tenant_id__` from what it reads.
+The relabelings in a PodLogs resource live in the cluster, outside Shepherd's check.
 
 These apply to saves, and **also to pipelines already saved**: each time a strict org's config is
 served, every enabled pipeline is checked again, and one that fails is **left out of every
 collector's served config until it is fixed** — listed in the config's header under *Excluded -
 strict tenant check*, on the pipeline page and in the collector's Reconciliation tab, and audited
-once. It stays saved and enabled; saving a fix serves it again.
+once. It stays saved and enabled; saving a fix serves it again. If the check cannot finish in
+time, that collector keeps its last good config (a recorded recompute failure) rather than being
+served a config without the pipeline. Turning strict mode off clears the exclusions.
 
 Run `shepherd admin tenant-preflight` with the new version **before upgrading** (point it at your
 database with the new image), or right after: it runs the same check and lists exactly the

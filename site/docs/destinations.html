@@ -221,14 +221,19 @@
         <li>anything too large or too deeply nested to work out within the check&rsquo;s limits
           (values built from more than 4 KiB, more than 8 levels of modules).</li>
       </ul>
-      <p>Components inside a <code>foreach</code> template are checked like any other.</p>
+      <p>Components inside a <code>foreach</code> template are checked like any other; a module
+        argument given from inside a template cannot be read, so a tenant or label map taken from
+        it is refused. <code>stage.regex</code> and <code>stage.pattern</code> with
+        <code>labels_from_groups = true</code> need a literal expression with no group named
+        <code>__tenant_id__</code>.</p>
       <p><strong>Pipelines saved before a check was added are checked when they are
         served.</strong> Every time a strict organisation&rsquo;s collectors are given new config,
         each enabled pipeline is checked as a save would check it. One that fails is left out of
         every collector&rsquo;s config and listed in the config&rsquo;s header under
         <em>Excluded &mdash; strict tenant check</em> with the reason; the pipeline page shows the
         matched collectors as excluded, and the collector&rsquo;s <em>Reconciliation</em> tab
-        names it. The pipeline stays saved and enabled: save a fix and it is served again.
+        names it. The pipeline stays saved and enabled: save a fix and it is served again. If the
+        check cannot finish in time, the collector keeps the config it had.
         <code>shepherd admin tenant-preflight</code> lists exactly these pipelines. Each change is
         recorded once in the audit log.</p>
       <p>This is defence in depth, not the boundary: your backend&rsquo;s own tenant

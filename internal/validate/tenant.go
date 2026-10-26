@@ -649,8 +649,13 @@ func (l *tenantLinter) collectDeclaresAt(stmts ast.Body, parent string, external
 	if parent != "" {
 		return
 	}
-	var inst func(ast.Body, string, int)
-	inst = func(b ast.Body, declare string, nesting int) {
+	// inst records every instantiation. One inside a foreach template
+	// (opaque) runs once per collection item, with the template's var in
+	// scope, so what it gives an argument is recorded as unreadable (a nil
+	// expression): an argument it sets cannot be read, and strict mode
+	// refuses what depends on it.
+	var inst func(ast.Body, string, int, bool)
+	inst = func(b ast.Body, declare string, nesting int, opaque bool) {
 		if nesting > maxNesting {
 			return
 		}
@@ -667,7 +672,15 @@ func (l *tenantLinter) collectDeclaresAt(stmts ast.Body, parent string, external
 				if !l.budget.charge(1 + (len(declare)+len(blk.Label))/64) {
 					return
 				}
-				inst(blk.Body, declareKey(declare, blk.Label), nesting+1)
+				inst(blk.Body, declareKey(declare, blk.Label), nesting+1, opaque)
+				continue
+			}
+			if name == "foreach" {
+				for _, t := range blk.Body {
+					if tb, ok := t.(*ast.BlockStmt); ok && strings.Join(tb.Name, ".") == "template" {
+						inst(tb.Body, declare, nesting+2, true)
+					}
+				}
 				continue
 			}
 			if !l.budget.charge(1 + len(declare)/64) { // lookupDeclare slices the key
@@ -676,13 +689,17 @@ func (l *tenantLinter) collectDeclaresAt(stmts ast.Body, parent string, external
 			if info := l.lookupDeclare(declare, name); info != nil {
 				for _, a := range blk.Body {
 					if at, ok := a.(*ast.AttributeStmt); ok {
-						info.given[at.Name.Name] = append(info.given[at.Name.Name], givenValue{expr: at.Value, declare: declare})
+						g := givenValue{expr: at.Value, declare: declare}
+						if opaque {
+							g.expr = nil
+						}
+						info.given[at.Name.Name] = append(info.given[at.Name.Name], g)
 					}
 				}
 			}
 		}
 	}
-	inst(stmts, "", 0)
+	inst(stmts, "", 0, false)
 }
 
 // collectComponents indexes each scope's top-level component blocks by
@@ -757,7 +774,9 @@ func (l *tenantLinter) body(stmts ast.Body, sc scope) {
 			l.rulesAttributes(n, name, sc)
 			if compPos {
 				l.enrichLabels(n, name)
+				l.secretfilterOrigin(n, name, sc)
 			}
+			l.groupLabels(n, name, sc)
 			switch {
 			case name == "declare":
 				if !l.budget.charge(1 + (len(sc.declare)+len(n.Label))/64) {
@@ -1319,8 +1338,10 @@ func PlainStringLiteral(v ast.Expr) (string, bool) {
 // one of module's declares (a block named "<module>.<declare>") gives.
 func (l *tenantLinter) moduleArguments(module string, body ast.Body) map[string]map[string][]resolved {
 	out := map[string]map[string][]resolved{}
-	var walk func(ast.Body, string, int)
-	walk = func(b ast.Body, declare string, nesting int) {
+	// An instantiation inside a foreach template (opaque) gives values the
+	// lint cannot read (see collectDeclares).
+	var walk func(ast.Body, string, int, bool)
+	walk = func(b ast.Body, declare string, nesting int, opaque bool) {
 		if nesting > maxNesting {
 			return
 		}
@@ -1334,7 +1355,15 @@ func (l *tenantLinter) moduleArguments(module string, body ast.Body) map[string]
 			}
 			name := strings.Join(blk.Name, ".")
 			if name == "declare" {
-				walk(blk.Body, declareKey(declare, blk.Label), nesting+1)
+				walk(blk.Body, declareKey(declare, blk.Label), nesting+1, opaque)
+				continue
+			}
+			if name == "foreach" {
+				for _, t := range blk.Body {
+					if tb, ok := t.(*ast.BlockStmt); ok && strings.Join(tb.Name, ".") == "template" {
+						walk(tb.Body, declare, nesting+2, true)
+					}
+				}
 				continue
 			}
 			decl, ok := strings.CutPrefix(name, module+".")
@@ -1346,13 +1375,16 @@ func (l *tenantLinter) moduleArguments(module string, body ast.Body) map[string]
 			}
 			for _, a := range blk.Body {
 				if at, ok := a.(*ast.AttributeStmt); ok {
-					vals, ok := l.resolve(at.Value, scope{declare: declare}, 0)
-					out[decl][at.Name.Name] = append(out[decl][at.Name.Name], resolved{values: vals, ok: ok})
+					r := resolved{}
+					if !opaque {
+						r.values, r.ok = l.resolve(at.Value, scope{declare: declare}, 0)
+					}
+					out[decl][at.Name.Name] = append(out[decl][at.Name.Name], r)
 				}
 			}
 		}
 	}
-	walk(body, "", 0)
+	walk(body, "", 0, false)
 	return out
 }
 
@@ -1478,11 +1510,11 @@ func clearsClientTenant(blk *ast.BlockStmt, b *budget) bool {
 				return true
 			}
 		case "stage.label_drop":
-			if names, ok := literalList(attrs["values"]); ok && contains(names, tenantLabel) {
+			if names, ok := literalList(attrs["values"]); ok && hasTenantLabel(names) {
 				return true
 			}
 		case "stage.label_keep":
-			if names, ok := literalList(attrs["values"]); ok && !contains(names, tenantLabel) {
+			if names, ok := literalList(attrs["values"]); ok && !hasTenantLabel(names) {
 				return true
 			}
 		case "rule":
@@ -1535,9 +1567,10 @@ func literalList(v ast.Expr) ([]string, bool) {
 	return out, true
 }
 
-func contains(xs []string, x string) bool {
+// hasTenantLabel reports whether xs names __tenant_id__.
+func hasTenantLabel(xs []string) bool {
 	for _, s := range xs {
-		if s == x {
+		if s == tenantLabel {
 			return true
 		}
 	}

@@ -263,6 +263,53 @@ var _ = Describe("Strict tenant mode", Label("integration"), func() {
 		// matches, named in the header, audited once, shown on the pipeline
 		// page and the collector's reconciliation, listed by the preflight —
 		// and served again once a fix is saved.
+		It("clears the serve-time exclusions, audited once each, when strict mode is turned off by the toggle or at boot", func() {
+			computed := "loki.write \"w\" {\n  endpoint {\n    url       = \"https://l.example/push\"\n    tenant_id = \"acme\"\n  }\n" +
+				"  external_labels = encoding.from_json(\"{}\")\n}\n"
+			old, err := st.Queries.CreatePipeline(ctx, sqlc.CreatePipelineParams{
+				OrgID: orgA, Name: "old", Contents: computed, Matchers: json.RawMessage(`["cluster=\"off-cluster\""]`),
+				Enabled: true, Source: "ui", WizardState: json.RawMessage(`{}`), CreatedBy: "test", UpdatedBy: "test",
+			})
+			Expect(err).NotTo(HaveOccurred())
+			cleared := func() int {
+				rows, err := st.Queries.ListAuditLog(ctx, sqlc.ListAuditLogParams{Column1: orgA, Limit: 100})
+				Expect(err).NotTo(HaveOccurred())
+				n := 0
+				for _, r := range rows {
+					if r.Action == serve.AuditActionTenantCheckCleared && r.ResourceID == old.ID.String() {
+						n++
+					}
+				}
+				return n
+			}
+			exclude := func() {
+				GinkgoHelper()
+				_, err := serve.LoadPipelines(ctx, st, orgA, false)
+				Expect(err).NotTo(HaveOccurred())
+				_, err = st.Queries.GetPipelineTenantExclusion(ctx, old.ID)
+				Expect(err).NotTo(HaveOccurred())
+			}
+
+			exclude()
+			ok(setStrict(orgA, false))
+			_, err = st.Queries.GetPipelineTenantExclusion(ctx, old.ID)
+			Expect(err).To(HaveOccurred(), "the toggle clears the org's exclusions")
+			Expect(cleared()).To(Equal(1))
+
+			// At boot: the flag (or tenants.require_owned) went off without the toggle.
+			makeStrict(orgA)
+			exclude()
+			_, err = st.Queries.SetOrgStrictTenants(ctx, sqlc.SetOrgStrictTenantsParams{ID: orgA, StrictTenants: false})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(serve.ClearNonStrictTenantExclusions(ctx, st, true)).To(Succeed())
+			_, err = st.Queries.GetPipelineTenantExclusion(ctx, old.ID)
+			Expect(err).NotTo(HaveOccurred(), "tenants.require_owned still applies the rule")
+			Expect(serve.ClearNonStrictTenantExclusions(ctx, st, false)).To(Succeed())
+			_, err = st.Queries.GetPipelineTenantExclusion(ctx, old.ID)
+			Expect(err).To(HaveOccurred())
+			Expect(cleared()).To(Equal(2))
+		})
+
 		It("excludes a stored pipeline the serve-time check refuses until a fix is saved", func() {
 			computed := "loki.write \"w\" {\n  endpoint {\n    url       = \"https://l.example/push\"\n    tenant_id = \"acme\"\n  }\n" +
 				"  external_labels = encoding.from_json(\"{\\\"__tenant_id__\\\":\\\"globex\\\"}\")\n}\n"

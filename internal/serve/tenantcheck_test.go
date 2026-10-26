@@ -2,6 +2,7 @@ package serve_test
 
 import (
 	"context"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -100,17 +101,32 @@ func servedInline(s *serve.Serving) serve.Inliner {
 	return strictInline
 }
 
-// A check that cannot finish excludes the pipeline (fail closed) and is not
-// cached: the next recompute checks it again.
-func TestStrictTenantCheckFailsClosedWhenBusy(t *testing.T) {
+// A check that cannot finish fails the load (the collector keeps its last
+// good config through RecordFailure) rather than serving a config without
+// the pipeline, and is not cached: the next recompute checks it again.
+func TestStrictTenantCheckBusyFailsTheLoad(t *testing.T) {
 	restore := validate.SetTenantLintDeadline(0)
 	src := "logging { level = \"warn\" }\n// busy\n"
-	problem := strictServing().TenantProblem(context.Background(), src)
+	p := []merge.Pipeline{{ID: "1", Name: "p", Contents: src, Matchers: []string{`cluster="c1"`}, Source: "ui"}}
+	_, err := strictServing().Form(context.Background(), p)
 	restore()
-	if !strings.Contains(problem, "could not finish") {
-		t.Fatalf("a busy check must exclude the pipeline, got %q", problem)
+	if !errors.Is(err, validate.ErrLintBusy) {
+		t.Fatalf("a busy check must fail the load with ErrLintBusy, got %v", err)
 	}
-	if again := strictServing().TenantProblem(context.Background(), src); again != "" {
-		t.Errorf("a busy verdict must not be cached; got %q", again)
+	got, err := strictServing().Form(context.Background(), p)
+	if err != nil || got[0].TenantProblem != "" {
+		t.Errorf("a busy verdict must not be cached; got %v, %q", err, got[0].TenantProblem)
+	}
+}
+
+// A verdict that read pinned modules is not cached: the module cache can
+// change (a module fetched later) without the text or the policy changing.
+func TestStrictTenantCheckDoesNotCacheModuleVerdicts(t *testing.T) {
+	src := "import.git \"m\" {\n  repository = \"https://git.example.com/m.git\"\n  revision   = \"0123456789abcdef0123456789abcdef01234567\"\n  path       = \"m.alloy\"\n}\n"
+	if serve.CacheableVerdict(src) {
+		t.Error("a pipeline with import.git must not have its verdict cached")
+	}
+	if !serve.CacheableVerdict("logging { level = \"info\" }\n") {
+		t.Error("a pipeline without modules should be cached")
 	}
 }

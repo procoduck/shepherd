@@ -13,6 +13,7 @@ import (
 	"shepherd/gen/shepherd/mgmt/v1/mgmtv1connect"
 	"shepherd/internal/config"
 	"shepherd/internal/pinnedimport"
+	"shepherd/internal/serve"
 	"shepherd/internal/store/sqlc"
 	"shepherd/internal/tenancy"
 	"shepherd/internal/validate"
@@ -299,6 +300,13 @@ func (s *AdminService) SetOrgStrictTenants(ctx context.Context, req *connect.Req
 		}
 		return nil
 	})
+	if err == nil && changed && !on && !s.requireOwned {
+		// Its pipelines are no longer checked when served: clear what the
+		// serve-time check recorded, audited as cleared once each.
+		if clearErr := serve.ClearTenantExclusions(ctx, s.store, orgID); clearErr != nil {
+			s.logger.Error("strict tenants: clearing the org's serve-time exclusions", "org_id", orgID.String(), "err", clearErr)
+		}
+	}
 	if err == nil && changed && s.recompute != nil {
 		go s.recompute(context.Background(), orgID) //nolint:contextcheck,gosec // G118+contextcheck: intentional detached context, as UpdatePipeline
 	}

@@ -42,6 +42,40 @@ func (q *Queries) GetPipelineTenantExclusion(ctx context.Context, pipelineID pgt
 	return i, err
 }
 
+const listPipelineTenantExclusionOrgs = `-- name: ListPipelineTenantExclusionOrgs :many
+SELECT DISTINCT e.org_id, o.strict_tenants
+FROM pipeline_tenant_exclusions e
+JOIN orgs o ON o.id = e.org_id
+ORDER BY e.org_id
+`
+
+type ListPipelineTenantExclusionOrgsRow struct {
+	OrgID         pgtype.UUID `json:"org_id"`
+	StrictTenants bool        `json:"strict_tenants"`
+}
+
+// The orgs with a serve-time exclusion recorded, and whether each is in
+// strict tenant mode by its own flag (boot clears the rest).
+func (q *Queries) ListPipelineTenantExclusionOrgs(ctx context.Context) ([]ListPipelineTenantExclusionOrgsRow, error) {
+	rows, err := q.db.Query(ctx, listPipelineTenantExclusionOrgs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListPipelineTenantExclusionOrgsRow
+	for rows.Next() {
+		var i ListPipelineTenantExclusionOrgsRow
+		if err := rows.Scan(&i.OrgID, &i.StrictTenants); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPipelineTenantExclusionsByOrg = `-- name: ListPipelineTenantExclusionsByOrg :many
 SELECT pipeline_id, org_id, reason, excluded_at FROM pipeline_tenant_exclusions
 WHERE org_id = $1

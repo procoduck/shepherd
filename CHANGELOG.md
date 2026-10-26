@@ -151,14 +151,18 @@ Categories used here:
   A spec classifies every map-typed and `targets` attribute of every shipped schema, each
   exclusion with a reason. `loki.enrich`, which copies its targets' labels onto log lines, needs a
   `labels_to_copy` list without `__tenant_id__`. Components inside a `foreach` template are now
-  checked like those at the top level.
+  checked like those at the top level, and a module argument given from a template is refused.
+  `stage.regex` / `stage.pattern` with `labels_from_groups = true` need a literal expression with
+  no group named `__tenant_id__`, and `loki.secretfilter`'s `origin_label` must be a literal other
+  than `__tenant_id__`.
 - **Strict tenant mode re-checks stored pipelines when it serves them.** Shipped. A strict org's
   pipeline saved before a check it now fails is left out of every collector's served config, listed
   in the header under `// Excluded (N) - strict tenant check:` with the reason, shown on the pipeline
   page and as a `strict_tenant_excluded` reconciliation finding, and audited once per change
   (`pipeline.tenant_check_excluded` / `.tenant_check_cleared`, migration `0045`). It stays stored
-  and enabled; saving a fix includes it again. A check that cannot finish excludes the pipeline
-  too. `shepherd admin tenant-preflight` runs the same check, so it lists exactly these pipelines.
+  and enabled; saving a fix includes it again. A check that cannot finish in time fails that
+  collector's recompute, which keeps its last good config, rather than serving a config without
+  the pipeline. Turning strict mode off clears the org's exclusions. `shepherd admin tenant-preflight` runs the same check, so it lists exactly these pipelines.
   Non-strict orgs, and strict orgs whose pipelines all pass, are served the same bytes as before.
 - **Strict tenant mode also checks import blocks nested in other blocks.** Shipped. Alloy loads
   an `import.*` block inside a `foreach` template too. Strict tenant mode follows imports at the

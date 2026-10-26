@@ -394,7 +394,7 @@ func (l *tenantLinter) enrichLabels(b *ast.BlockStmt, name string) {
 	}
 	copied := attrsOf(b)["labels_to_copy"]
 	names, ok := literalList(copied)
-	if ok && len(names) > 0 && !contains(names, tenantLabel) {
+	if ok && len(names) > 0 && !hasTenantLabel(names) {
 		return
 	}
 	var at ast.Node = b

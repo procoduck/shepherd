@@ -23,3 +23,11 @@ RETURNING pipeline_id;
 DELETE FROM pipeline_tenant_exclusions
 WHERE pipeline_id = $1
 RETURNING pipeline_id;
+
+-- name: ListPipelineTenantExclusionOrgs :many
+-- The orgs with a serve-time exclusion recorded, and whether each is in
+-- strict tenant mode by its own flag (boot clears the rest).
+SELECT DISTINCT e.org_id, o.strict_tenants
+FROM pipeline_tenant_exclusions e
+JOIN orgs o ON o.id = e.org_id
+ORDER BY e.org_id;

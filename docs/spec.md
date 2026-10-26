@@ -710,6 +710,25 @@ Strict mode refuses:
 Components in a `foreach` template are checked like those at the top level (Alloy runs them the
 same way): their tenants, label maps and push-source paths, which may lead to components beside
 the `foreach`. A name two components there share is not followed, so a path through it is refused.
+A declare (or module) instantiated inside a template runs once per item with the template's
+variable in scope, so what it gives an argument is unreadable: a tenant, header, label map or
+other value read from that argument is refused.
+
+**Label names from text (v1.21.2 sources).** `stage.regex` and `stage.pattern` with
+`labels_from_groups = true` name a label after each named group; strict mode requires a literal
+`labels_from_groups`, and with `true` a literal expression (folded as above) that parses — Go
+`regexp` for `stage.regex` (its `SubexpNames`), Loki's `<name>` captures for `stage.pattern` — with
+no group named `__tenant_id__`. `loki.secretfilter`'s `origin_label` (a label it reads) must be a
+literal other than `__tenant_id__`. Checked and needing nothing: the other stages write the
+extracted map (`json`, `logfmt`, `geoip`, `eventlogmessage`, `windowsevent`, `template`,
+`replace`) or structured metadata (`structured_metadata`, its `regex` included), or set fixed
+names (`cri`/`docker` `stream`); `stage.pack` only removes labels; `loki.source.syslog`'s
+`label_structured_data` names labels `__syslog_message_sd_*`; `loki.source.podlogs` and
+`loki.source.kubernetes` drop every reserved label but `__meta_*` (`kubetail.NewTarget`) whatever
+`preserve_discovered_labels` says — PodLogs relabelings run in the cluster, outside this check.
+Metrics and profiles labels (`honor_labels` included) carry no tenant: Mimir and Pyroscope read it
+only from the header. OTLP attributes become Loki labels only through `otelcol.exporter.loki`
+(routed through a drop); an OTLP export to Loki takes the tenant from the header.
 
 **Serve-time check (0045).** A strict org's pipeline saved before a check it now fails is served
 as stored unless something re-checks it. So whenever a strict org's pipelines are loaded to be
@@ -720,9 +739,13 @@ the tenant lint on the stored text and on the served form (`tenancy.LintPipeline
 refuses carries the reason in `merge.Pipeline.TenantProblem`; `merge.Assemble` leaves it out of
 every collector it matches and lists it in the header under `// Excluded (N) - strict tenant
 check:` with the first findings. It stays stored and enabled; saving a fix includes it again. A
-check that cannot finish (the lint's wall-clock guard, tried three times) excludes it too, with
-that reason (fail closed). Verdicts are cached in-process by the org's policy and the text, so a
-steady fleet's polls do not re-lint. `pipeline_tenant_exclusions` records what is excluded, with a
+check that cannot finish (the lint's wall-clock guard, tried three times) has no verdict: the
+recompute fails for that collector, which keeps its last good config (`serve.RecordFailure`), so
+neither an unchecked pipeline nor a config without it is served; only a refusal excludes.
+Verdicts are cached in-process by the org's policy and the text, so a steady fleet's polls do not
+re-lint; a pipeline with `import.git` is not cached, since its verdict depends on the module cache.
+Turning strict mode off for an org (`SetOrgStrictTenants`, or `tenants.require_owned` going off
+between boots) clears its rows, auditing each as cleared. `pipeline_tenant_exclusions` records what is excluded, with a
 compare-and-swap on the reason, and only the write that lands is audited
 (`pipeline.tenant_check_excluded` / `pipeline.tenant_check_cleared`): once per change, never per
 recompute. The pipeline page's match preview shows the reason as each matched collector's

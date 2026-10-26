@@ -35,13 +35,15 @@ import (
 // collector's config and lists it in the header. It stays stored and
 // enabled; saving a fix includes it again.
 //
-// It fails closed: a check that cannot finish (the lint's wall-clock guard,
-// tried busyAttempts times) excludes the pipeline too, with that reason. An
-// org not in strict tenant mode is not checked at all, so its served bytes
-// cannot change.
+// A check that cannot finish (the lint's wall-clock guard, tried
+// busyAttempts times) has no verdict: Form fails, so a serve path records
+// the failure and the collector keeps its last good config — never a config
+// without the pipeline, and never an unchecked one. Only a refusal excludes.
+// An org not in strict tenant mode is not checked at all, so its served
+// bytes cannot change.
 
 // busyAttempts is how many times the check runs a lint that hits its
-// wall-clock guard before excluding the pipeline as unchecked.
+// wall-clock guard before giving up (ErrLintBusy).
 const busyAttempts = 3
 
 // maxProblemFindings is how many of the lint's findings a TenantProblem
@@ -95,7 +97,9 @@ func NewServing(q *sqlc.Queries, p tenancy.Policy) *Serving {
 
 // Form is pipelines as they are served (ServedForm with the org's inliner),
 // each one the strict tenant check refuses carrying the reason in
-// TenantProblem. The input is not modified; a nil s returns it as given.
+// TenantProblem. A check that cannot finish fails the call (wrapping
+// validate.ErrLintBusy). The input is not modified; a nil s returns it as
+// given.
 func (s *Serving) Form(ctx context.Context, pipelines []merge.Pipeline) ([]merge.Pipeline, error) {
 	if s == nil {
 		return pipelines, nil
@@ -107,20 +111,30 @@ func (s *Serving) Form(ctx context.Context, pipelines []merge.Pipeline) ([]merge
 	for i := range out {
 		// The check reads the stored text, as a save does: it lints that
 		// and the served form it builds from it.
-		out[i].TenantProblem = s.TenantProblem(ctx, pipelines[i].Contents)
+		problem, err := s.TenantProblem(ctx, pipelines[i].Contents)
+		if err != nil {
+			return nil, fmt.Errorf("pipeline %q: %w", pipelines[i].Name, err)
+		}
+		out[i].TenantProblem = problem
 	}
 	return out, nil
 }
 
 // TenantProblem is why the strict tenant check refuses a pipeline whose
-// stored text is contents, or "" when it does not. Verdicts are cached per
-// policy and text (the lint is deterministic for both); a check that could
-// not finish is not cached.
-func (s *Serving) TenantProblem(ctx context.Context, contents string) string {
+// stored text is contents, or "" when it does not; err (wrapping
+// validate.ErrLintBusy) when the check could not finish. Verdicts are cached
+// per policy and text when CacheableVerdict: the lint is deterministic for
+// both. A verdict that read pinned modules is not, since the module cache
+// can change under the same text and policy, and neither is a check that
+// could not finish.
+func (s *Serving) TenantProblem(ctx context.Context, contents string) (string, error) {
 	sum := sha256.Sum256([]byte(contents))
 	key := s.key + hex.EncodeToString(sum[:])
-	if v, ok := verdicts.get(key); ok {
-		return v
+	cacheable := CacheableVerdict(contents)
+	if cacheable {
+		if v, ok := verdicts.get(key); ok {
+			return v, nil
+		}
 	}
 	var msgs []string
 	var err error
@@ -131,11 +145,21 @@ func (s *Serving) TenantProblem(ctx context.Context, contents string) string {
 		}
 	}
 	if err != nil {
-		return fmt.Sprintf("the strict tenant check could not finish (%v); excluded until it does", err)
+		return "", err
 	}
 	problem := summarizeFindings(msgs)
-	verdicts.put(key, problem)
-	return problem
+	if cacheable {
+		verdicts.put(key, problem)
+	}
+	return problem, nil
+}
+
+// CacheableVerdict reports whether the check's verdict on contents depends
+// only on the text and the policy: true when the text, parsed, holds no
+// import.git anywhere (validate.ServedFormProblem), so the lint reads no
+// pinned module from the cache.
+func CacheableVerdict(contents string) bool {
+	return validate.ServedFormProblem(contents) == nil
 }
 
 func summarizeFindings(msgs []string) string {
