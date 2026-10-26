@@ -498,7 +498,8 @@ below ships in v0.19.0 — steps 1–6, 4b–4d and 7a (first in rc.1), the plan
 #385, #377 via #383, the beacon half of #378 via #384) and the tenancy work (#386, #387, #388,
 #393, first in rc.2), and the walkthrough fixes #395 and #396. Open, unless marked shipped:
 
-- **Step 7b** — a service-account viewer tier, R14 (#362).
+- **Step 7b** — a service-account viewer tier, R14 (#362). **Merged, unreleased** (PR #407,
+  migration `0042`); ships in 0.20.
 - **#375** — validation ignores each collector's Alloy version.
 - **#378, role-enforcement half** — module-based (chart-generated) pipelines' instances count as
   Unknown and the pipeline is dropped from restricted roles.

@@ -121,10 +121,31 @@ var _ = Describe("#362: viewer-tier service accounts", Label("integration"), fun
 			}
 		})
 
+		// A viewer validating is reading, as an org viewer validating is: it
+		// writes no pipeline.propose audit row. (An editor-tier account still
+		// does — attribution_test.go.)
+		It("validates without recording a proposal", func() {
+			resp := g12PostConnect(server, "/shepherd.mgmt.v1.PipelineService/ValidatePipeline",
+				map[string]any{"orgId": orgID.String(), "name": "saviewer-check", "contents": "// x"},
+				id, secret, satierDelegatedPrincipal)
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			g11DecodeBody(resp)
+
+			rows, err := st.Queries.ListAuditLog(ctx, sqlc.ListAuditLogParams{Limit: 100})
+			Expect(err).NotTo(HaveOccurred())
+			for i := range rows {
+				Expect(rows[i].Action).NotTo(Equal("pipeline.propose"),
+					"a viewer service account recorded a proposal an org viewer would not")
+			}
+		})
+
 		// The pipeline writes are reqOrgViewer at the interceptor (a team
 		// member who is only an org viewer may write a pipeline its team
 		// owns), so requireWriteAuthorized is what stops a viewer service
-		// account — with a valid on-behalf-of, so capability is the reason.
+		// account. Over the wire its capability is "" (NULL), which the
+		// apply check already refuses, so this spec would pass without the
+		// tier check too; TestRequireWriteAuthorizedRefusesViewerTier
+		// (service_account_viewer_write_test.go) is what proves the tier check.
 		It("never writes, even on a procedure its tier reaches", func() {
 			for proc, body := range map[string]map[string]any{
 				"PipelineService/UpdatePipeline": {"orgId": orgID.String(), "id": pipelineID, "name": "saviewer-pipeline", "contents": "// x"},

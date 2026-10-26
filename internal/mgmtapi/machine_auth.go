@@ -219,7 +219,7 @@ func requireWriteAuthorized(ctx context.Context) error {
 	// keeps that true for an identity whose capability says otherwise, which
 	// the service_accounts_role_capability CHECK makes impossible to store.
 	// A tier that is not a role is refused too, as the interceptor refuses it.
-	if tier, err := auth.ParseRole(sa.Role); err != nil || !tier.AtLeast(auth.RoleEditor) {
+	if !serviceAccountMayPropose(sa) {
 		return connect.NewError(connect.CodePermissionDenied,
 			fmt.Errorf("service account %q holds %q tier; a write requires %q or above", sa.Name, sa.Role, auth.RoleEditor))
 	}
@@ -254,6 +254,15 @@ func requireWriteAuthorized(ctx context.Context) error {
 	// verifyOnBehalfOf. What remains here is the requirement that a WRITE
 	// carry one at all, which reads legitimately do not need.
 	return verifyOnBehalfOf(sa, sa.OnBehalfOf)
+}
+
+// serviceAccountMayPropose reports whether sa's tier is one that writes at
+// all — editor or above. A viewer (#362) and a tier that is not a role never
+// do: requireWriteAuthorized refuses them, and ValidatePipeline does not
+// record their validation as a proposal.
+func serviceAccountMayPropose(sa serviceAccountIdentity) bool {
+	tier, err := auth.ParseRole(sa.Role)
+	return err == nil && tier.AtLeast(auth.RoleEditor)
 }
 
 // verifyOnBehalfOf checks a claimed principal against the human recorded on

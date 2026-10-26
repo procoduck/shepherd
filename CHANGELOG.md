@@ -21,7 +21,10 @@ Categories used here:
   names one, and editor and admin still require `propose` or `apply`. Access → Service accounts
   offers Viewer and hides the capability picker for it. Migration 0042 admits the tier and makes
   `service_accounts.capability` nullable; existing accounts are unchanged. Rolling back past 0042
-  deletes viewer accounts rather than widening them. (#362)
+  deletes viewer accounts rather than widening them. A viewer's validation records no
+  `pipeline.propose` audit row, the same as an org viewer's. Create viewer accounts only once
+  every replica runs v0.20: an older pod rejects a viewer's credential and answers `Internal`
+  to its org's `ListServiceAccounts` (UPGRADING, 0.24.0). (#362)
 
 ## v0.19.1
 
