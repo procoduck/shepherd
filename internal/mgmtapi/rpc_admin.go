@@ -57,6 +57,10 @@ type AdminService struct {
 	// imports fetches pinned import.git modules for the tenant preflight
 	// (WithAdminPinnedImports); nil reads only what is cached.
 	imports *pinnedimport.Resolver
+	// recompute eagerly recomputes an org's served configs
+	// (WithAdminRecompute): the strict toggle changes how a pinned
+	// import.git is served. Nil leaves it to each collector's next poll.
+	recompute func(ctx context.Context, orgID pgtype.UUID)
 }
 
 // AdminServiceOption configures optional AdminService dependencies. The

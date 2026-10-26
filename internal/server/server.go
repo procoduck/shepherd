@@ -149,6 +149,13 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	// AddOrgTenant re-records it on demand.
 	tenancy.RebuildPipelineTenants(context.Background(), st)
 
+	// A strict org is served its pinned import.git modules inlined, and
+	// tenants.require_owned may have changed since the last boot: recompute
+	// the orgs that use import.git (and only those) on their next poll.
+	if err := tenancy.MarkPinnedImportOrgsDirty(context.Background(), st.Queries); err != nil {
+		logger.Error("strict tenants: marking orgs with pinned imports for recompute", "err", err)
+	}
+
 	// Build encryptor for secret-at-rest (may be nil if key not configured yet).
 	var enc *crypto.Encryptor
 	if cfg.Security.EncryptionKey != "" {
@@ -322,7 +329,7 @@ func newRouter(cfg *config.Config, st *store.Store, enc *crypto.Encryptor, authH
 	// Normal requests always go to the database. A ttl of 0 disables both.
 	tokenVerdicts := agentapi.NewTokenVerdicts(cfg.Agent.OutageCacheTTL, agentapi.DefaultTokenVerdictMax)
 	svc := agentapi.New(st, v, logger, schemaReg, agentapi.WithBeaconBaseline(serve.BeaconBaseline(cfg)),
-		agentapi.WithOutageCache(cfg.Agent.OutageCacheTTL))
+		agentapi.WithOutageCache(cfg.Agent.OutageCacheTTL), agentapi.WithRequireOwnedTenants(cfg.Tenants.RequireOwned))
 	// The Bearer branch of the collector gate: a collector's OIDC access token
 	// is verified with the same provider as user login. nil when authHandler
 	// is absent (the route-tree unit test) or OIDC is unconfigured, which

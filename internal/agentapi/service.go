@@ -55,6 +55,10 @@ type Service struct {
 	// disabled; beacon.AppendBaseline treats that as "leave content
 	// unchanged", never as an error.
 	beaconBaseline beacon.BaselineConfig
+	// requireOwned is tenants.require_owned (WithRequireOwnedTenants):
+	// strict tenant mode for every org, which serves pinned import.git
+	// modules inlined (serve.LoadPipelines).
+	requireOwned bool
 	// afterRecompute, when set, runs between the lazy recompute and its
 	// conditional write — test-only (export_test.go), so a spec can land a
 	// mark exactly mid-recompute. Nil in production.
@@ -89,6 +93,13 @@ func WithBeaconBaseline(b beacon.BaselineConfig) ServiceOption {
 	return func(s *Service) {
 		s.beaconBaseline = b
 	}
+}
+
+// WithRequireOwnedTenants passes tenants.require_owned to the lazy serve
+// path, which serves a strict org's pinned import.git modules inlined, as
+// the eager path does.
+func WithRequireOwnedTenants(on bool) ServiceOption {
+	return func(s *Service) { s.requireOwned = on }
 }
 
 // WithOutageCache enables the last-served fallback (outage.go): every
@@ -1025,9 +1036,13 @@ func requireClusterRole(attrs map[string]string) (cluster, role string, err erro
 // as PR-7's "latest instance wins" multi-instance simplification (LABEL-
 // MATCHING-PLAN.md §5), not something this change introduces new risk of.
 func (s *Service) recomputeServeCache(ctx context.Context, coll sqlc.Collector, orgID pgtype.UUID, reqAttrs map[string]string) (serve.Result, error) {
-	enabledPipelines, err := s.store.Queries.ListEnabledPipelinesForMerge(ctx, orgID)
+	// The served form (serve.LoadPipelines): the same row -> merge.Pipeline
+	// conversion mgmtapi's eager recompute uses, and a strict org's pinned
+	// import.git modules inlined from the cache. An import that cannot be
+	// inlined fails the recompute: the collector keeps its last good config.
+	mergePipelines, err := serve.LoadPipelines(ctx, s.store.Queries, orgID, s.requireOwned)
 	if err != nil {
-		return serve.Result{}, fmt.Errorf("listing pipelines: %w", err)
+		return serve.Result{}, err
 	}
 
 	// Admin labels and local_attributes only participate in matching once the
@@ -1046,12 +1061,6 @@ func (s *Service) recomputeServeCache(ctx context.Context, coll sqlc.Collector, 
 			localAttrs = reqAttrs
 		}
 	}
-
-	// The same row -> merge.Pipeline conversion mgmtapi's eager recompute
-	// uses: git pipelines carry their repo link's collector (they match by
-	// it, not by matchers) and every pipeline its current revision for the
-	// served header (#296) — byte parity between the two paths depends on it.
-	mergePipelines := serve.PipelinesFromRows(enabledPipelines)
 
 	cluster, clusterErr := s.store.Queries.GetClusterByID(ctx, coll.ClusterID)
 	clusterName := ""

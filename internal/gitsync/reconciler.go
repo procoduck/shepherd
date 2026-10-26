@@ -321,7 +321,8 @@ func (r *Reconciler) syncLink(ctx context.Context, link sqlc.RepoLink) (syncOutc
 		return outcomeWarning, nil
 	}
 
-	plans, fileErrs, err := r.planAll(ctx, link, tree.Files, removed, scrub)
+	// One pinned-module fetch budget for the whole commit, not one per file.
+	plans, fileErrs, err := r.planAll(r.withPassImports(ctx), link, tree.Files, removed, scrub)
 	if err != nil {
 		return fail(scrub(err))
 	}
@@ -784,6 +785,22 @@ func audit(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, action strin
 	return nil
 }
 
+type passImportsKey struct{}
+
+// withPassImports gives ctx one pinned-module Source for a sync pass: every
+// file's validation shares its fetch budget (pinnedimport.SaveBudget).
+func (r *Reconciler) withPassImports(ctx context.Context) context.Context {
+	return context.WithValue(ctx, passImportsKey{}, r.imports.Saving())
+}
+
+// passImports is the pass's Source, or a fresh one outside a pass.
+func (r *Reconciler) passImports(ctx context.Context) pinnedimport.Source {
+	if src, ok := ctx.Value(passImportsKey{}).(pinnedimport.Source); ok {
+		return src
+	}
+	return r.imports.Saving()
+}
+
 // newSecretScrubber is gitcred.Scrubber: it rewrites an error so none of
 // auth's secret values appear in its text.
 func newSecretScrubber(auth gitrepo.Auth) func(error) error { return gitcred.Scrubber(auth) }
@@ -851,7 +868,7 @@ func (r *Reconciler) planFile(ctx context.Context, link sqlc.RepoLink, file gitr
 	if err != nil {
 		return nil, fmt.Errorf("loading the org's tenant policy: %w", err)
 	}
-	result := r.validator.ValidatePipeline(ctx, name, contents, policy.Validation(r.store.Queries, r.imports.Saving()))
+	result := r.validator.ValidatePipeline(ctx, name, contents, policy.Validation(r.store.Queries, r.passImports(ctx)))
 	if !result.Valid {
 		return nil, fmt.Errorf("validation errors in %s: %v", file.Path, result.Diagnostics)
 	}
@@ -995,6 +1012,19 @@ func (r *Reconciler) stage3DryRun(ctx context.Context, link sqlc.RepoLink, plans
 			cand.ID, cand.Revision = id, next[i].Revision
 			next[i] = cand
 		}
+	}
+
+	// The served form, as the serve paths build it: a strict org's pinned
+	// import.git modules inlined (the commit's own were fetched by planFile).
+	inline, err := serve.OrgInliner(ctx, r.store.Queries, link.OrgID, r.requireOwned)
+	if err != nil {
+		return dryRunResult{}, fmt.Errorf("loading the org's serve settings: %w", err)
+	}
+	if current, err = serve.ServedForm(ctx, inline, current); err != nil {
+		return dryRunResult{}, err
+	}
+	if next, err = serve.ServedForm(ctx, inline, next); err != nil {
+		return dryRunResult{refusals: []error{err}}, nil
 	}
 
 	coll, err := r.store.Queries.GetCollectorByID(ctx, link.CollectorID)

@@ -75,6 +75,27 @@ var _ = Describe("Repo.FileAtCommit", func() {
 		Expect(err).To(MatchError(gitrepo.ErrNotAFile))
 	})
 
+	// On a case-insensitive or normalising filesystem (macOS, Windows) two
+	// such entries are one file, so which one a collector reads is not the
+	// one Shepherd read.
+	It("refuses a path any component of which collides with a sibling under case folding, and non-ASCII paths", func() {
+		sha, err := p.commitAndPush(ctx, map[string]string{
+			"dup/m.alloy": "// lower\n", "dup/M.alloy": "// upper\n",
+			"Dir/x.alloy": "// a\n", "dir/x.alloy": "// b\n",
+			"ok/m.alloy": "// fine\n",
+		}, "collisions")
+		Expect(err).NotTo(HaveOccurred())
+		for _, path := range []string{"dup/m.alloy", "dup/M.alloy", "dir/x.alloy"} {
+			_, err := gitrepo.Repo{URL: publicURL}.FileAtCommit(ctx, sha, path)
+			Expect(err).To(MatchError(gitrepo.ErrPathAmbiguous), path)
+		}
+		got, err := gitrepo.Repo{URL: publicURL}.FileAtCommit(ctx, sha, "ok/m.alloy")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(string(got)).To(Equal("// fine\n"))
+		_, err = gitrepo.Repo{URL: publicURL}.FileAtCommit(ctx, sha, "modé.alloy")
+		Expect(err).To(MatchError(gitrepo.ErrPathNotFound))
+	})
+
 	It("refuses a file over max_file_bytes", func() {
 		repo := gitrepo.Repo{URL: publicURL, Limits: gitrepo.Limits{MaxFileBytes: 3}}
 		_, err := repo.FileAtCommit(ctx, first, "modules/m.alloy")

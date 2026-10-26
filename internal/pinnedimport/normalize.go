@@ -39,6 +39,14 @@ func NormalizeRepository(raw string) (string, error) {
 	if strings.IndexFunc(raw, unicode.IsSpace) >= 0 {
 		return "", fmt.Errorf("repository %q contains whitespace", raw)
 	}
+	// A non-ASCII host has a punycode and a Unicode spelling (and
+	// look-alikes), a non-ASCII path NFC and NFD ones: refused outright.
+	for i := 0; i < len(raw); i++ {
+		if raw[i] > 0x7e {
+			return "", fmt.Errorf("repository %q is not ASCII; write an internationalised host in its punycode "+
+				"(xn--) form", raw)
+		}
+	}
 	for _, bad := range []string{"%", "\\", "?", "#"} {
 		if strings.Contains(raw, bad) {
 			return "", fmt.Errorf("repository %q contains %q, which makes it ambiguous; write the URL without "+

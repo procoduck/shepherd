@@ -1042,7 +1042,17 @@ func (s *PipelineService) ValidatePipeline(ctx context.Context, req *connect.Req
 	// that failure reported via valid/diagnostics above (signals.Derive
 	// would just fail the same parse), so a Derive error here is not
 	// surfaced as a second, redundant error.
-	if sig, sigErr := signals.Derive(req.Msg.GetContents(), s.schema); sigErr == nil {
+	//
+	// Derived from the served form: a strict org's pinned import.git
+	// modules inlined, which is what role enforcement sees (an import.git
+	// instance is Unknown, an inlined import.string module is not).
+	derived := req.Msg.GetContents()
+	if result.Valid && tenants.Inline != nil && strings.Contains(derived, "import.git") {
+		if servedForm, err := tenants.Inline(ctx, derived); err == nil {
+			derived = servedForm
+		}
+	}
+	if sig, sigErr := signals.Derive(derived, s.schema); sigErr == nil {
 		resp.Signals = signalStrings(sig.Combined)
 		resp.SignalsProven = sig.Proven()
 		for _, u := range sig.Unknown {
@@ -1551,6 +1561,17 @@ func (s *PipelineService) stage3CheckSet(ctx context.Context, orgID pgtype.UUID,
 			mergePipelines = append(mergePipelines, cand)
 		}
 		changed = append(changed, cand)
+	}
+
+	// The served form: a strict org's pinned import.git modules inlined from
+	// the cache, candidates included (their save just fetched them), so the
+	// dry run validates exactly what the collectors would be served.
+	inline, err := serve.OrgInliner(ctx, s.store.Queries, orgID, s.requireOwned)
+	if err != nil {
+		return fmt.Errorf("loading the org's serve settings: %w", err)
+	}
+	if mergePipelines, err = serve.ServedForm(ctx, inline, mergePipelines); err != nil {
+		return err
 	}
 
 	// One query for every collector with its cluster name (not one

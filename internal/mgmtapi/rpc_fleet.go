@@ -49,6 +49,9 @@ type FleetService struct {
 	inactiveAfter time.Duration
 	// now is the clock presentInstanceStatus reads; time.Now outside tests.
 	now func() time.Time
+	// requireOwned is tenants.require_owned: the reconciliation tab reads
+	// a strict org's pipelines in their served (inlined) form.
+	requireOwned bool
 }
 
 // FleetServiceOption configures optional FleetService behavior.
@@ -71,6 +74,11 @@ func WithFleetBaseURL(u string) FleetServiceOption {
 // never presents an instance as inactive.
 func WithFleetInactiveAfter(d time.Duration) FleetServiceOption {
 	return func(s *FleetService) { s.inactiveAfter = d }
+}
+
+// WithFleetRequireOwnedTenants passes tenants.require_owned.
+func WithFleetRequireOwnedTenants(on bool) FleetServiceOption {
+	return func(s *FleetService) { s.requireOwned = on }
 }
 
 // instanceStatusInactive is the status an instance is presented with once its

@@ -177,7 +177,7 @@ func MountRPC(r chi.Router, st *store.Store, cfg *config.Config, enc *crypto.Enc
 			return mgmtv1connect.NewMeServiceHandler(NewMeService(st, logger, WithMeRequireOwnedTenants(requireOwned)), authz...)
 		},
 		func() (string, http.Handler) {
-			return mgmtv1connect.NewAdminServiceHandler(NewAdminService(st, logger, WithOIDCHandler(mc.oidc), WithTokenChangedHook(mc.tokenChanged), WithIdentityChangedHook(mc.identityChanged), WithAdminRequireOwnedTenants(requireOwned), WithAdminPinnedImports(imports)), authz...)
+			return mgmtv1connect.NewAdminServiceHandler(NewAdminService(st, logger, WithOIDCHandler(mc.oidc), WithTokenChangedHook(mc.tokenChanged), WithIdentityChangedHook(mc.identityChanged), WithAdminRequireOwnedTenants(requireOwned), WithAdminPinnedImports(imports), WithAdminRecompute(pipelineSvc.RecomputeOrgCaches)), authz...)
 		},
 		func() (string, http.Handler) {
 			var users *auth.UserStore
@@ -187,7 +187,7 @@ func MountRPC(r chi.Router, st *store.Store, cfg *config.Config, enc *crypto.Enc
 			return mgmtv1connect.NewUserServiceHandler(NewUserService(st, users, logger), authz...)
 		},
 		func() (string, http.Handler) {
-			return mgmtv1connect.NewFleetServiceHandler(NewFleetService(st, logger, WithFleetSchema(schemaReg), WithFleetBaseURL(cfg.Server.BaseURL), WithFleetInactiveAfter(cfg.Agent.InactiveAfter)), authz...)
+			return mgmtv1connect.NewFleetServiceHandler(NewFleetService(st, logger, WithFleetSchema(schemaReg), WithFleetBaseURL(cfg.Server.BaseURL), WithFleetInactiveAfter(cfg.Agent.InactiveAfter), WithFleetRequireOwnedTenants(requireOwned)), authz...)
 		},
 		func() (string, http.Handler) {
 			return mgmtv1connect.NewPipelineServiceHandler(pipelineSvc, authz...)

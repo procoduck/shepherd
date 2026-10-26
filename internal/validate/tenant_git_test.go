@@ -148,8 +148,18 @@ var _ = Describe("Strict tenant mode's pinned import.git (#390)", func() {
 		Expect(errorsOf(lintGit(src, mods))).To(ConsistOf(ContainSubstring("path")))
 	})
 
+	// The serve path inlines exactly what it can read the same way
+	// (pinnedimport.Inline): plain string literals only.
+	It("refuses repository, revision or path given through a declare argument or in parentheses", func() {
+		src := "declare \"w\" {\n  argument \"r\" { default = \"" + repoA + "\" }\n  import.git \"m\" {\n    repository = argument.r.value\n" +
+			"    revision = \"" + shaA + "\"\n    path = \"owned.alloy\"\n  }\n}\n"
+		Expect(errorsOf(lintGit(src, mods))).To(ConsistOf(ContainSubstring("string literal")))
+		src = "import.git \"m\" {\n  repository = (\"" + repoA + "\")\n  revision = \"" + shaA + "\"\n  path = \"owned.alloy\"\n}\n"
+		Expect(errorsOf(lintGit(src, mods))).To(ConsistOf(ContainSubstring("string literal")))
+	})
+
 	It("refuses a path that is not a clean relative path", func() {
-		for _, p := range []string{"/etc/m.alloy", "../m.alloy", "a/../m.alloy", "./m.alloy", "."} {
+		for _, p := range []string{"/etc/m.alloy", "../m.alloy", "a/../m.alloy", "./m.alloy", ".", "modé.alloy", "modé.alloy"} {
 			Expect(errorsOf(lintGit(gitImport("m", repoA, shaA, p), mods))).
 				To(ConsistOf(ContainSubstring("clean relative path")), p)
 		}

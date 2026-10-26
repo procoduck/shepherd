@@ -53,10 +53,16 @@ type fakeGit struct {
 	unreachable bool
 	shadowed    bool
 	block       bool
-	fetches     int
-	checks      int
-	auths       []gitrepo.Auth
-	urls        []string
+	// blockFor makes a fetch take this long, whatever its ctx.
+	blockFor time.Duration
+	fetches  int
+	checks   int
+	// trackConcurrency records the most fetches in flight at once.
+	trackConcurrency bool
+	inFlight         int
+	maxConcurrent    int
+	auths            []gitrepo.Auth
+	urls             []string
 }
 
 func (f *fakeGit) FileAtCommit(ctx context.Context, repo gitrepo.Repo, commit, path string) ([]byte, error) {
@@ -64,9 +70,19 @@ func (f *fakeGit) FileAtCommit(ctx context.Context, repo gitrepo.Repo, commit, p
 	f.fetches++
 	f.auths = append(f.auths, repo.Auth)
 	f.urls = append(f.urls, repo.URL)
+	if f.trackConcurrency {
+		f.inFlight++
+		f.maxConcurrent = max(f.maxConcurrent, f.inFlight)
+		defer func() { f.mu.Lock(); f.inFlight--; f.mu.Unlock() }()
+	}
 	f.mu.Unlock()
 	if !repo.SameHostRedirects {
 		return nil, errors.New("pinned fetches must refuse cross-host redirects")
+	}
+	if f.blockFor > 0 {
+		// A slow server that ignores the deadline: the slot stays taken.
+		time.Sleep(f.blockFor)
+		return nil, fmt.Errorf("%w: slow", gitrepo.ErrFetchTimeout)
 	}
 	if f.block {
 		<-ctx.Done()
@@ -149,7 +165,7 @@ var _ = Describe("Resolver", Label("integration"), func() {
 		}
 	})
 
-	It("fetches a module once, caches it, and then only checks the source", func() {
+	It("fetches a module once, caches it, and never contacts the source for it again", func() {
 		content, warning, err := modules(res.Saving()).Fetch(ctx, module)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(content).To(Equal("// module\n"))
@@ -162,12 +178,18 @@ var _ = Describe("Resolver", Label("integration"), func() {
 		Expect(content).To(Equal("// module\n"))
 		Expect(warning).To(BeEmpty())
 		Expect(fake.fetches).To(Equal(1), "a commit cannot change: never fetched again")
-		Expect(fake.checks).To(Equal(1))
+		Expect(fake.checks).To(BeZero(), "collectors are served the cached text, so the source is not checked")
 
 		content, _, err = modules(res.Preflight()).Fetch(ctx, module)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(content).To(Equal("// module\n"))
-		Expect(fake.checks).To(Equal(1), "a preflight does not touch the network for a cached module")
+		Expect(fake.checks).To(BeZero())
+	})
+
+	It("re-checks the allowlist itself, whatever the lint asked first", func() {
+		_, _, err := modules(res.Saving()).Fetch(ctx, validate.GitModule{Repository: "https://git.example.com/other/x.git", Revision: sha, Path: "m.alloy"})
+		Expect(err).To(MatchError(ContainSubstring("allowlist")))
+		Expect(fake.fetches).To(BeZero())
 	})
 
 	It("refuses a module it cannot fetch and has not cached, without echoing secrets", func() {
@@ -179,22 +201,45 @@ var _ = Describe("Resolver", Label("integration"), func() {
 		Expect(err).To(HaveOccurred())
 	})
 
-	It("warns, rather than refuses, when a cached module's source has become unreachable", func() {
+	It("keeps verifying a cached module, without a warning, once its source is gone", func() {
 		_, _, err := modules(res.Saving()).Fetch(ctx, module)
 		Expect(err).NotTo(HaveOccurred())
-		fake.unreachable = true
+		fake.unreachable, fake.shadowed = true, true
 		content, warning, err := modules(res.Saving()).Fetch(ctx, module)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(content).To(Equal("// module\n"))
-		Expect(warning).To(And(ContainSubstring("could not be reached"), ContainSubstring("collectors may fail to fetch")))
+		Expect(warning).To(BeEmpty())
 	})
 
-	It("refuses a cached module whose commit a branch or tag now shadows", func() {
-		_, _, err := modules(res.Saving()).Fetch(ctx, module)
-		Expect(err).NotTo(HaveOccurred())
-		fake.shadowed = true
-		_, _, err = modules(res.Saving()).Fetch(ctx, module)
-		Expect(err).To(MatchError(ContainSubstring("named like the commit SHA")))
+	It("shares one fetch budget across a session (a whole git sync pass)", func() {
+		fake.block = true
+		quick := pinnedimport.New(&config.Config{}, enc, slog.New(slog.DiscardHandler)).WithFetcher(fake, 300*time.Millisecond)
+		session := quick.Saving()
+		start := time.Now()
+		for i := 0; i < 4; i++ {
+			_, _, err := modules(session).Fetch(ctx, validate.GitModule{Repository: repoURL, Revision: sha, Path: fmt.Sprintf("s%d.alloy", i)})
+			Expect(err).To(HaveOccurred())
+		}
+		Expect(time.Since(start)).To(BeNumerically("<", time.Second), "four files share 300ms, not 300ms each")
+	})
+
+	It("runs at most MaxConcurrentFetches fetches at once, and waiting for a slot spends the budget", func() {
+		fake.blockFor = 300 * time.Millisecond
+		fake.trackConcurrency = true
+		quick := pinnedimport.New(&config.Config{}, enc, slog.New(slog.DiscardHandler)).WithFetcher(fake, 400*time.Millisecond)
+		var wg sync.WaitGroup
+		for i := 0; i < pinnedimport.MaxConcurrentFetches*3; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				defer GinkgoRecover()
+				_, _, err := modules(quick.Saving()).Fetch(ctx, validate.GitModule{Repository: repoURL, Revision: sha, Path: fmt.Sprintf("c%d.alloy", i)})
+				Expect(err).To(HaveOccurred())
+			}()
+		}
+		wg.Wait()
+		Expect(fake.maxConcurrent).To(Equal(pinnedimport.MaxConcurrentFetches))
+		Expect(fake.fetches).To(BeNumerically("<", pinnedimport.MaxConcurrentFetches*3), "a caller whose budget ran out waiting never fetched")
 	})
 
 	It("reads only the cache in ModeCached, and a nil Resolver behaves the same", func() {
@@ -246,7 +291,17 @@ var _ = Describe("Resolver", Label("integration"), func() {
 		Expect(time.Since(start)).To(BeNumerically("<", 5*time.Second))
 	})
 
-	It("keeps at most MaxCachedModules per org, dropping the least recently used", func() {
+	It("keeps at most MaxCachedModules unreferenced modules per org, never one an enabled pipeline uses", func() {
+		pinnedimport.SetEvictionGrace(0)
+		DeferCleanup(func() { pinnedimport.SetEvictionGrace(time.Hour) })
+		fake.files[sha+":used.alloy"] = "// used"
+		_, _, err := modules(res.Saving()).Fetch(ctx, validate.GitModule{Repository: repoURL, Revision: sha, Path: "used.alloy"})
+		Expect(err).NotTo(HaveOccurred())
+		_, err = st.Queries.CreatePipeline(ctx, sqlc.CreatePipelineParams{
+			OrgID: org.ID, Name: "user", Matchers: []byte(`[]`), Source: "ui", Enabled: true,
+			Contents: "import.git \"m\" {\n  repository = \"" + repoURL + "\"\n  revision = \"" + sha + "\"\n  path = \"used.alloy\"\n}\n",
+		})
+		Expect(err).NotTo(HaveOccurred())
 		for i := 0; i < pinnedimport.MaxCachedModules+3; i++ {
 			p := fmt.Sprintf("m%03d.alloy", i)
 			fake.files[sha+":"+p] = "// " + p
@@ -255,10 +310,14 @@ var _ = Describe("Resolver", Label("integration"), func() {
 		}
 		var n int
 		Expect(st.Pool().QueryRow(ctx, `SELECT count(*) FROM pinned_import_modules WHERE org_id = $1`, org.ID).Scan(&n)).To(Succeed()) // RAW-SQL-OK: test assertion
-		Expect(n).To(Equal(pinnedimport.MaxCachedModules))
-		_, err := st.Queries.GetPinnedImportModule(ctx, sqlc.GetPinnedImportModuleParams{
+		Expect(n).To(Equal(pinnedimport.MaxCachedModules+1), "the bound plus the referenced module")
+		_, err = st.Queries.GetPinnedImportModule(ctx, sqlc.GetPinnedImportModuleParams{
 			OrgID: org.ID, RepositoryKey: entry.RepositoryKey, Revision: sha, Path: "m000.alloy",
 		})
-		Expect(err).To(HaveOccurred(), "the oldest went first")
+		Expect(err).To(HaveOccurred(), "the oldest unreferenced went first")
+		_, err = st.Queries.GetPinnedImportModule(ctx, sqlc.GetPinnedImportModuleParams{
+			OrgID: org.ID, RepositoryKey: entry.RepositoryKey, Revision: sha, Path: "used.alloy",
+		})
+		Expect(err).NotTo(HaveOccurred(), "the module an enabled pipeline uses, least recently used of all, stays")
 	})
 })

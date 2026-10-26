@@ -27,6 +27,7 @@ import (
 	"shepherd/internal/metrics"
 	"shepherd/internal/pinnedimport"
 	"shepherd/internal/schema"
+	"shepherd/internal/serve"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
 	"shepherd/internal/validate"
@@ -175,8 +176,11 @@ var _ = Describe("Reconciler.reconcileLink", Label("integration"), func() {
 	It("syncs a strict org's file importing a pinned module from an allowlisted private repository, linting the module", func() {
 		r.imports = pinnedimport.New(&config.Config{}, enc, r.logger)
 		module := func(tenant string) string {
-			return "declare \"out\" {\n  loki.write \"w\" {\n    endpoint {\n      url       = \"https://loki.example.com/loki/api/v1/push\"\n" +
-				"      tenant_id = \"" + tenant + "\"\n    }\n  }\n}\n"
+			// Metrics only: the link's collector has role=metrics, and role
+			// enforcement sees the inlined module's signals (an import.git
+			// instance would be Unknown, worst case).
+			return "declare \"out\" {\n  prometheus.remote_write \"w\" {\n    endpoint {\n      url     = \"https://mimir.example.com/api/v1/push\"\n" +
+				"      headers = { \"X-Scope-OrgID\" = \"" + tenant + "\" }\n    }\n  }\n}\n"
 		}
 		modName := nextGiteaFixtureName("gitsync-modules")
 		_, modURL, err := giteaCreateRepo(ctx, modName)
@@ -215,6 +219,15 @@ var _ = Describe("Reconciler.reconcileLink", Label("integration"), func() {
 		})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(cached.Content).To(Equal(module("gitsync")), "fetched with the credential and cached")
+
+		// What the collector is served: the module inlined, not the import.
+		// planFile's gate ran Stages 1-2 — the real `alloy validate` here —
+		// on this form too.
+		served, err := serve.LoadPipelines(ctx, st.Queries, link.OrgID, false)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(served).To(ContainElement(HaveField("Contents", And(
+			ContainSubstring(`import.string "m"`), Not(ContainSubstring("import.git")),
+			ContainSubstring(`\"X-Scope-OrgID\" = \"gitsync\"`)))))
 
 		push(importing("foreign.alloy"))
 		err = r.reconcileLink(ctx, link)

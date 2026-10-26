@@ -108,7 +108,15 @@ func (p Policy) Validation(q *sqlc.Queries, src pinnedimport.Source) validate.Te
 	if !p.Strict {
 		return validate.TenantPolicy{}
 	}
-	return validate.TenantPolicy{Strict: true, Owns: p.Owns, Git: src.Modules(q, p.OrgID, p.ImportRepos)}
+	return validate.TenantPolicy{Strict: true, Owns: p.Owns, Git: src.Modules(q, p.OrgID, p.ImportRepos), Inline: inliner(q, p.OrgID, p.ImportRepos)}
+}
+
+// inliner is the served form of an org's pipeline text (pinnedimport.Inline),
+// read from the cache through q.
+func inliner(q *sqlc.Queries, orgID pgtype.UUID, repos []sqlc.OrgImportRepository) func(context.Context, string) (string, error) {
+	return func(ctx context.Context, contents string) (string, error) {
+		return pinnedimport.Inline(ctx, q, orgID, repos, contents)
+	}
 }
 
 // The kinds of object a Violation names.
@@ -296,12 +304,13 @@ func LintLocked(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, require
 // validate.ErrLintBusy (wrapped) when the lint hit its wall-clock guard —
 // no verdict, so callers answer "busy, try again" rather than refuse.
 func lintErrors(ctx context.Context, contents string, policy validate.TenantPolicy) ([]string, error) {
-	diags, err := validate.TenantLintChecked(ctx, contents, policy)
-	if err != nil {
-		return nil, fmt.Errorf("tenant check: %w", err)
+	// WithTenantLint lints the served form too (policy.Inline).
+	r := validate.WithTenantLint(ctx, validate.Result{Valid: true}, contents, policy)
+	if r.Busy {
+		return nil, fmt.Errorf("tenant check: %w", validate.ErrLintBusy)
 	}
 	var msgs []string
-	for _, d := range diags {
+	for _, d := range r.Diagnostics {
 		if !d.Warning {
 			msgs = append(msgs, fmt.Sprintf("%d:%d %s", d.Line, d.Col, d.Message))
 		}
@@ -324,7 +333,7 @@ func OrphanedPipelines(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, 
 	}
 	policy := validate.TenantPolicy{
 		Strict: true, Owns: func(t string) bool { return gateway.OrgOwnsTenant(remaining, t) },
-		Git: pinnedimport.Cached.Modules(q, orgID, repos),
+		Git: pinnedimport.Cached.Modules(q, orgID, repos), Inline: inliner(q, orgID, repos),
 	}
 	var out []string
 	for i := range pipelines {
@@ -429,7 +438,13 @@ func RecordPipelineTenants(ctx context.Context, q *sqlc.Queries, p sqlc.Pipeline
 		}
 		return nil
 	}
-	lits, complete, err := validate.TenantLiterals(p.Contents)
+	// Pinned import.git modules are read from the cache, so a strict org's
+	// pipeline using them is recorded with their tenants.
+	repos, err := q.ListOrgImportRepositories(ctx, p.OrgID)
+	if err != nil {
+		return fmt.Errorf("loading the org's import repositories: %w", err)
+	}
+	lits, complete, err := validate.TenantLiteralsWith(ctx, p.Contents, pinnedimport.Cached.Modules(q, p.OrgID, repos))
 	if err != nil {
 		// The lint's wall-clock guard (validate.ErrLintBusy): no verdict.
 		// The previous rows stay, now stale by their sha, so AddOrgTenant
@@ -539,4 +554,22 @@ func (r *recordingModules) Allowed(repository string) error {
 		r.used = true
 	}
 	return r.GitModules.Allowed(repository)
+}
+
+// MarkPinnedImportOrgsDirty marks dirty the served configs of every org with
+// an enabled pipeline whose text has import.git: strict tenant mode serves
+// those inlined, and the server-wide tenants.require_owned setting may have
+// changed since they were computed. The server runs it at every boot; it
+// touches no other org, so no other collector's bytes are recomputed.
+func MarkPinnedImportOrgsDirty(ctx context.Context, q *sqlc.Queries) error {
+	orgs, err := q.ListOrgsWithImportGitPipelines(ctx)
+	if err != nil {
+		return fmt.Errorf("listing orgs with import.git pipelines: %w", err)
+	}
+	for _, id := range orgs {
+		if err := q.MarkServeCacheDirtyByOrg(ctx, id); err != nil {
+			return fmt.Errorf("marking an org's served configs dirty: %w", err)
+		}
+	}
+	return nil
 }

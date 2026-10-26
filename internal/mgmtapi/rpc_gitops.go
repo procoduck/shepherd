@@ -245,6 +245,17 @@ func (s *GitOpsService) DeleteCredential(ctx context.Context, req *connect.Reque
 	if err != nil || cred.OrgID.String() != req.Msg.GetOrgId() {
 		return nil, connect.NewError(connect.CodeNotFound, errors.New("credential not found"))
 	}
+	// An allowlist entry for strict mode's pinned imports fetches with it
+	// (org_import_repositories, ON DELETE RESTRICT): say which.
+	if uses, err := s.store.Queries.ListOrgImportRepositoriesByCredential(ctx, id); err == nil && len(uses) > 0 {
+		names := make([]string, len(uses))
+		for i := range uses {
+			names[i] = uses[i].Repository
+		}
+		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf(
+			"credential %q is used by the allowed import repositories %s; an application administrator removes "+
+				"them first (Admin → Organisations)", cred.Name, strings.Join(names, ", ")))
+	}
 	// The error was previously discarded, so a delete that removed nothing
 	// still reported success.
 	if err := s.store.Queries.DeleteGitCredential(ctx, id); err != nil {

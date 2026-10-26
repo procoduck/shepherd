@@ -104,6 +104,11 @@ func TestNormalizeRepositoryRefusesAmbiguousForms(t *testing.T) {
 		"../modules",
 		"git://git.example.com/team/modules",
 		"ftp://git.example.com/team/modules",
+		// A non-ASCII host has punycode and Unicode spellings (and
+		// look-alikes): refused, write the punycode.
+		"https://gït.example.com/team/modules",
+		"git@exämple.com:team/modules",
+		"https://git.example.com/tëam/modules",
 	} {
 		if got, err := pinnedimport.NormalizeRepository(raw); err == nil {
 			t.Errorf("NormalizeRepository(%q) = %q, want a refusal", raw, got)

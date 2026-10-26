@@ -82,6 +82,18 @@ var _ = Describe("SSHAuth against a real server", func() {
 		Expect(string(files[0].Content)).To(ContainSubstring("logging"))
 	})
 
+	// max_repo_bytes bounds an SSH fetch as it bounds an HTTP one: the
+	// counting wraps the connection, not only the HTTP transport.
+	It("enforces max_repo_bytes over SSH", func() {
+		repo := gitrepo.Repo{
+			URL: cloneURL, Branch: defaultBranch, Path: "pipelines",
+			Auth:   gitrepo.SSHAuth{PrivateKeyPEM: privateKeyPEM, KnownHosts: correctKnown},
+			Limits: gitrepo.Limits{MaxRepoBytes: 64},
+		}
+		_, err := repo.Files(ctx())
+		Expect(err).To(MatchError(gitrepo.ErrRepoTooLarge))
+	})
+
 	It("fails loudly when known_hosts has the wrong host key (no accept-any-host-key mode)", func() {
 		// A different, unrelated key standing in for an attacker's key on
 		// a MITM'd connection: same host/port, deliberately wrong key.

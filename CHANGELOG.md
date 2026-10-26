@@ -30,17 +30,28 @@ Categories used here:
   `repository` is on the org's allowed import repositories, which an app admin keeps on Admin →
   Organisations (new `AdminService.List/Add/RemoveOrgImportRepository`, audited as
   `org.import_repository.add` / `.remove`). An entry may name one of the org's git credentials
-  for a private repository. Shepherd fetches the module when the pipeline is saved, synced or
-  enabled, using git sync's size and time limits, at most 30 s per save, and no redirect to
-  another host. It lints the module with the same rules, nested `import.git` to depth 4. Branches,
-  tags, short SHAs, `import.http` and `import.file` stay refused. Repository URLs are compared in a
-  normal form (case of scheme and host, default port, scp-like form, trailing `/` and `.git`), and
-  ambiguous spellings are refused. Fetched modules are cached in the database, the 128 most
-  recently used per org. When a cached module's source can no longer be reached, a save still
-  verifies against the cached copy and warns that collectors may fail to fetch the module. An
-  allowlist entry cannot be removed while an enabled pipeline of a strict org imports from it.
-  The preflights, the boot check under `tenants.require_owned` and `shepherd admin
-  tenant-preflight` read modules the same way. Migration 0043. (#390)
+  for a private repository; such a credential cannot be deleted while the entry uses it. Shepherd
+  fetches the module when the pipeline is saved, synced or enabled. Fetches use git sync's size
+  and time limits (the byte limit now applies over SSH too), run at most 4 at a time, and get at
+  most 30 s per save or per git sync pass. Shepherd follows no redirect to another host. It lints
+  the module with the same rules, nested `import.git` to depth 4. Branches, tags, short SHAs,
+  non-literal attributes, `import.http` and `import.file` stay refused. Repository URLs are
+  compared in a normal form (case of scheme and host, default port, scp-like form, trailing `/`
+  and `.git`); non-ASCII and other ambiguous spellings are refused.
+  **A strict org is served the module Shepherd checked, not the import.** Each pinned
+  `import.git` block is served as an `import.string` with the same label and the cached module
+  text, nested modules inlined too. A tag pushed later under the commit's name changes nothing,
+  and collectors in strict orgs need no access to module repositories. The stored pipeline keeps
+  `import.git` as written. Validation, role enforcement and the editor's signals all use the
+  inlined form, so a pinned metrics-only module reaches `metrics` collectors. The inlined
+  pipeline is held to the 1 MiB pipeline cap. A pipeline whose modules cannot be inlined at
+  serve time leaves its collectors on their last good config, and the failure is recorded.
+  Turning strict mode on or off recomputes the org's collectors. Pipelines without `import.git`,
+  and every non-strict org, serve byte-identical config, so there is no fleet-wide reload.
+  Fetched modules are cached in the database. A module an enabled pipeline uses is never
+  evicted; the 128 most recently used of the others are kept per org. The preflights, the boot
+  check under `tenants.require_owned` and `shepherd admin tenant-preflight` read modules the same
+  way. Migration 0043. (#390)
 
 ### Fixed
 

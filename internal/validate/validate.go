@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -227,17 +228,75 @@ func (v *Validator) Stages12(ctx context.Context, content string) Result {
 // strict, TenantLint's on contents itself: a refusal fails the result, a
 // warning rides along with Valid unchanged. Every caller states the org's
 // policy; the zero TenantPolicy is "not strict".
+//
+// In strict mode with tenants.Inline set, a pipeline with an import.git
+// block is also validated as it will be served — its pinned modules inlined
+// (TenantPolicy.Inline): Stages 1-2 and the tenant lint on that text, each
+// finding prefixed "as served". A served form that cannot be built refuses
+// the pipeline: a strict org is never served an import.git.
 func (v *Validator) ValidatePipeline(ctx context.Context, pipelineName, contents string, tenants TenantPolicy) Result {
 	r := v.Stages12(ctx, WrapForValidation(pipelineName, contents))
 	r.Diagnostics = UnwrapDiagnostics(contents, r.Diagnostics)
-	return WithTenantLint(ctx, r, contents, tenants)
+	r = withTenantLintOnly(ctx, r, contents, tenants)
+	return withServedForm(ctx, r, contents, tenants, func(served string) Result {
+		rs := v.Stages12(ctx, WrapForValidation(pipelineName, served))
+		rs.Diagnostics = UnwrapDiagnostics(served, rs.Diagnostics)
+		return rs
+	})
+}
+
+// withServedForm adds the served form's findings to r (see ValidatePipeline):
+// stages validates the served text (nil: the tenant lint only).
+func withServedForm(ctx context.Context, r Result, contents string, tenants TenantPolicy, stages func(string) Result) Result {
+	if !r.Valid || !tenants.Strict || tenants.Inline == nil || !strings.Contains(contents, "import.git") {
+		return r
+	}
+	served, err := tenants.Inline(ctx, contents)
+	if err != nil {
+		r.Valid = false
+		r.Diagnostics = append(r.Diagnostics, Diagnostic{Line: 1, Col: 1, Stage: 1, Message: fmt.Sprintf(
+			"the pipeline cannot be served with its pinned modules inlined, which strict tenant mode serves: %v", err)})
+		return r
+	}
+	if served == contents {
+		return r
+	}
+	rs := Result{Valid: true}
+	if stages != nil {
+		rs = stages(served)
+	}
+	lintPolicy := tenants
+	lintPolicy.Inline = nil
+	rs = withTenantLintOnly(ctx, rs, served, lintPolicy)
+	for _, d := range rs.Diagnostics {
+		d.Message = "as served (pinned modules inlined): " + d.Message
+		r.Diagnostics = append(r.Diagnostics, d)
+	}
+	if !rs.Valid {
+		r.Valid = false
+	}
+	r.Busy = r.Busy || rs.Busy
+	r.Inconclusive = r.Inconclusive || rs.Inconclusive
+	for _, st := range rs.Skipped {
+		if !slices.Contains(r.Skipped, st) {
+			r.Skipped = append(r.Skipped, st)
+		}
+	}
+	return r
 }
 
 // WithTenantLint adds TenantLint(contents, tenants) to r: its diagnostics
 // appended, and r failed when one is a refusal. For a caller that validated
 // contents itself (the visual builder's render, which has no declare
 // wrapper to undo). A no-op when tenants is not strict.
+//
+// With tenants.Inline it lints the served form too (withServedForm).
 func WithTenantLint(ctx context.Context, r Result, contents string, tenants TenantPolicy) Result {
+	return withServedForm(ctx, withTenantLintOnly(ctx, r, contents, tenants), contents, tenants, nil)
+}
+
+// withTenantLintOnly is WithTenantLint without the served form.
+func withTenantLintOnly(ctx context.Context, r Result, contents string, tenants TenantPolicy) Result {
 	lint, err := TenantLintChecked(ctx, contents, tenants)
 	if err != nil {
 		// The tenant check's wall-clock guard: no verdict. Busy, not a

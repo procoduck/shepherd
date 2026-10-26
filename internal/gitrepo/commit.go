@@ -30,6 +30,10 @@ var (
 	// ErrNotAFile is a path that names a directory, a symlink or a
 	// submodule rather than a regular file.
 	ErrNotAFile = errors.New("gitrepo: path is not a regular file")
+	// ErrPathAmbiguous is a path a component of which differs from a sibling
+	// entry only in case: on a case-insensitive filesystem the two are one
+	// entry, so a reader may get the other one.
+	ErrPathAmbiguous = errors.New("gitrepo: path collides with another entry under case folding")
 	// ErrFileTooLarge is a file larger than Limits.MaxFileBytes.
 	ErrFileTooLarge = errors.New("gitrepo: file exceeds max_file_bytes")
 	// ErrRevisionShadowed is a commit SHA that a branch or tag of the same
@@ -97,8 +101,8 @@ func (r Repo) FileAtCommit(ctx context.Context, commit, file string) ([]byte, er
 	if !IsFullCommitSHA(commit) {
 		return nil, ErrNotACommit
 	}
-	if file == "" || path.IsAbs(file) || path.Clean(file) != file || strings.HasPrefix(file, "../") || file == ".." {
-		return nil, fmt.Errorf("%w: %q is not a clean relative path", ErrPathNotFound, file)
+	if file == "" || path.IsAbs(file) || path.Clean(file) != file || strings.HasPrefix(file, "../") || file == ".." || !printableASCII(file) {
+		return nil, fmt.Errorf("%w: %q is not a clean relative ASCII path", ErrPathNotFound, file)
 	}
 	limits := r.Limits.withDefaults()
 	ctx, cancel := context.WithTimeout(ctx, limits.FetchTimeout)
@@ -168,11 +172,55 @@ func isMissingObject(err error) bool {
 		strings.Contains(msg, "unadvertised object") || strings.Contains(msg, "no such")
 }
 
+// printableASCII reports whether s is printable ASCII only: a non-ASCII
+// name has NFC and NFD spellings that a normalising filesystem treats as
+// one, so it is never read.
+func printableASCII(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] < 0x20 || s[i] > 0x7e {
+			return false
+		}
+	}
+	return true
+}
+
+// unambiguous refuses (ErrPathAmbiguous) file when a component of it has a
+// sibling entry that differs from it only in case.
+func unambiguous(tree *object.Tree, file string) error {
+	t := tree
+	parts := strings.Split(file, "/")
+	for i, part := range parts {
+		var next *object.Tree
+		for _, e := range t.Entries {
+			if e.Name != part && strings.EqualFold(e.Name, part) {
+				return fmt.Errorf("%w: %q and %q", ErrPathAmbiguous, path.Join(append(parts[:i:i], part)...), e.Name)
+			}
+			if e.Name == part && e.Mode == filemode.Dir && i < len(parts)-1 {
+				sub, err := t.Tree(part)
+				if err != nil {
+					return fmt.Errorf("%w: %q", ErrPathNotFound, file)
+				}
+				next = sub
+			}
+		}
+		if i < len(parts)-1 {
+			if next == nil {
+				return fmt.Errorf("%w: %q", ErrPathNotFound, file)
+			}
+			t = next
+		}
+	}
+	return nil
+}
+
 // readCommitFile returns the regular file at file in c's tree.
 func readCommitFile(c *object.Commit, file string, maxBytes int64) ([]byte, error) {
 	tree, err := c.Tree()
 	if err != nil {
 		return nil, fmt.Errorf("gitrepo: reading the commit's tree: %w", err)
+	}
+	if err := unambiguous(tree, file); err != nil {
+		return nil, err
 	}
 	entry, err := tree.FindEntry(file)
 	if err != nil {

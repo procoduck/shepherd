@@ -645,35 +645,60 @@ Strict mode refuses:
   including the values the importing text gives its declares.
 
 **Pinned `import.git` (0043, #390).** A strict org may use `import.git` when `repository`,
-`revision` and `path` are readable values, `revision` is a full lower-case 40-hex commit SHA (a
-branch, tag, short or upper-case SHA, or no revision — Alloy's default `main` — is refused: Alloy
-checks a revision out as a tag, then a branch, then a commit, and force-fetches tags), `path` is a
-clean relative path, and `repository` normalises (`pinnedimport.NormalizeRepository`: lower-case
-scheme and host, default port dropped, scp-like form as `ssh://`, one trailing `/` then `.git`
-dropped; percent-encoding, query, fragment, `https` user info, an ssh password and empty/`.`/`..`
-segments refused, and only `https`, `http` and `ssh` remotes, via `gitrepo.RemoteTransport`) to an
-entry of the org's allowlist (`org_import_repositories`, kept by an app admin with
+`revision` and `path` are plain string literals (not expressions or declare arguments), `revision`
+is a full lower-case 40-hex commit SHA (a branch, tag, short or upper-case SHA, or no revision —
+Alloy's default `main` — is refused), `path` is a clean relative printable-ASCII path, and
+`repository` normalises (`pinnedimport.NormalizeRepository`: lower-case scheme and host, default
+port dropped, scp-like form as `ssh://`, one trailing `/` then `.git` dropped; non-ASCII,
+percent-encoding, query, fragment, `https` user info, an ssh password and empty/`.`/`..` segments
+refused, and only `https`, `http` and `ssh` remotes, via `gitrepo.RemoteTransport`) to an entry of
+the org's allowlist (`org_import_repositories`, kept by an app admin with
 `AdminService.List/Add/RemoveOrgImportRepository`, audited as `org.import_repository.add` /
-`.remove`; an entry may name one of the org's git credentials for a private repository). The
-module is fetched — the URL the pipeline spells, with `gitrepo.Repo.FileAtCommit`: the commit
-alone when the server allows a want by SHA, else every branch and tag, git sync's
-`max_repo_bytes`/`max_file_bytes`/`fetch_timeout`, no redirect off the host, refused when a branch
-or tag is named like the SHA — and linted with the same rules, nested `import.git` to depth 4
-(`validate.MaxGitImportDepth`), at most 16 modules per pipeline and 30 s of fetching per
-validation (`pinnedimport.SaveBudget`). The lint never waits on the network: `TenantLintChecked`
-runs, fetches what that run needed, and runs again. Fetched modules are cached in
-`pinned_import_modules` by (org, repository, commit, path), never refreshed (a commit cannot
-change), the 128 most recently used per org kept (`pinnedimport.MaxCachedModules`). Where it is
-read: a save or validation (`Resolver.Saving`) uses a cached module after one `ls-remote` — an
-unreachable source gives a **warning** diagnostic (collectors may fail to fetch the module on
-restart), a shadowing ref a refusal — and fetches an uncached one (failure refuses); the
-preflights, the boot check, `shepherd admin tenant-preflight` and enabling or restoring
-(`Resolver.Preflight`) use a cached module as is and fetch an uncached one; the in-transaction
-lint (`tenancy.LintLocked`), `OrphanedPipelines` and `SetOrgStrictTenants`' check under the
-exclusive lock read the cache only (`pinnedimport.Cached`; the toggle fetches first, outside the
-lock). `RemoveOrgImportRepository` is refused while the rule applies and an enabled pipeline
-imports from the entry. Residual: a branch or tag named like the SHA created after the save would
-make collectors follow it; the next save refuses it.
+`.remove`; an entry may name one of the org's git credentials for a private repository, which then
+cannot be deleted — `failed_precondition` naming the entry). The module is fetched — the URL the
+pipeline spells, with `gitrepo.Repo.FileAtCommit`: the commit alone when the server allows a want by
+SHA, else every branch and tag; git sync's `max_repo_bytes` (over HTTP and SSH alike) /
+`max_file_bytes` / `fetch_timeout`; no redirect off the host; refused when a branch or tag is named
+like the SHA, or when a path component differs from a sibling entry only in case — and linted with
+the same rules, nested `import.git` to depth 4 (`validate.MaxGitImportDepth`), at most 16 modules per
+pipeline. At most 4 fetches run at once in the process (`pinnedimport.MaxConcurrentFetches`), and
+one save — or one git sync pass, across all its files — spends at most 30 s fetching, waiting for a
+fetch slot included (`pinnedimport.SaveBudget`). The lint never waits on the network:
+`TenantLintChecked` runs, fetches what that run needed, and runs again. Fetched modules are cached
+in `pinned_import_modules` by (org, repository, commit, path) and never refetched or refreshed (a
+commit cannot change); the source is not contacted again.
+
+**A strict org is served the module it was checked against.** Alloy checks a `revision` out as a
+tag, then a branch, then a commit, and force-fetches tags, so a tag pushed later under the SHA's
+name would redirect a collector. Strict orgs therefore never serve `import.git`: every serve path
+loads pipelines through `serve.LoadPipelines` (agentapi's lazy recompute, mgmtapi's eager one, both
+Stage 3 dry runs, the Reconciliation tab), which for a strict org rewrites each `import.git "<label>"
+{ … }` — top level or in a declare — into `import.string "<label>" { content = "<module>" }`, the
+module being the exact cached bytes, quoted by the Alloy syntax package's encoder
+(`alloysyntax.QuoteString`), its own pinned imports inlined the same way (depth 4)
+(`pinnedimport.Inline`). The label is kept, so `<label>.<declare>` instances are unchanged; the
+block's auth sub-blocks and `pull_frequency` are not served. Collectors in strict orgs need no egress
+to module repositories. The stored pipeline text keeps `import.git` as written. Non-strict orgs, and
+every pipeline without an `import.git` block, are served byte for byte as before (no `serve.Format`
+change: only a strict org's pipeline that uses a pinned import is served differently). The
+validation gate validates that served form too (`TenantPolicy.Inline`): Stages 1-2 and the tenant
+lint on the inlined text, refused when it cannot be built or is over the 1 MiB pipeline cap
+(`validate.MaxContentBytes`); role/signal enforcement and the editor's derived signals see it as
+well, so a pinned module's declare body's signals count (an `import.git` instance would be Unknown).
+At serve time an `import.git` that cannot be inlined fails the recompute closed: the collector keeps
+its last good config and the failure is recorded (`last_failed_seq`, audited), never the raw import.
+A cached module an enabled pipeline references (`pinnedimport.References`, nested ones included) is
+never evicted; of the rest, each org keeps its 128 most recently used (`pinnedimport.MaxCachedModules`),
+and one used within the last hour is never evicted. Where modules are read: a save or validation
+(`Resolver.Saving`) and the preflights, the boot check, `shepherd admin tenant-preflight` and
+enabling or restoring (`Resolver.Preflight`) use a cached module and fetch an uncached one; the
+in-transaction lint (`tenancy.LintLocked`), `OrphanedPipelines`, `SetOrgStrictTenants`' check under
+the exclusive lock and the serve paths read the cache only (`pinnedimport.Cached`; the toggle fetches
+first, outside the lock). Turning strict mode on or off for an org marks its served configs dirty
+and recomputes them; at boot, every org with an enabled `import.git` pipeline is marked dirty, since
+`tenants.require_owned` may have changed. A strict pipeline's cached modules count towards
+`pipeline_tenants` (`validate.TenantLiteralsWith`). `RemoveOrgImportRepository` is refused while the
+rule applies and an enabled pipeline imports from the entry.
 
 A value is *readable* when it is a string literal, a `+` concatenation of readable values, or a
 declare argument (`argument.<name>.value`) whose default and every value an instantiation gives it

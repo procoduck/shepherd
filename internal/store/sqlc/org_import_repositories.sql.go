@@ -63,24 +63,25 @@ func (q *Queries) DeleteOrgImportRepository(ctx context.Context, arg DeleteOrgIm
 	return result.RowsAffected(), nil
 }
 
-const evictPinnedImportModules = `-- name: EvictPinnedImportModules :exec
-DELETE FROM pinned_import_modules m
-WHERE m.org_id = $1 AND (m.repository_key, m.revision, m.path) IN (
-    SELECT c.repository_key, c.revision, c.path FROM pinned_import_modules c
-    WHERE c.org_id = $1
-    ORDER BY c.used_at DESC, c.repository_key, c.revision, c.path
-    OFFSET $2::int
-)
+const deletePinnedImportModule = `-- name: DeletePinnedImportModule :exec
+DELETE FROM pinned_import_modules
+WHERE org_id = $1 AND repository_key = $2 AND revision = $3 AND path = $4
 `
 
-type EvictPinnedImportModulesParams struct {
-	OrgID pgtype.UUID `json:"org_id"`
-	Keep  int32       `json:"keep"`
+type DeletePinnedImportModuleParams struct {
+	OrgID         pgtype.UUID `json:"org_id"`
+	RepositoryKey string      `json:"repository_key"`
+	Revision      string      `json:"revision"`
+	Path          string      `json:"path"`
 }
 
-// Keeps the org's keep most recently used modules, removing the rest.
-func (q *Queries) EvictPinnedImportModules(ctx context.Context, arg EvictPinnedImportModulesParams) error {
-	_, err := q.db.Exec(ctx, evictPinnedImportModules, arg.OrgID, arg.Keep)
+func (q *Queries) DeletePinnedImportModule(ctx context.Context, arg DeletePinnedImportModuleParams) error {
+	_, err := q.db.Exec(ctx, deletePinnedImportModule,
+		arg.OrgID,
+		arg.RepositoryKey,
+		arg.Revision,
+		arg.Path,
+	)
 	return err
 }
 
@@ -158,6 +159,106 @@ func (q *Queries) ListOrgImportRepositories(ctx context.Context, orgID pgtype.UU
 			&i.CredentialID,
 			&i.CreatedBy,
 			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listOrgImportRepositoriesByCredential = `-- name: ListOrgImportRepositoriesByCredential :many
+SELECT id, org_id, repository, repository_key, credential_id, created_by, created_at FROM org_import_repositories WHERE credential_id = $1 ORDER BY repository_key
+`
+
+// The allowlist entries that fetch with a git credential.
+func (q *Queries) ListOrgImportRepositoriesByCredential(ctx context.Context, credentialID pgtype.UUID) ([]OrgImportRepository, error) {
+	rows, err := q.db.Query(ctx, listOrgImportRepositoriesByCredential, credentialID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []OrgImportRepository
+	for rows.Next() {
+		var i OrgImportRepository
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrgID,
+			&i.Repository,
+			&i.RepositoryKey,
+			&i.CredentialID,
+			&i.CreatedBy,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listOrgsWithImportGitPipelines = `-- name: ListOrgsWithImportGitPipelines :many
+SELECT DISTINCT org_id FROM pipelines
+WHERE enabled AND strpos(contents, 'import.git') > 0
+ORDER BY org_id
+`
+
+// Orgs with an enabled pipeline whose text mentions import.git: the only
+// ones whose served bytes depend on strict tenant mode (#390).
+func (q *Queries) ListOrgsWithImportGitPipelines(ctx context.Context) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, listOrgsWithImportGitPipelines)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []pgtype.UUID
+	for rows.Next() {
+		var org_id pgtype.UUID
+		if err := rows.Scan(&org_id); err != nil {
+			return nil, err
+		}
+		items = append(items, org_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPinnedImportModuleKeys = `-- name: ListPinnedImportModuleKeys :many
+SELECT repository_key, revision, path, used_at FROM pinned_import_modules
+WHERE org_id = $1
+ORDER BY used_at DESC, repository_key, revision, path
+`
+
+type ListPinnedImportModuleKeysRow struct {
+	RepositoryKey string             `json:"repository_key"`
+	Revision      string             `json:"revision"`
+	Path          string             `json:"path"`
+	UsedAt        pgtype.Timestamptz `json:"used_at"`
+}
+
+// An org's cached modules, most recently used first, for eviction.
+func (q *Queries) ListPinnedImportModuleKeys(ctx context.Context, orgID pgtype.UUID) ([]ListPinnedImportModuleKeysRow, error) {
+	rows, err := q.db.Query(ctx, listPinnedImportModuleKeys, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListPinnedImportModuleKeysRow
+	for rows.Next() {
+		var i ListPinnedImportModuleKeysRow
+		if err := rows.Scan(
+			&i.RepositoryKey,
+			&i.Revision,
+			&i.Path,
+			&i.UsedAt,
 		); err != nil {
 			return nil, err
 		}

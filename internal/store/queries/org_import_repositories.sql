@@ -28,12 +28,23 @@ INSERT INTO pinned_import_modules (org_id, repository_key, revision, path, conte
 VALUES ($1, $2, $3, $4, $5)
 ON CONFLICT (org_id, repository_key, revision, path) DO UPDATE SET used_at = now();
 
--- name: EvictPinnedImportModules :exec
--- Keeps the org's keep most recently used modules, removing the rest.
-DELETE FROM pinned_import_modules m
-WHERE m.org_id = sqlc.arg(org_id) AND (m.repository_key, m.revision, m.path) IN (
-    SELECT c.repository_key, c.revision, c.path FROM pinned_import_modules c
-    WHERE c.org_id = sqlc.arg(org_id)
-    ORDER BY c.used_at DESC, c.repository_key, c.revision, c.path
-    OFFSET sqlc.arg(keep)::int
-);
+-- name: ListPinnedImportModuleKeys :many
+-- An org's cached modules, most recently used first, for eviction.
+SELECT repository_key, revision, path, used_at FROM pinned_import_modules
+WHERE org_id = $1
+ORDER BY used_at DESC, repository_key, revision, path;
+
+-- name: DeletePinnedImportModule :exec
+DELETE FROM pinned_import_modules
+WHERE org_id = $1 AND repository_key = $2 AND revision = $3 AND path = $4;
+
+-- name: ListOrgImportRepositoriesByCredential :many
+-- The allowlist entries that fetch with a git credential.
+SELECT * FROM org_import_repositories WHERE credential_id = $1 ORDER BY repository_key;
+
+-- name: ListOrgsWithImportGitPipelines :many
+-- Orgs with an enabled pipeline whose text mentions import.git: the only
+-- ones whose served bytes depend on strict tenant mode (#390).
+SELECT DISTINCT org_id FROM pipelines
+WHERE enabled AND strpos(contents, 'import.git') > 0
+ORDER BY org_id;

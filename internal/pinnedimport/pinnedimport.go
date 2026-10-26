@@ -10,10 +10,12 @@
 // limits (gitsync.max_repo_bytes, max_file_bytes and fetch_timeout) and a
 // budget for the whole save (SaveBudget), and cached in the database by
 // (org, repository, commit, path): a commit cannot change, so a cached
-// module is never fetched again. The cache is shared by every replica and
-// survives restarts, so a save keeps verifying when the source has gone —
-// with a warning that collectors may fail to fetch the module when they
-// restart. Each org keeps its MaxCachedModules most recently used modules.
+// module is never fetched again. The cache is serving data: a strict org is
+// served each pinned import.git inlined as an import.string of the cached
+// text (Inline), so collectors never fetch the module themselves and run
+// exactly what the lint checked — a tag or branch later pushed under the
+// SHA's name changes nothing. A module an enabled pipeline references is
+// never evicted; each org keeps at most MaxCachedModules others.
 //
 // Shepherd fetches only a repository whose normal form
 // (NormalizeRepository) is on the org's allowlist, over https, http or ssh
@@ -27,6 +29,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -41,10 +44,23 @@ import (
 	"shepherd/internal/validate"
 )
 
-// MaxCachedModules is how many fetched modules each org keeps cached, the
-// least recently used going first. Each is at most gitsync.max_file_bytes
-// (1 MiB by default).
+// MaxCachedModules is how many fetched modules no enabled pipeline references
+// each org keeps cached, the least recently used going first. Referenced ones
+// are never evicted: they are what the org is served. Each is at most
+// gitsync.max_file_bytes (1 MiB by default).
 const MaxCachedModules = 128
+
+// MaxConcurrentFetches is how many module fetches run at once in the
+// process, across every save; a fetch waiting for a slot spends its save's
+// budget (SaveBudget) while it waits.
+const MaxConcurrentFetches = 4
+
+var fetchSlots = make(chan struct{}, MaxConcurrentFetches)
+
+// evictionGrace is how recently used an unreferenced module may be and still
+// not be evicted: a save fetches its modules before it commits the pipeline
+// that references them, so a module fetched moments ago is not "unused".
+var evictionGrace = time.Hour
 
 // SaveBudget bounds the wall-clock time one validation spends fetching
 // modules, whatever their number; each fetch is also bounded by
@@ -56,10 +72,8 @@ const SaveBudget = 30 * time.Second
 type Mode int
 
 const (
-	// ModeSave is a save or a validation: a cached module is used and its
-	// repository checked with one ls-remote (unreachable: a warning; a
-	// branch or tag spelled like the commit: refused); a module not cached
-	// is fetched.
+	// ModeSave is a save or a validation: a cached module is used (and
+	// marked used); a module not cached is fetched.
 	ModeSave Mode = iota
 	// ModePreflight is a check of what is stored (tenant preflight, boot,
 	// enabling a pipeline): a cached module is used as it is, without
@@ -79,17 +93,12 @@ type Source interface {
 // fetcher is the git side, gitrepo in production.
 type fetcher interface {
 	FileAtCommit(ctx context.Context, repo gitrepo.Repo, commit, path string) ([]byte, error)
-	CheckPinned(ctx context.Context, repo gitrepo.Repo, commit string) error
 }
 
 type gitFetcher struct{}
 
 func (gitFetcher) FileAtCommit(ctx context.Context, repo gitrepo.Repo, commit, path string) ([]byte, error) {
 	return repo.FileAtCommit(ctx, commit, path)
-}
-
-func (gitFetcher) CheckPinned(ctx context.Context, repo gitrepo.Repo, commit string) error {
-	return repo.CheckPinned(ctx, commit)
 }
 
 // Resolver fetches and caches pinned modules. A nil *Resolver reads the
@@ -122,22 +131,34 @@ func New(cfg *config.Config, enc *crypto.Encryptor, logger *slog.Logger) *Resolv
 }
 
 type modeSource struct {
-	r    *Resolver
-	mode Mode
+	r     *Resolver
+	mode  Mode
+	clock *budgetClock
 }
 
-// Saving is the Source for a save or validation (ModeSave).
-func (r *Resolver) Saving() Source { return modeSource{r: r, mode: ModeSave} }
+// budgetClock is one fetch budget, shared by every lint a Source serves: it
+// starts at the first network call.
+type budgetClock struct {
+	mu       sync.Mutex
+	deadline time.Time
+}
 
-// Preflight is the Source for a check of stored pipelines (ModePreflight).
-func (r *Resolver) Preflight() Source { return modeSource{r: r, mode: ModePreflight} }
+// Saving is the Source for a save or validation (ModeSave). Every lint it
+// serves shares one SaveBudget: one Source per save, or per git sync pass.
+func (r *Resolver) Saving() Source { return modeSource{r: r, mode: ModeSave, clock: &budgetClock{}} }
+
+// Preflight is the Source for a check of stored pipelines (ModePreflight),
+// with one SaveBudget across it.
+func (r *Resolver) Preflight() Source {
+	return modeSource{r: r, mode: ModePreflight, clock: &budgetClock{}}
+}
 
 // Cached is the Source that reads only the cache (ModeCached), through the
 // q it is given: the write transaction's.
 var Cached Source = modeSource{mode: ModeCached}
 
 func (s modeSource) Modules(q *sqlc.Queries, orgID pgtype.UUID, repos []sqlc.OrgImportRepository) validate.GitModules {
-	m := &modules{r: s.r, mode: s.mode, q: q, orgID: orgID, repos: map[string]sqlc.OrgImportRepository{}}
+	m := &modules{r: s.r, mode: s.mode, q: q, orgID: orgID, repos: map[string]sqlc.OrgImportRepository{}, clock: s.clock, list: repos}
 	if s.r == nil {
 		m.mode = ModeCached
 	}
@@ -149,12 +170,13 @@ func (s modeSource) Modules(q *sqlc.Queries, orgID pgtype.UUID, repos []sqlc.Org
 
 // modules is the validate.GitModules of one lint.
 type modules struct {
-	r        *Resolver
-	mode     Mode
-	q        *sqlc.Queries
-	orgID    pgtype.UUID
-	repos    map[string]sqlc.OrgImportRepository
-	deadline time.Time
+	r     *Resolver
+	mode  Mode
+	q     *sqlc.Queries
+	orgID pgtype.UUID
+	repos map[string]sqlc.OrgImportRepository
+	list  []sqlc.OrgImportRepository
+	clock *budgetClock
 }
 
 func (m *modules) Allowed(repository string) error {
@@ -185,7 +207,7 @@ func (m *modules) Fetch(ctx context.Context, gm validate.GitModule) (string, str
 	})
 	switch {
 	case err == nil:
-		return m.cached(ctx, gm, entry, row)
+		return m.cached(ctx, row)
 	case !errors.Is(err, pgx.ErrNoRows):
 		return "", "", errors.New("reading the module cache failed")
 	}
@@ -198,7 +220,17 @@ func (m *modules) Fetch(ctx context.Context, gm validate.GitModule) (string, str
 	if err != nil {
 		return "", "", err
 	}
+	select {
+	case fetchSlots <- struct{}{}:
+	case <-ctx.Done():
+		return "", "", describe(ctx.Err())
+	}
+	if ctx.Err() != nil { // a slot and the deadline arrived together
+		<-fetchSlots
+		return "", "", describe(ctx.Err())
+	}
 	data, err := m.r.git.FileAtCommit(ctx, repo, gm.Revision, gm.Path)
+	<-fetchSlots
 	if err != nil {
 		err = scrub(err)
 		m.r.logger.WarnContext(ctx, "pinned import: fetch failed",
@@ -214,50 +246,82 @@ func (m *modules) Fetch(ctx context.Context, gm validate.GitModule) (string, str
 	}); err != nil {
 		return "", "", errors.New("caching the fetched module failed")
 	}
-	if err := m.q.EvictPinnedImportModules(ctx, sqlc.EvictPinnedImportModulesParams{OrgID: m.orgID, Keep: MaxCachedModules}); err != nil {
+	if err := m.evict(ctx); err != nil {
 		m.r.logger.WarnContext(ctx, "pinned import: evicting old cached modules", "org_id", m.orgID.String(), "err", err)
 	}
 	return content, "", nil
 }
 
-// cached answers from a cache row: as is, or (ModeSave) after checking the
-// repository is still reachable and no branch or tag shadows the commit.
-func (m *modules) cached(ctx context.Context, gm validate.GitModule, entry sqlc.OrgImportRepository, row sqlc.PinnedImportModule) (string, string, error) {
-	if m.mode != ModeSave {
-		return row.Content, "", nil
+// evict removes the org's cached modules beyond MaxCachedModules that no
+// enabled pipeline of the org references (References, through the cache)
+// and that were not used within evictionGrace. A referenced module is what
+// the org is served, so it is never evicted.
+func (m *modules) evict(ctx context.Context) error {
+	rows, err := m.q.ListPinnedImportModuleKeys(ctx, m.orgID)
+	if err != nil || len(rows) <= MaxCachedModules {
+		return err
 	}
-	ctx, cancel := m.budgetCtx(ctx)
-	defer cancel()
-	if err := m.q.TouchPinnedImportModule(ctx, sqlc.TouchPinnedImportModuleParams{
-		OrgID: m.orgID, RepositoryKey: row.RepositoryKey, Revision: row.Revision, Path: row.Path,
-	}); err != nil {
-		m.r.logger.WarnContext(ctx, "pinned import: touching a cached module", "org_id", m.orgID.String(), "err", err)
+	pipelines, err := m.q.ListEnabledPipelinesByOrg(ctx, m.orgID)
+	if err != nil {
+		return err
 	}
-	repo, scrub, err := m.repo(ctx, entry, gm.Repository)
-	if err == nil {
-		err = scrub(m.r.git.CheckPinned(ctx, repo, gm.Revision))
+	used := map[Ref]bool{}
+	for i := range pipelines {
+		refs, err := References(ctx, m.q, m.orgID, m.list, pipelines[i].Contents)
+		if err != nil {
+			return err
+		}
+		for _, r := range refs {
+			used[r] = true
+		}
 	}
-	switch {
-	case err == nil:
-		return row.Content, "", nil
-	case errors.Is(err, gitrepo.ErrRevisionShadowed):
-		return "", "", describe(err)
-	default:
-		m.r.logger.WarnContext(ctx, "pinned import: source unreachable, using the cached module",
-			"org_id", m.orgID.String(), "repository", row.RepositoryKey, "revision", gm.Revision, "err", err)
-		return row.Content, fmt.Sprintf("its repository could not be reached (%v), so it was checked against the copy "+
-			"Shepherd fetched on %s; collectors may fail to fetch the module when they restart",
-			describe(err), row.FetchedAt.Time.UTC().Format(time.DateOnly)), nil
+	kept := 0
+	cutoff := time.Now().Add(-evictionGrace)
+	for _, row := range rows {
+		if used[Ref{Key: row.RepositoryKey, Revision: row.Revision, Path: row.Path}] {
+			continue
+		}
+		kept++
+		if kept <= MaxCachedModules || row.UsedAt.Time.After(cutoff) {
+			continue
+		}
+		if err := m.q.DeletePinnedImportModule(ctx, sqlc.DeletePinnedImportModuleParams{
+			OrgID: m.orgID, RepositoryKey: row.RepositoryKey, Revision: row.Revision, Path: row.Path,
+		}); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
-// budgetCtx bounds ctx by the lint's fetch budget, which starts at its first
-// network call.
-func (m *modules) budgetCtx(ctx context.Context) (context.Context, context.CancelFunc) {
-	if m.deadline.IsZero() {
-		m.deadline = time.Now().Add(m.r.budget)
+// cached answers from a cache row. It never contacts the source: the org
+// is served this text, not an import collectors fetch.
+func (m *modules) cached(ctx context.Context, row sqlc.PinnedImportModule) (string, string, error) {
+	if m.mode == ModeSave {
+		if err := m.q.TouchPinnedImportModule(ctx, sqlc.TouchPinnedImportModuleParams{
+			OrgID: m.orgID, RepositoryKey: row.RepositoryKey, Revision: row.Revision, Path: row.Path,
+		}); err != nil {
+			m.r.logger.WarnContext(ctx, "pinned import: touching a cached module", "org_id", m.orgID.String(), "err", err)
+		}
 	}
-	return context.WithDeadline(ctx, m.deadline)
+	return row.Content, "", nil
+}
+
+// budgetCtx bounds ctx by the Source's fetch budget, which starts at its
+// first network call.
+func (m *modules) budgetCtx(ctx context.Context) (context.Context, context.CancelFunc) {
+	c := m.clock
+	if c == nil {
+		c = &budgetClock{}
+		m.clock = c
+	}
+	c.mu.Lock()
+	if c.deadline.IsZero() {
+		c.deadline = time.Now().Add(m.r.budget)
+	}
+	d := c.deadline
+	c.mu.Unlock()
+	return context.WithDeadline(ctx, d)
 }
 
 // repo is the gitrepo.Repo for an allowlisted entry, fetched at url (the

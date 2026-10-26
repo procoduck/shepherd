@@ -52,7 +52,9 @@ func (r Repo) clientOptions(ctx context.Context, counter *byteCounter) ([]client
 		httpClient.CheckRedirect = sameHostOnly
 	}
 
-	opts := []client.Option{client.WithHTTPClient(httpClient)}
+	// SSH (and git://) connections are counted too: max_repo_bytes bounds
+	// every transport, not only HTTP.
+	opts := []client.Option{client.WithHTTPClient(httpClient), client.WithDialer(countingDialer(counter))}
 
 	if r.Auth != nil {
 		username, password, ok, err := r.Auth.HTTP(ctx)
@@ -91,6 +93,35 @@ func (r Repo) clientOptions(ctx context.Context, counter *byteCounter) ([]client
 	}
 
 	return opts, nil
+}
+
+// countingDialer dials TCP with every byte read counting against counter,
+// so an SSH fetch trips ErrRepoTooLarge as an HTTP one does.
+func countingDialer(counter *byteCounter) func(ctx context.Context, network, addr string) (net.Conn, error) {
+	return func(ctx context.Context, network, addr string) (net.Conn, error) {
+		conn, err := (&net.Dialer{}).DialContext(ctx, network, addr)
+		if err != nil {
+			return nil, err
+		}
+		return &countingConn{Conn: conn, counter: counter}, nil
+	}
+}
+
+// countingConn is a net.Conn whose reads count against a byteCounter; the
+// read that crosses the limit fails with ErrRepoTooLarge.
+type countingConn struct {
+	net.Conn
+	counter *byteCounter
+}
+
+func (c *countingConn) Read(p []byte) (int, error) {
+	n, err := c.Conn.Read(p)
+	if n > 0 {
+		if total := c.counter.n.Add(int64(n)); total > c.counter.limit {
+			return n, fmt.Errorf("%w: read %d bytes, limit %d", ErrRepoTooLarge, total, c.counter.limit)
+		}
+	}
+	return n, err
 }
 
 // ErrRedirectRefused is an HTTP redirect to another scheme, host or port,

@@ -199,6 +199,12 @@ func WithVisualPinnedImports(r *pinnedimport.Resolver) VisualServiceOption {
 	return func(s *VisualService) { s.imports = r }
 }
 
+// WithAdminRecompute gives the strict toggle the eager recompute of an org's
+// served configs (PipelineService.RecomputeOrgCaches).
+func WithAdminRecompute(recompute func(ctx context.Context, orgID pgtype.UUID)) AdminServiceOption {
+	return func(s *AdminService) { s.recompute = recompute }
+}
+
 // WithAdminPinnedImports is WithPinnedImports for the tenant preflight.
 func WithAdminPinnedImports(r *pinnedimport.Resolver) AdminServiceOption {
 	return func(s *AdminService) { s.imports = r }
@@ -261,9 +267,16 @@ func (s *AdminService) SetOrgStrictTenants(ctx context.Context, req *connect.Req
 			}
 		}
 	}
-	return s.inOrgTenantTx(ctx, orgID, func(q *sqlc.Queries, org sqlc.Org, _ []sqlc.OrgTenant) error {
+	changed := false
+	resp, err := s.inOrgTenantTx(ctx, orgID, func(q *sqlc.Queries, org sqlc.Org, _ []sqlc.OrgTenant) error {
 		if org.StrictTenants == on {
 			return nil
+		}
+		changed = true
+		// A strict org is served its pinned import.git modules inlined, a
+		// non-strict one as written: the toggle changes served bytes.
+		if err := q.MarkServeCacheDirtyByOrg(ctx, orgID); err != nil {
+			return connect.NewError(connect.CodeInternal, errors.New("failed to change strict tenant mode"))
 		}
 		if on {
 			vs, err := tenancy.Preflight(ctx, q, org, true, pinnedimport.Cached)
@@ -286,6 +299,10 @@ func (s *AdminService) SetOrgStrictTenants(ctx context.Context, req *connect.Req
 		}
 		return nil
 	})
+	if err == nil && changed && s.recompute != nil {
+		go s.recompute(context.Background(), orgID) //nolint:contextcheck,gosec // G118+contextcheck: intentional detached context, as UpdatePipeline
+	}
+	return resp, err
 }
 
 // TenantPreflight reports what would break the strict tenant rule (app

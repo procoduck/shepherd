@@ -356,6 +356,52 @@ var _ = Describe("pinned import.git in the preflight", Label("integration"), fun
 			To(MatchError(tenancy.ErrPipelineNotOwned))
 	})
 
+	It("builds the served form from the cache in the policy the gate takes", func() {
+		p, err := tenancy.Load(ctx, st.Queries, org.ID, true)
+		Expect(err).NotTo(HaveOccurred())
+		vp := p.Validation(st.Queries, pinnedimport.Cached)
+		Expect(vp.Inline).NotTo(BeNil())
+		served, err := vp.Inline(ctx, importing("owned.alloy"))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(served).To(And(ContainSubstring(`import.string "m"`), Not(ContainSubstring("import.git"))))
+		_, err = vp.Inline(ctx, importing("none.alloy"))
+		Expect(err).To(MatchError(pinnedimport.ErrNotInlinable))
+	})
+
+	// tenants.require_owned may change across a restart, which switches how
+	// every org's pinned imports are served: boot marks those orgs dirty.
+	It("marks dirty the collectors of orgs with an enabled import.git pipeline, and no other", func() {
+		cl, err := st.Queries.UpsertCluster(ctx, "pinned-boot")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(st.Queries.ClaimCluster(ctx, sqlc.ClaimClusterParams{ID: cl.ID, OrgID: org.ID})).To(Succeed())
+		c, err := st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: cl.ID, Role: "singleton"})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(tenancy.MarkPinnedImportOrgsDirty(ctx, st.Queries)).To(Succeed())
+		_, err = st.Queries.GetServeCache(ctx, c.ID)
+		Expect(err).To(HaveOccurred(), "no import.git pipeline yet: nothing marked")
+
+		pipeline("pinned", importing("owned.alloy"))
+		Expect(tenancy.MarkPinnedImportOrgsDirty(ctx, st.Queries)).To(Succeed())
+		row, err := st.Queries.GetServeCache(ctx, c.ID)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(row.Dirty).To(BeTrue())
+	})
+
+	It("indexes a pinned module's tenants, so the pipeline is recorded complete", func() {
+		pipeline("indexed", importing("owned.alloy"))
+		tenancy.RebuildPipelineTenants(ctx, st)
+		p, err := st.Queries.GetPipelineByOrgAndName(ctx, sqlc.GetPipelineByOrgAndNameParams{OrgID: org.ID, Name: "indexed"})
+		Expect(err).NotTo(HaveOccurred())
+		idx, err := st.Queries.GetPipelineTenantIndex(ctx, p.ID)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(idx.Complete).To(BeTrue())
+		other, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{Name: "pinned-other", DisplayName: "O", AdminGroupID: "po"})
+		Expect(err).NotTo(HaveOccurred())
+		covered, _, err := tenancy.OtherOrgPipelinesCovered(ctx, st.Queries, other.ID, gateway.OrgTenant{Tenant: "acme", Kind: gateway.TenantExact})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(covered).To(ConsistOf(ContainSubstring(`pipeline "indexed"`)))
+	})
+
 	It("names the enabled pipelines that import from an allowlist entry", func() {
 		pipeline("user", importing("owned.alloy"))
 		pipeline("bystander", module("acme"))

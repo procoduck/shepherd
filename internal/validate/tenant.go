@@ -32,6 +32,12 @@ type TenantPolicy struct {
 	// allowlist, and the fetched module is linted with the same rules
 	// (#390). Nil refuses every import.git.
 	Git GitModules
+	// Inline builds what a strict org is served for a pipeline's text: each
+	// pinned import.git rewritten into an import.string of the module text
+	// the lint checked (pinnedimport.Inline). ValidatePipeline validates
+	// that form too. Nil: no served form is checked (a non-strict policy, or
+	// a caller with nothing to inline from).
+	Inline func(ctx context.Context, contents string) (string, error)
 }
 
 // GitModule is one import.git module: its repository, revision and path as
@@ -179,13 +185,18 @@ const (
 	// maxContentBytes is the largest text the lint reads at all — the
 	// pipeline contents cap (mgmtapi.MaxPipelineContentsBytes), so a larger
 	// one is never saved; parsing is linear in the text.
-	maxContentBytes = 1 << 20
+	maxContentBytes = MaxContentBytes
 	// maxLiterals is how many distinct tenants one pipeline may be recorded
 	// as writing to (pipeline_tenants); more is "incomplete".
 	maxLiterals = 256
 	// maxDiagnostics is how many refusals one run reports, plus one summary.
 	maxDiagnostics = 100
 )
+
+// MaxContentBytes is the largest pipeline text the tenant lint reads, and the
+// most a strict org's pipeline may be with its pinned modules inlined
+// (pinnedimport.Inline): the pipeline contents cap.
+const MaxContentBytes = 1 << 20
 
 // lintDeadline is the wall-clock guard of one run. It is a crash guard, not
 // a verdict: a run that hits it is "busy" (ErrLintBusy — retry), never a
@@ -237,6 +248,16 @@ func TenantLintChecked(ctx context.Context, content string, p TenantPolicy) ([]D
 	if !p.Strict {
 		return nil, nil
 	}
+	l, err := runLint(ctx, content, p)
+	if err != nil || l == nil {
+		return nil, err
+	}
+	return l.diags, nil
+}
+
+// runLint is the lint with its fetch rounds (see TenantLintChecked): nil
+// for content that does not parse.
+func runLint(ctx context.Context, content string, p TenantPolicy) (*tenantLinter, error) {
 	git := &gitState{fetched: map[GitModule]gitFetch{}}
 	for round := 0; ; round++ {
 		git.needed, git.asked = nil, map[GitModule]bool{}
@@ -249,7 +270,7 @@ func TenantLintChecked(ctx context.Context, content string, p TenantPolicy) ([]D
 			return nil, nil
 		}
 		if len(git.needed) == 0 || p.Git == nil || round > MaxGitImportDepth {
-			return l.diags, nil
+			return l, nil
 		}
 		for _, m := range git.needed {
 			if len(git.fetched) >= maxGitModules {
@@ -273,10 +294,16 @@ func TenantLintChecked(ctx context.Context, content string, p TenantPolicy) ([]D
 // err is ErrLintBusy when the run hit the wall-clock guard: the result means
 // nothing, and the caller keeps what it had.
 func TenantLiterals(content string) (literals []string, complete bool, err error) {
-	b := newBudget()
-	l := newTenantLinter(content, TenantPolicy{Strict: true, Owns: func(string) bool { return true }}, nil, 0, 0, nil, b)
-	if b.timedOut {
-		return nil, false, ErrLintBusy
+	return TenantLiteralsWith(context.Background(), content, nil)
+}
+
+// TenantLiteralsWith is TenantLiterals reading pinned import.git modules from
+// git (nil: none, so a pipeline with one is incomplete): a strict org's
+// pipeline whose modules are cached is recorded with their tenants.
+func TenantLiteralsWith(ctx context.Context, content string, git GitModules) (literals []string, complete bool, err error) {
+	l, err := runLint(ctx, content, TenantPolicy{Strict: true, Owns: func(string) bool { return true }, Git: git})
+	if err != nil {
+		return nil, false, err
 	}
 	if l == nil {
 		return nil, true, nil
@@ -907,7 +934,7 @@ func (l *tenantLinter) importBlock(b *ast.BlockStmt, name string, sc scope, sibl
 	switch name {
 	case "import.string":
 	case "import.git":
-		l.gitImport(b, where, sc, siblings)
+		l.gitImport(b, where, siblings)
 		return
 	default:
 		l.refuse(b, where+" loads configuration from outside the pipeline, which cannot be verified — strict "+
@@ -960,7 +987,7 @@ func (l *tenantLinter) lintModule(at ast.Node, where, text string, args map[stri
 // the org's allowlist (policy.Git) and the import nests at most
 // MaxGitImportDepth deep. The module is then fetched and linted with the
 // same rules, nested imports included.
-func (l *tenantLinter) gitImport(b *ast.BlockStmt, where string, sc scope, siblings ast.Body) {
+func (l *tenantLinter) gitImport(b *ast.BlockStmt, where string, siblings ast.Body) {
 	if l.policy.Git == nil || l.git == nil {
 		l.refuse(b, where+" loads configuration from outside the pipeline, which cannot be verified — strict "+
 			"tenant mode refuses it; inline the module (declare, or import.string with literal content)")
@@ -978,12 +1005,14 @@ func (l *tenantLinter) gitImport(b *ast.BlockStmt, where string, sc scope, sibli
 			}
 			return "", false
 		}
-		vals, ok := l.resolve(v, sc, 0)
-		if !ok || len(vals) != 1 {
+		// A plain string literal only: the serve path inlines the module
+		// (pinnedimport.Inline), reading the block exactly this way.
+		val, ok := PlainStringLiteral(v)
+		if !ok || !l.budget.take() {
 			l.refuse(v, fmt.Sprintf("%s %s cannot be verified — strict tenant mode refuses it; use a string literal", where, attr))
 			return "", false
 		}
-		return vals[0], true
+		return val, true
 	}
 	repo, ok1 := literal("repository")
 	rev, ok2 := literal("revision")
@@ -995,9 +1024,9 @@ func (l *tenantLinter) gitImport(b *ast.BlockStmt, where string, sc scope, sibli
 		l.refuse(attrs["revision"], where+" "+msg)
 		return
 	}
-	if !cleanModulePath(path) {
-		l.refuse(attrs["path"], fmt.Sprintf("%s path %q is not a clean relative path to one file in the "+
-			"repository — strict tenant mode refuses it", where, path))
+	if !CleanModulePath(path) {
+		l.refuse(attrs["path"], fmt.Sprintf("%s path %q is not a clean relative path (ASCII only) to one file in "+
+			"the repository — strict tenant mode refuses it", where, path))
 		return
 	}
 	if l.gitDepth >= MaxGitImportDepth {
@@ -1043,13 +1072,37 @@ func revisionProblem(rev string) string {
 	}
 }
 
-// cleanModulePath reports whether p is a clean relative path: not empty,
-// not absolute, no "." or ".." element, no backslash.
-func cleanModulePath(p string) bool {
+// CleanModulePath reports whether p may name a pinned import.git module: a
+// clean relative path — not empty, not absolute, no "." or ".." element, no
+// backslash — of printable ASCII only. Non-ASCII is refused outright, so no
+// two spellings (NFC and NFD forms of one name) can name the module; a
+// case-insensitive collision with another entry is refused when the module
+// is fetched (gitrepo.FileAtCommit).
+func CleanModulePath(p string) bool {
 	if p == "" || p == "." || strings.HasPrefix(p, "/") || strings.Contains(p, "\\") || pathpkg.Clean(p) != p {
 		return false
 	}
+	for i := 0; i < len(p); i++ {
+		if p[i] < 0x20 || p[i] > 0x7e {
+			return false
+		}
+	}
 	return p != ".." && !strings.HasPrefix(p, "../")
+}
+
+// PlainStringLiteral returns v's value when v is a string literal itself —
+// not parenthesised, not an expression. The only form strict mode reads an
+// import.git's repository, revision and path in.
+func PlainStringLiteral(v ast.Expr) (string, bool) {
+	lit, ok := v.(*ast.LiteralExpr)
+	if !ok || lit.Kind != token.STRING {
+		return "", false
+	}
+	s, err := strconv.Unquote(lit.Value)
+	if err != nil {
+		return "", false
+	}
+	return s, true
 }
 
 // moduleArguments resolves, in this text, every value an instantiation of
