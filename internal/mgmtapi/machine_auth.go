@@ -12,6 +12,7 @@ import (
 
 	"connectrpc.com/connect"
 
+	"shepherd/internal/auth"
 	"shepherd/internal/store"
 )
 
@@ -35,12 +36,15 @@ type serviceAccountIdentity struct {
 	ID    string
 	OrgID string
 	Name  string
-	// Role is the stored tier, service_accounts.role ("editor" or "admin",
-	// 0018_service_account_role), kept raw: authorizeServiceAccountProcedure
+	// Role is the stored tier, service_accounts.role ("viewer", "editor" or
+	// "admin", 0018/0042), kept raw: authorizeServiceAccountProcedure
 	// (rpc_interceptor.go) parses it with auth.ParseRole and denies a value
 	// that is not a role, after the org match. Set explicitly at creation
 	// (CreateServiceAccount) — admin is never inferred.
-	Role       string
+	Role string
+	// Capability is service_accounts.capability, "propose" or "apply", or ""
+	// for a viewer (NULL in the row, 0042_service_account_viewer). Only
+	// "apply" passes requireWriteAuthorized.
 	Capability string
 	// OnBehalfOf is the human this machine write is CLAIMED to be for,
 	// read from a request header the caller controls. It is a claim until
@@ -164,7 +168,7 @@ func verifyServiceAccountBasicAuth(ctx context.Context, authHeader string, st *s
 		return serviceAccountIdentity{}, errBadServiceAccountAuth
 	}
 	return serviceAccountIdentity{
-		ID: sa.ID.String(), OrgID: sa.OrgID.String(), Name: sa.Name, Role: sa.Role, Capability: sa.Capability,
+		ID: sa.ID.String(), OrgID: sa.OrgID.String(), Name: sa.Name, Role: sa.Role, Capability: sa.Capability.String,
 		DelegatedPrincipal: sa.CreatedBy,
 	}, nil
 }
@@ -210,6 +214,15 @@ func requireWriteAuthorized(ctx context.Context) error {
 	if !ok {
 		return nil // human session: capability/attribution guards do not apply.
 	}
+	// A viewer never writes (#362). Its capability is NULL, which the
+	// capability check below already refuses; checking the tier as well
+	// keeps that true for an identity whose capability says otherwise, which
+	// the service_accounts_role_capability CHECK makes impossible to store.
+	// A tier that is not a role is refused too, as the interceptor refuses it.
+	if !serviceAccountMayPropose(sa) {
+		return connect.NewError(connect.CodePermissionDenied,
+			fmt.Errorf("service account %q holds %q tier; a write requires %q or above", sa.Name, sa.Role, auth.RoleEditor))
+	}
 	if sa.Capability != capabilityApply {
 		return connect.NewError(connect.CodePermissionDenied,
 			fmt.Errorf("service account %q has %q capability; this write requires %q", sa.Name, sa.Capability, capabilityApply))
@@ -243,6 +256,15 @@ func requireWriteAuthorized(ctx context.Context) error {
 	return verifyOnBehalfOf(sa, sa.OnBehalfOf)
 }
 
+// serviceAccountMayPropose reports whether sa's tier is one that writes at
+// all — editor or above. A viewer (#362) and a tier that is not a role never
+// do: requireWriteAuthorized refuses them, and ValidatePipeline does not
+// record their validation as a proposal.
+func serviceAccountMayPropose(sa serviceAccountIdentity) bool {
+	tier, err := auth.ParseRole(sa.Role)
+	return err == nil && tier.AtLeast(auth.RoleEditor)
+}
+
 // verifyOnBehalfOf checks a claimed principal against the human recorded on
 // the service-account row when an authenticated admin issued the credential.
 //
@@ -269,7 +291,7 @@ func verifyOnBehalfOf(sa serviceAccountIdentity, claim string) error {
 }
 
 // capability values, matching 0012_teams_service_accounts.up.sql's CHECK
-// constraint.
+// constraint. A viewer service account holds neither (NULL, 0042).
 const (
 	capabilityPropose = "propose"
 	capabilityApply   = "apply"

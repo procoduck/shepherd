@@ -10,6 +10,7 @@ import (
 	"log/slog"
 
 	"connectrpc.com/connect"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	mgmtv1 "shepherd/gen/shepherd/mgmt/v1"
 	"shepherd/gen/shepherd/mgmt/v1/mgmtv1connect"
@@ -35,8 +36,9 @@ var _ mgmtv1connect.ServiceAccountServiceHandler = (*ServiceAccountService)(nil)
 
 var (
 	errServiceAccountNameRequired = errors.New("name is required")
-	errServiceAccountCapability   = errors.New(`capability must be "propose" or "apply"`)
-	errServiceAccountRole         = errors.New("role must be ROLE_EDITOR or ROLE_ADMIN")
+	errServiceAccountCapability   = errors.New(`capability must be "propose" or "apply" for ROLE_EDITOR and ROLE_ADMIN`)
+	errServiceAccountViewerCap    = errors.New("a ROLE_VIEWER service account carries no capability: leave capability empty")
+	errServiceAccountRole         = errors.New("role must be ROLE_VIEWER, ROLE_EDITOR or ROLE_ADMIN")
 	errServiceAccountNotFound     = errors.New("service account not found")
 	errServiceAccountNameExists   = errors.New("service account name already exists in this org")
 )
@@ -46,23 +48,45 @@ var (
 // not defaulted, because Connect's JSON codec discards an enum name it does
 // not recognise and a retired string role ("admin") or a typo would arrive
 // as UNSPECIFIED — D3's "admin explicit at creation" also means nothing is
-// ever silently coerced. Viewer is not a service-account tier
-// (0018_service_account_role's CHECK allows editor and admin), so
-// ROLE_VIEWER is refused like any other value outside the pair.
+// ever silently coerced. Every org role is a tier (#362,
+// 0042_service_account_viewer): a viewer service account reaches what an org
+// viewer reaches.
 func serviceAccountTier(r mgmtv1.Role) (auth.Role, error) {
 	role, err := roleFromProto(r)
 	if err != nil {
 		return "", errServiceAccountRole
 	}
 	switch role {
-	case auth.RoleEditor, auth.RoleAdmin:
+	case auth.RoleViewer, auth.RoleEditor, auth.RoleAdmin:
 		return role, nil
-	case auth.RoleViewer:
-		return "", errServiceAccountRole
 	}
 	return "", errServiceAccountRole
 }
 
+// serviceAccountCapability decides the capability stored for a tier
+// (0042's service_accounts_role_capability): none (NULL) for a viewer, which
+// never writes — a capability sent with ROLE_VIEWER is refused rather than
+// dropped, so no request reads as "a viewer that may apply" — and propose or
+// apply, required, for editor and admin.
+func serviceAccountCapability(role auth.Role, capability string) (pgtype.Text, error) {
+	switch role {
+	case auth.RoleViewer:
+		if capability != "" {
+			return pgtype.Text{}, errServiceAccountViewerCap
+		}
+		return pgtype.Text{}, nil
+	case auth.RoleEditor, auth.RoleAdmin:
+		if capability != capabilityPropose && capability != capabilityApply {
+			return pgtype.Text{}, errServiceAccountCapability
+		}
+		return pgtype.Text{String: capability, Valid: true}, nil
+	}
+	return pgtype.Text{}, errServiceAccountRole
+}
+
+// toServiceAccountProto maps a row onto the wire. A viewer's NULL capability
+// is the empty string (capability is a plain proto3 string, so it is simply
+// absent on the wire).
 func toServiceAccountProto(sa sqlc.ServiceAccount) *mgmtv1.ServiceAccount {
 	status := "active"
 	if sa.RevokedAt.Valid {
@@ -72,7 +96,7 @@ func toServiceAccountProto(sa sqlc.ServiceAccount) *mgmtv1.ServiceAccount {
 		Id:         sa.ID.String(),
 		OrgId:      sa.OrgID.String(),
 		Name:       sa.Name,
-		Capability: sa.Capability,
+		Capability: sa.Capability.String,
 		CreatedBy:  sa.CreatedBy,
 		Status:     status,
 		CreatedAt:  protoTimestamp(sa.CreatedAt),
@@ -131,11 +155,11 @@ func (s *ServiceAccountService) CreateServiceAccount(ctx context.Context, req *c
 	if req.Msg.GetName() == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errServiceAccountNameRequired)
 	}
-	capability := req.Msg.GetCapability()
-	if capability != capabilityPropose && capability != capabilityApply {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errServiceAccountCapability)
-	}
 	role, err := serviceAccountTier(req.Msg.GetRole())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	capability, err := serviceAccountCapability(role, req.Msg.GetCapability())
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
@@ -160,7 +184,7 @@ func (s *ServiceAccountService) CreateServiceAccount(ctx context.Context, req *c
 	}
 	auditLog(ctx, s.store, actor, orgID, "service_account.create", "service_account", sa.ID.String())
 	return connect.NewResponse(&mgmtv1.CreateServiceAccountResponse{
-		Id: sa.ID.String(), Name: sa.Name, Capability: sa.Capability, Secret: secret, Role: storedRoleToProto(sa.Role),
+		Id: sa.ID.String(), Name: sa.Name, Capability: sa.Capability.String, Secret: secret, Role: storedRoleToProto(sa.Role),
 	}), nil
 }
 

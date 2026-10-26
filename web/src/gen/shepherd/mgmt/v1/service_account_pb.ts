@@ -40,7 +40,9 @@ export type ServiceAccount = Message<"shepherd.mgmt.v1.ServiceAccount"> & {
   name: string;
 
   /**
-   * capability is "propose" or "apply" (G12).
+   * capability is "propose" or "apply" (G12) for ROLE_EDITOR and
+   * ROLE_ADMIN, and empty for ROLE_VIEWER: a viewer never writes, so it
+   * carries no capability (#362, 0042_service_account_viewer).
    *
    * @generated from field: string capability = 4;
    */
@@ -64,7 +66,8 @@ export type ServiceAccount = Message<"shepherd.mgmt.v1.ServiceAccount"> & {
   createdAt?: Timestamp | undefined;
 
   /**
-   * role is ROLE_EDITOR or ROLE_ADMIN (W3-1, 0018_service_account_role): the
+   * role is ROLE_VIEWER, ROLE_EDITOR or ROLE_ADMIN (W3-1
+   * 0018_service_account_role, #362 0042_service_account_viewer): the
    * tier this credential is checked against, the same way a human
    * session's org role is — see
    * authorizeServiceAccountProcedure (rpc_interceptor.go). Orthogonal to
@@ -138,16 +141,19 @@ export type CreateServiceAccountRequest = Message<"shepherd.mgmt.v1.CreateServic
   name: string;
 
   /**
-   * capability is "propose" or "apply", required.
+   * capability is "propose" or "apply", required for ROLE_EDITOR and
+   * ROLE_ADMIN. It must be empty for ROLE_VIEWER: a viewer carries no
+   * capability, and one sent with it is refused with InvalidArgument.
    *
    * @generated from field: string capability = 3;
    */
   capability: string;
 
   /**
-   * role is ROLE_EDITOR or ROLE_ADMIN (W3-1), required: ROLE_UNSPECIFIED
-   * and ROLE_VIEWER are refused with InvalidArgument. Nothing about the
-   * request ever implies ROLE_ADMIN (D3).
+   * role is ROLE_VIEWER, ROLE_EDITOR or ROLE_ADMIN (W3-1, #362), required:
+   * ROLE_UNSPECIFIED is refused with InvalidArgument. A ROLE_VIEWER account
+   * reaches exactly what an org viewer reaches and never writes. Nothing
+   * about the request ever implies ROLE_ADMIN (D3).
    *
    * @generated from field: shepherd.mgmt.v1.Role role = 5;
    */

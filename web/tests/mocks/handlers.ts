@@ -1902,14 +1902,33 @@ export function installDefaultHandlers(router: Router) {
       const req = await body(r);
       const id = mockId('sa');
       const role = roleFromWire(req['role']);
-      if (role !== Role.EDITOR && role !== Role.ADMIN) {
-        return connectError(r, 400, 'invalid_argument', 'role must be ROLE_EDITOR or ROLE_ADMIN');
+      if (role !== Role.VIEWER && role !== Role.EDITOR && role !== Role.ADMIN) {
+        return connectError(
+          r,
+          400,
+          'invalid_argument',
+          'role must be ROLE_VIEWER, ROLE_EDITOR or ROLE_ADMIN',
+        );
+      }
+      // Mirrors serviceAccountCapability (rpc_service_account.go): a viewer
+      // carries no capability, editor and admin require propose or apply.
+      const capability = String(req['capability'] ?? '');
+      if (role === Role.VIEWER && capability !== '') {
+        return connectError(
+          r,
+          400,
+          'invalid_argument',
+          'a ROLE_VIEWER service account carries no capability',
+        );
+      }
+      if (role !== Role.VIEWER && capability !== 'propose' && capability !== 'apply') {
+        return connectError(r, 400, 'invalid_argument', 'capability must be "propose" or "apply"');
       }
       const account: Obj = {
         id,
         org_id: req['orgId'],
         name: req['name'],
-        capability: req['capability'],
+        capability,
         role,
         created_by: 'appadmin@example.com',
         status: 'active',
@@ -1919,7 +1938,7 @@ export function installDefaultHandlers(router: Router) {
       return json(r, 200, {
         id,
         name: req['name'],
-        capability: req['capability'],
+        capability,
         secret: `sa-secret-${id}`,
         role,
       });

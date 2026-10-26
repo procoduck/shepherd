@@ -1,5 +1,16 @@
 # Upgrading the Shepherd chart
 
+## 0.23.x → 0.24.0
+
+#### Errors during the rollout
+
+Migration `0042` lets a service account hold the viewer tier, with no capability
+(`service_accounts.capability` becomes nullable). It changes no existing row, and pods still on
+the old image keep working, **as long as no viewer service account exists**. An old pod cannot
+read a viewer's NULL capability: that viewer's requests fail closed with `unauthenticated` on
+an old pod, and `ListServiceAccounts` for its org answers `Internal`. **Do not create viewer
+service accounts until every replica runs v0.20.** Nothing else changes during the rollout.
+
 ## 0.22.x → 0.23.0
 
 Shepherd v0.19.0. A `helm upgrade` with seven migrations (`0035`–`0041`), **agent tokens to bind

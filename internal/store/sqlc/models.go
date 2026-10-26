@@ -292,7 +292,7 @@ type ServiceAccount struct {
 	ID         pgtype.UUID        `json:"id"`
 	OrgID      pgtype.UUID        `json:"org_id"`
 	Name       string             `json:"name"`
-	Capability string             `json:"capability"`
+	Capability pgtype.Text        `json:"capability"`
 	TokenHash  []byte             `json:"token_hash"`
 	CreatedBy  string             `json:"created_by"`
 	RevokedAt  pgtype.Timestamptz `json:"revoked_at"`

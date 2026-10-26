@@ -227,14 +227,14 @@ var _ = Describe("W3-1: service-account role tier", Label("integration"), func()
 		Expect(created["role"]).To(Equal("ROLE_ADMIN"), "an explicit role=admin request must be honored, not silently downgraded")
 	})
 
-	// A role outside the "editor"/"admin" pair must be rejected the same
-	// way an unrecognized capability already is, not silently coerced.
-	It("rejects a role outside the editor/admin pair", func() {
+	// A role that is not an org role must be rejected the same way an
+	// unrecognized capability already is, not silently coerced. (ROLE_VIEWER
+	// is a tier since #362 — service_account_viewer_test.go.)
+	It("rejects a role that is not an org role", func() {
 		admin := newAppAdminSession(ctx, st)
-		// "super-admin" is not a Role at all; ROLE_VIEWER is a Role but not a
-		// service-account tier (0018's CHECK); "admin" is the retired string
+		// "super-admin" is not a Role at all; "admin" is the retired string
 		// form, which the enum no longer accepts.
-		for _, role := range []any{"super-admin", "ROLE_VIEWER", "admin", 42} {
+		for _, role := range []any{"super-admin", "admin", 42} {
 			resp := postConnectJSON(server, "/shepherd.mgmt.v1.ServiceAccountService/CreateServiceAccount", admin,
 				map[string]any{"orgId": orgID.String(), "name": "satier-bad-role", "capability": "propose", "role": role})
 			Expect(resp.StatusCode).To(Equal(http.StatusBadRequest), fmt.Sprintf("role %v", role))
@@ -264,7 +264,7 @@ func satierMakeServiceAccountWithRole(ctx context.Context, st *store.Store, orgI
 	secret = "satier-secret-" + name
 	hash := sha256.Sum256([]byte(secret))
 	sa, err := st.Queries.CreateServiceAccount(ctx, sqlc.CreateServiceAccountParams{
-		OrgID: orgID, Name: name, Capability: capability, Role: role, TokenHash: hash[:], CreatedBy: satierDelegatedPrincipal,
+		OrgID: orgID, Name: name, Capability: pgtype.Text{String: capability, Valid: true}, Role: role, TokenHash: hash[:], CreatedBy: satierDelegatedPrincipal,
 	})
 	Expect(err).NotTo(HaveOccurred())
 	return secret, sa.ID.String()

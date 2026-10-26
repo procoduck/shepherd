@@ -1061,7 +1061,11 @@ func (s *PipelineService) ValidatePipeline(ctx context.Context, req *connect.Req
 	// must not fail it. auditLogDetail already derives actor and the verified
 	// on_behalf_of from ctx, so both halves of the delegated action land here
 	// the same way they do for a write (G13).
-	if sa, ok := serviceAccountFromCtx(ctx); ok {
+	//
+	// A viewer-tier account is not proposing (#362): it can never apply what
+	// it validates, and it gets exactly what an org viewer gets, whose
+	// validation records nothing.
+	if sa, ok := serviceAccountFromCtx(ctx); ok && serviceAccountMayPropose(sa) {
 		orgID, orgErr := scanUUID(req.Msg.GetOrgId())
 		if orgErr == nil {
 			auditLogDetail(ctx, s.store, actorFromCtx(ctx), "user", orgID,

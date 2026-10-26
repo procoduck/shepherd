@@ -287,6 +287,8 @@ orgs(id, name text UNIQUE, display_name text,
 --        orgs.tenant_id (each org's tenant became its default exact tenant; §11.4)
 --   0040 orgs.strict_tenants boolean NOT NULL DEFAULT false — strict tenant mode, set
 --        by an app admin only (§11.4 "Strict tenant mode")
+--   0042 service_accounts: 'viewer' tier; capability NULL for a viewer, required
+--        for editor/admin (§7.3a, #362)
 
 org_tenants(org_id uuid REFERENCES orgs ON DELETE CASCADE,       -- 0039; app admin writes only
            tenant text, kind text CHECK (kind IN ('exact','prefix')),
@@ -568,8 +570,8 @@ A disallowed claim returns `PermissionDenied`, not the empty config §4.1 promis
 
 A separate machine-identity path from agent tokens above: `service_accounts` (migration 0012) are org-scoped credentials for automation that calls `shepherd.mgmt.v1` itself (CI, an MCP agent's on-behalf-of proposals, …), not the agent protocol. A service account is described by two independent axes:
 
-- **Capability** — `propose` or `apply`: whether it may write at all (0012, gateway-tier W10).
-- **Role tier** — `editor` or `admin` (migration 0018), the same `Role` a human holds (§7.2): what it may *reach* once capability allows a write. `CreateServiceAccount` requires the tier (`ROLE_EDITOR` or `ROLE_ADMIN`; `ROLE_UNSPECIFIED` and `ROLE_VIEWER` are refused) — `admin` is never assigned implicitly (D3: "admin explicit at creation"), the same way 0015/0016 never implicitly promote a human to admin. A stored tier that is not a role denies every org-scoped procedure; it never falls back to a default.
+- **Capability** — `propose` or `apply`: whether it may write at all (0012, gateway-tier W10). Editor and admin accounts require one; a viewer account has none (NULL, migration 0042) — a viewer never writes, and `CreateServiceAccount` refuses a viewer that names a capability. `requireWriteAuthorized` refuses any machine write whose capability is not `apply` or whose tier is below editor.
+- **Role tier** — `viewer`, `editor` or `admin` (migrations 0018, 0042), the same `Role` a human holds (§7.2): what it may *reach*. A viewer account reaches exactly the procedures an org viewer does (#362), through the same interceptor tier check, and a test walks the whole procedure table to keep the two equal. `CreateServiceAccount` requires the tier (`ROLE_UNSPECIFIED` is refused) — `admin` is never assigned implicitly (D3: "admin explicit at creation"), the same way 0015/0016 never implicitly promote a human to admin. A stored tier that is not a role denies every org-scoped procedure; it never falls back to a default.
 
 Before the role column existed, `authorizeServiceAccountProcedure` (`internal/mgmtapi/rpc_interceptor.go`) checked only `sa.OrgID == orgID` for every non-app-admin requirement, so an apply-capability service account reached every admin procedure (`RotateTenantRoute`, `DeleteTeam`, `AddTeamMember`, `DeleteCredential`, `ListAudit`, `ListTeamMembers`, …) it was never explicitly granted. The interceptor now checks the procedure's requirement against the service account's `role` tier with the same `Role.AtLeast` comparison it uses for a human session (§7.2) — **with one absolute floor**: a service account never satisfies an app-admin requirement, regardless of `role`; app-admin procedures are refused to every machine caller unconditionally. An `admin`-tier service account therefore reaches the same org-scoped ceiling an org admin does, never the application-admin surface.
 
