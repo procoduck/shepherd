@@ -571,9 +571,11 @@ func (s *AdminService) RevokeAgentToken(ctx context.Context, req *connect.Reques
 
 // BindAgentToken binds a live token to an organisation, or rebinds it, and
 // replaces its allowlists — in place, so the secret (and every collector
-// using it) keeps working. App admin only, so a bound token may claim
-// clusters (may_claim, set by the query). Audited against the new org, with
-// the previous org in the detail.
+// using it) keeps working. App admin only. The query sets may_claim on a
+// first bind of an unbound token and leaves it as it was on a rebind, so
+// rebinding an org admin's token does not let it claim clusters — an app
+// admin who wants a claiming token mints a new one. Audited against the new
+// org, with the previous org in the detail.
 func (s *AdminService) BindAgentToken(ctx context.Context, req *connect.Request[mgmtv1.BindAgentTokenRequest]) (*connect.Response[mgmtv1.AgentToken], error) {
 	if err := requireWriteAuthorized(ctx); err != nil {
 		return nil, err

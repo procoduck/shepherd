@@ -296,7 +296,7 @@ var _ = Describe("AdminService agent tokens", Label("integration"), func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(after.TokenHash).To(Equal(legacy.TokenHash), "binding never touches the secret")
 			Expect(after.OrgID).To(Equal(orgA.ID))
-			Expect(after.MayClaim).To(BeTrue(), "an app admin's bind lets the token claim clusters")
+			Expect(after.MayClaim).To(BeTrue(), "an app admin's first bind of an unbound token lets it claim clusters")
 			Expect(bound["mayClaim"]).To(BeTrue())
 			Expect(auditCount("agent_token.bind", orgA.ID)).To(Equal(1))
 
@@ -307,6 +307,31 @@ var _ = Describe("AdminService agent tokens", Label("integration"), func() {
 			Expect(after.OrgID).To(Equal(orgB.ID))
 			Expect(string(after.Clusters)).To(MatchJSON(`[]`), "a rebind replaces the allowlists")
 			Expect(auditCount("agent_token.bind", orgB.ID)).To(Equal(1))
+		})
+
+		// #389: rebinding an already-bound token never changes its claim right —
+		// an org admin's token (may_claim=false) stays non-claiming when an app
+		// admin rebinds it, and an app admin's token keeps its right.
+		It("keeps a token's original claim right across a rebind", func() {
+			admin := session(true)
+			code, created := call("CreateAgentToken", map[string]any{"name": "org-tok", "orgId": orgA.ID.String()}, session(false, "a-admin"))
+			Expect(code).To(Equal(http.StatusOK), "%v", created)
+			var orgTok pgtype.UUID
+			Expect(orgTok.Scan(created["id"])).To(Succeed())
+			code, created = call("CreateAgentToken", map[string]any{"name": "app-tok", "orgId": orgA.ID.String()}, admin)
+			Expect(code).To(Equal(http.StatusOK), "%v", created)
+			var appTok pgtype.UUID
+			Expect(appTok.Scan(created["id"])).To(Succeed())
+
+			for id, want := range map[pgtype.UUID]bool{orgTok: false, appTok: true} {
+				code, bound := call("BindAgentToken", map[string]any{"id": id.String(), "orgId": orgB.ID.String()}, admin)
+				Expect(code).To(Equal(http.StatusOK), "%v", bound)
+				after, err := st.Queries.GetAgentTokenByID(ctx, id)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(after.OrgID).To(Equal(orgB.ID))
+				Expect(after.MayClaim).To(Equal(want), "a rebind keeps may_claim")
+				Expect(bound["mayClaim"] == true).To(Equal(want))
+			}
 		})
 
 		It("refuses to bind to an unknown org, with a role no collector can register, or a revoked token", func() {

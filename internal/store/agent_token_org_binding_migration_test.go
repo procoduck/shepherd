@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -136,7 +137,17 @@ var _ = Describe("Migration: 0038_agent_token_org_binding", Label("integration")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(bound.OrgID).To(Equal(orgA.ID))
 			Expect(bound.TokenHash).To(Equal(legacy.TokenHash))
-			Expect(bound.MayClaim).To(BeTrue(), "an app admin's bind lets the token claim clusters")
+			Expect(bound.MayClaim).To(BeTrue(), "a first bind of an unbound token lets it claim clusters")
+
+			// #389: a rebind of a bound token keeps may_claim as it is, either way.
+			for _, mayClaim := range []bool{false, true} {
+				tok, err := q.CreateAgentToken(ctx, sqlc.CreateAgentTokenParams{Name: "bound", TokenHash: hash(fmt.Sprint("b", mayClaim)), OrgID: orgA.ID, MayClaim: mayClaim})
+				Expect(err).NotTo(HaveOccurred())
+				rebound, err := q.BindAgentToken(ctx, sqlc.BindAgentTokenParams{ID: tok.ID, OrgID: orgB.ID, Clusters: arr(), Roles: arr()})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(rebound.OrgID).To(Equal(orgB.ID))
+				Expect(rebound.MayClaim).To(Equal(mayClaim), "a rebind keeps may_claim")
+			}
 
 			_, err = q.RevokeAgentToken(ctx, sqlc.RevokeAgentTokenParams{ID: legacy.ID})
 			Expect(err).NotTo(HaveOccurred())

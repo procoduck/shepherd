@@ -102,6 +102,27 @@ func (q *Queries) GetCollectorOrgID(ctx context.Context, id pgtype.UUID) (pgtype
 	return org_id, err
 }
 
+const getCollectorOwner = `-- name: GetCollectorOwner :one
+SELECT cl.org_id, cl.name AS cluster_name FROM collectors c
+JOIN clusters cl ON c.cluster_id = cl.id
+WHERE c.id = $1
+`
+
+type GetCollectorOwnerRow struct {
+	OrgID       pgtype.UUID `json:"org_id"`
+	ClusterName string      `json:"cluster_name"`
+}
+
+// The org that claims a collector's cluster (NULL when unclaimed) and the
+// cluster's name: what the beacon checks a writer's org and cluster
+// allowlist against.
+func (q *Queries) GetCollectorOwner(ctx context.Context, id pgtype.UUID) (GetCollectorOwnerRow, error) {
+	row := q.db.QueryRow(ctx, getCollectorOwner, id)
+	var i GetCollectorOwnerRow
+	err := row.Scan(&i.OrgID, &i.ClusterName)
+	return i, err
+}
+
 const listCollectorsByOrg = `-- name: ListCollectorsByOrg :many
 SELECT c.id, c.cluster_id, c.role, c.created_at, c.updated_at, c.labels, c.last_refused_at, c.last_refused_reason FROM collectors c
 JOIN clusters cl ON c.cluster_id = cl.id

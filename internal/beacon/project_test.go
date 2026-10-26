@@ -293,6 +293,25 @@ func TestProject_ExtractsCollectorID(t *testing.T) {
 	}
 }
 
+func TestProject_MixedCollectorIDsRefused(t *testing.T) {
+	// #389: one batch comes from one Alloy; series naming two different
+	// collectors cannot be attributed to either, so Project refuses the batch.
+	a := pipeSeries("10.0.0.1:12345", "pipe_x", "healthy", 1)
+	a.Labels = append(a.Labels, lbl(CollectorIDLabel, "col-a"))
+	b := pipeSeries("10.0.0.1:12345", "pipe_y", "healthy", 1)
+	b.Labels = append(b.Labels, lbl(CollectorIDLabel, "col-b"))
+	same := pipeSeries("10.0.0.1:12345", "pipe_z", "healthy", 1)
+	same.Labels = append(same.Labels, lbl(CollectorIDLabel, "col-a"))
+
+	if _, _, _, err := Project(&prompb.WriteRequest{Timeseries: []prompb.TimeSeries{a, same}}); err != nil {
+		t.Fatalf("one collector id repeated: Project: %v", err)
+	}
+	_, _, _, err := Project(&prompb.WriteRequest{Timeseries: []prompb.TimeSeries{a, same, b}})
+	if !errors.Is(err, ErrMixedCollectorIDs) {
+		t.Fatalf("Project err = %v, want ErrMixedCollectorIDs", err)
+	}
+}
+
 func TestProject_NoCollectorIDLabelIsEmpty(t *testing.T) {
 	// A pre-#110 baseline write carries no shepherd_collector_id; Project must
 	// still succeed and just report an empty collector id.
