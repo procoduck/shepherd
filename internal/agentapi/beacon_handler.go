@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"shepherd/internal/auth"
 	"shepherd/internal/beacon"
 	"shepherd/internal/metrics"
 	"shepherd/internal/store"
@@ -69,18 +70,16 @@ func NewBeaconHandler(st *store.Store, logger *slog.Logger, limits beacon.Limits
 // mirroring the Connect gate: a `Bearer` OIDC access token yields
 // "oidc:<issuer>|<sub>", a `Basic` agent token yields the token UUID. The
 // returned string is the beacon inventory identity and the rate-limit key;
-// the org is the principal's bound org — an agent token's, or an OIDC
-// caller's agent_identities binding (#389) — and scopes the collectors the
-// write may name. It is invalid for an unbound token and for an OIDC caller
-// without a binding.
-func (h *BeaconHandler) authenticate(ctx context.Context, authz string) (string, pgtype.UUID, error) {
+// the scope is the org the principal acts for, which limits the collectors
+// the write may name — see beaconScope.
+func (h *BeaconHandler) authenticate(ctx context.Context, authz string) (string, beaconScope, error) {
 	if raw, ok := strings.CutPrefix(authz, "Bearer "); ok {
 		if h.verifyAgent == nil {
-			return "", pgtype.UUID{}, errUnauthenticated
+			return "", beaconScope{}, errUnauthenticated
 		}
 		claims, err := h.verifyAgent(ctx, raw)
 		if err != nil {
-			return "", pgtype.UUID{}, errUnauthenticated
+			return "", beaconScope{}, errUnauthenticated
 		}
 		// Strip control characters from the verified claims before they become
 		// a stored key, a rate-limit key, and a log field. The issuer is an
@@ -88,23 +87,11 @@ func (h *BeaconHandler) authenticate(ctx context.Context, authz string) (string,
 		// this is belt-and-braces — but it stops a hostile IdP from smuggling a
 		// newline into the beacon key or the logs (CodeQL log-injection).
 		principal := "oidc:" + stripControl(claims.Issuer) + "|" + stripControl(claims.Subject)
-		// The same binding the agent API resolves the caller's org from
-		// (Service.resolveOrg): a bound identity may only report collectors its
-		// org claimed, exactly like a bound token.
-		binding, err := h.store.Queries.GetAgentIdentityByAppID(ctx, sqlc.GetAgentIdentityByAppIDParams{
-			Issuer: claims.Issuer,
-			AppID:  claims.AppID,
-		})
-		switch {
-		case err == nil:
-			return principal, binding.OrgID, nil
-		case errors.Is(err, pgx.ErrNoRows):
-			return principal, pgtype.UUID{}, nil
-		default:
-			// Unknown whether the caller is bound: answer 503 (retried) rather
-			// than accept a write the org check might have dropped.
-			return "", pgtype.UUID{}, errAuthUnavailable
+		scope, err := h.oidcScope(ctx, claims)
+		if err != nil {
+			return "", beaconScope{}, err
 		}
+		return principal, scope, nil
 	}
 	// The beacon keys inventory and its rate limit on the token id. A bound
 	// token (migration 0038) may only report collectors its org claimed —
@@ -112,13 +99,57 @@ func (h *BeaconHandler) authenticate(ctx context.Context, authz string) (string,
 	tok, err := verifyBasicAuth(ctx, authz, h.store, nil)
 	if err != nil {
 		if connect.CodeOf(err) == connect.CodeUnavailable {
-			return "", pgtype.UUID{}, errAuthUnavailable
+			return "", beaconScope{}, errAuthUnavailable
 		}
-		return "", pgtype.UUID{}, errUnauthenticated
+		return "", beaconScope{}, errUnauthenticated
 	}
 	// The id is a validated UUID, but sanitising here too keeps `principal`
 	// provably free of control characters on every path into the logs.
-	return stripControl(tok.ID.String()), tok.OrgID, nil
+	return stripControl(tok.ID.String()), beaconScope{scoped: tok.OrgID.Valid, org: tok.OrgID}, nil
+}
+
+// beaconScope is the org a beacon writer acts for. A scoped writer may only
+// report collectors whose cluster org claimed; an unscoped one (an unbound
+// token, an OIDC caller with neither a binding nor an asserted org) is not
+// checked. A scoped writer with an invalid org — a mode-2 caller asserting an
+// org that does not exist — covers no collector at all.
+type beaconScope struct {
+	scoped bool
+	org    pgtype.UUID
+}
+
+// oidcScope resolves an OIDC caller's org with the agent API's precedence
+// (Service.resolveOrg): its agent_identities binding first, then a mode-2
+// asserted org (the IdP's org claim, by name), else none. A lookup the
+// database could not answer is errAuthUnavailable — answered 503, which
+// remote_write retries — rather than accepting a write the org check might
+// have dropped.
+func (h *BeaconHandler) oidcScope(ctx context.Context, claims auth.AgentClaims) (beaconScope, error) {
+	binding, err := h.store.Queries.GetAgentIdentityByAppID(ctx, sqlc.GetAgentIdentityByAppIDParams{
+		Issuer: claims.Issuer,
+		AppID:  claims.AppID,
+	})
+	switch {
+	case err == nil:
+		return beaconScope{scoped: true, org: binding.OrgID}, nil
+	case errors.Is(err, pgx.ErrNoRows):
+	default:
+		return beaconScope{}, errAuthUnavailable
+	}
+	if claims.Org == "" {
+		return beaconScope{}, nil
+	}
+	org, err := h.store.Queries.GetOrgByName(ctx, claims.Org)
+	switch {
+	case err == nil:
+		return beaconScope{scoped: true, org: org.ID}, nil
+	case errors.Is(err, pgx.ErrNoRows):
+		// The agent API refuses this caller (claim_denied); here it may
+		// report nothing.
+		return beaconScope{scoped: true}, nil
+	default:
+		return beaconScope{}, errAuthUnavailable
+	}
 }
 
 var (
@@ -163,7 +194,7 @@ func (h *BeaconHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	principal, boundOrg, err := h.authenticate(r.Context(), r.Header.Get("Authorization"))
+	principal, scope, err := h.authenticate(r.Context(), r.Header.Get("Authorization"))
 	if errors.Is(err, errAuthUnavailable) {
 		http.Error(w, "beacon: database unavailable, retry later", http.StatusServiceUnavailable)
 		return
@@ -232,16 +263,17 @@ func (h *BeaconHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// The collector id is a label the writer chose. An org-bound principal (a
-	// bound token, or an OIDC identity with a binding) may only report a
-	// collector whose cluster its org claimed; a write naming any other
+	// The collector id is a label the writer chose. A scoped principal (a
+	// bound token, an OIDC identity with a binding, or a mode-2 OIDC caller
+	// with an asserted org) may only report a collector whose cluster its org
+	// claimed; a write naming any other
 	// collector (another org's, an unclaimed one, or none known) is dropped
 	// and counted, never stored — so one org cannot write health into another
 	// org's reconciliation view. The answer is the same 204, so the call
 	// reveals nothing about other orgs' collectors.
-	if boundOrg.Valid {
+	if scope.scoped {
 		owner, err := h.store.Queries.GetCollectorOrgID(r.Context(), collectorUUID)
-		if err != nil || owner != boundOrg {
+		if err != nil || !owner.Valid || owner != scope.org {
 			h.refusals.record(h.logger, "BeaconWrite", metrics.AgentRefusedBeaconDenied, instanceLabel,
 				"collector_id", collectorUUID.String(), "principal", principal)
 			w.WriteHeader(http.StatusNoContent)

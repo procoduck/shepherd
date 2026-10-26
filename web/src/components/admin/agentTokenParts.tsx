@@ -186,7 +186,7 @@ export function OrgField({
   return (
     <Field
       label='Organisation'
-      hint='Collectors using this token are served this organisation’s config. A token an app admin creates may also claim its unclaimed clusters; binding never changes that.'
+      hint='Collectors using this token are served this organisation’s config. A token an app admin creates or first binds may also claim its unclaimed clusters; rebinding a bound token never changes that.'
       error={error}
     >
       <Select

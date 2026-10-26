@@ -15,6 +15,7 @@ import (
 const bindAgentToken = `-- name: BindAgentToken :one
 UPDATE agent_tokens
 SET org_id = $1, clusters = $2, roles = $3,
+    may_claim = CASE WHEN org_id IS NULL THEN true ELSE may_claim END,
     updated_at = now()
 WHERE id = $4 AND revoked_at IS NULL
 RETURNING id, name, token_hash, created_by, revoked_at, created_at, updated_at, org_id, clusters, roles, may_claim
@@ -28,10 +29,13 @@ type BindAgentTokenParams struct {
 }
 
 // Sets (or replaces) a live token's org binding in place. The secret hash is
-// untouched, so a collector keeps its credentials across a bind. may_claim is
-// untouched too: a bind never grants (or removes) the right to claim clusters
-// — that is fixed when the token is minted, so an app admin rebinding an org
-// admin's token does not turn it into a claiming one (#389).
+// untouched, so a collector keeps its credentials across a bind. Only an app
+// admin (or the operator CLI) binds. The first bind of an UNBOUND token (a
+// legacy pre-0038 token) lets it claim clusters; a rebind of a token that is
+// already bound leaves may_claim exactly as it is, so an app admin rebinding
+// an org admin's token does not turn it into a claiming one (#389).
+// Accepted edge: a token left unbound because its org was deleted counts as
+// unbound, so an app admin who binds it again grants it the claim right.
 func (q *Queries) BindAgentToken(ctx context.Context, arg BindAgentTokenParams) (AgentToken, error) {
 	row := q.db.QueryRow(ctx, bindAgentToken,
 		arg.OrgID,

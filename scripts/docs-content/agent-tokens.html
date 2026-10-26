@@ -25,11 +25,11 @@
       <h2 id="binding">What a token may act for</h2>
       <p>A collector using a token is served its token&rsquo;s organisation&rsquo;s configuration,
         for clusters that organisation has claimed. Claiming a cluster stays an app admin&rsquo;s
-        decision: a token an app admin created claims an unclaimed cluster it reports for
-        its organisation on the first poll; a token an org admin created is only served clusters
+        decision: a token an app admin created or first bound claims an unclaimed cluster it reports
+        for its organisation on the first poll; a token an org admin created is only served clusters
         the organisation already has, so ask an app admin to claim a new cluster first
-        (<strong>Admin &rarr; Clusters</strong>). Binding or rebinding a token never changes
-        this: to get a token that claims clusters, an app admin creates a new one. A token is refused (the collector logs a
+        (<strong>Admin &rarr; Clusters</strong>). Rebinding a token that is already bound never
+        changes this: to get a token that claims clusters, an app admin creates a new one. A token is refused (the collector logs a
         <code>permission_denied</code> error and keeps running its local config) when it reports:</p>
       <ul>
         <li>an unclaimed cluster, for a token an org admin created;</li>
@@ -66,9 +66,8 @@
 shepherd token bind --id &lt;token-id&gt; --org platform-engineering [--clusters prod-eu-1] [--roles metrics]</code></pre>
       </div>
       <p>Binding changes nothing on the collector: the token keeps its ID and secret, and the
-        collector is served its organisation&rsquo;s configuration from its next poll. A bound
-        legacy token serves the clusters its organisation already claims; it does not claim new
-        ones (an app admin claims them, or creates a new token for them).</p>
+        collector is served its organisation&rsquo;s configuration from its next poll. Because an
+        app admin binds it, it also claims any unclaimed cluster it reports for its organisation.</p>
 
       <h2 id="oidc">Authenticate with OIDC instead of a shared token</h2>
       <p>A collector can present an OAuth2 access token from the same identity provider that does

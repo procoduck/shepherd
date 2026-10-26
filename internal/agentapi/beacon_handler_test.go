@@ -425,6 +425,46 @@ var _ = Describe("BeaconHandler", Label("integration"), func() {
 		Expect(rows[0].ComponentName).To(Equal("pipe_mine"))
 	})
 
+	// #389: a mode-2 OIDC caller (no binding; the IdP asserts the org by name)
+	// acts for the asserted org, so the beacon checks its collectors against
+	// that org — and an asserted org that does not exist covers no collector.
+	It("drops a mode-2 OIDC caller's write naming a collector outside its asserted org", func() {
+		orgA, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{Name: "beacon-m2a", DisplayName: "M2A", AdminGroupID: "gm2a"})
+		Expect(err).NotTo(HaveOccurred())
+		orgB, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{Name: "beacon-m2b", DisplayName: "M2B", AdminGroupID: "gm2b"})
+		Expect(err).NotTo(HaveOccurred())
+		mine, theirs := collectorIn("m2a-prod", &orgA), collectorIn("m2b-prod", &orgB)
+		asserted := "beacon-m2a"
+		startServerWithVerifier(beacon.DefaultLimits, func(context.Context, string) (auth.AgentClaims, error) {
+			return auth.AgentClaims{Issuer: "https://idp/", Subject: "m2-sub", AppID: "m2-app", Org: asserted}, nil
+		})
+		const principal = "oidc:https://idp/|m2-sub"
+		write := func(collectorID, pipe string) {
+			body := encodeWrite([][]prompb.Label{collectorSeries(collectorID, "10.0.0.11:1", "/remotecfg", pipe+".default", "healthy")}, 1)
+			Expect(postRaw(body, "Bearer t").StatusCode).To(Equal(http.StatusNoContent))
+		}
+		before := denied()
+
+		write(theirs, "pipe_theirs")
+		rows, err := st.Queries.ListBeaconInventoryByPrincipal(ctx, principal)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(rows).To(BeEmpty(), "org B's collector must get no inventory row from a caller asserting org A")
+		Expect(denied() - before).To(Equal(1.0))
+
+		write(mine, "pipe_mine")
+		rows, err = st.Queries.ListBeaconInventoryByPrincipal(ctx, principal)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(rows).To(HaveLen(1))
+		Expect(rows[0].ComponentName).To(Equal("pipe_mine"))
+
+		asserted = "no-such-org"
+		write(mine, "pipe_ghost")
+		rows, err = st.Queries.ListBeaconInventoryByPrincipal(ctx, principal)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(rows).To(HaveLen(1), "an asserted org that does not exist reports no collector")
+		Expect(denied() - before).To(Equal(2.0))
+	})
+
 	// #378: before the fix every pipeline collapsed onto one "/remotecfg" row
 	// (Project read controller_path alone, which all pipelines share).
 	It("stores one row per pipeline, rolls nested modules up, and drops the remotecfg root", func() {

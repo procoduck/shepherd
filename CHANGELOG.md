@@ -29,15 +29,16 @@ Categories used here:
   (`collector_id_missing`, `collector_id_invalid`); the writer still gets 204. Every baseline
   Shepherd has served since v0.19.0 stamps the label, so only writes from an older baseline or
   from outside the served config are affected. A collector authenticating with OIDC whose client
-  identity has an organisation binding now gets the same check at the beacon that a bound agent
-  token gets: a write naming a collector outside the binding's org is dropped and counted
+  identity has an organisation binding, or whose identity provider asserts its organisation, now
+  gets the same check at the beacon that a bound agent token gets: a write naming a collector
+  outside that org is dropped and counted
   (`shepherd_agent_refused_total{reason="beacon_denied"}`). (#389)
-- **Binding or rebinding an agent token keeps its cluster-claim right.** Shipped.
-  `BindAgentToken` and `shepherd token bind` no longer set `may_claim`: a token an org admin or a
-  service account created stays unable to claim unclaimed clusters when an app admin rebinds it,
-  and a legacy unbound token bound from now on serves only clusters its org already claims. To
-  get a token that claims clusters, an app admin creates a new one. Tokens bound before this
-  release keep the right they have. No API change. (#389)
+- **Rebinding an agent token keeps its cluster-claim right.** Shipped. `BindAgentToken` and
+  `shepherd token bind` set `may_claim` only on the first bind of an unbound token (as before,
+  so binding legacy tokens after upgrading works unchanged); rebinding a token that is already
+  bound leaves it as it was. A token an org admin or a service account created stays unable to
+  claim unclaimed clusters when an app admin rebinds it; to get a token that claims clusters, an
+  app admin creates a new one. No API change. (#389)
 
 ## v0.19.0
 

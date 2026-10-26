@@ -296,8 +296,8 @@ var _ = Describe("AdminService agent tokens", Label("integration"), func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(after.TokenHash).To(Equal(legacy.TokenHash), "binding never touches the secret")
 			Expect(after.OrgID).To(Equal(orgA.ID))
-			Expect(after.MayClaim).To(BeFalse(), "a bind never grants a claim right the token did not have")
-			Expect(bound).NotTo(HaveKey("mayClaim"))
+			Expect(after.MayClaim).To(BeTrue(), "an app admin's first bind of an unbound token lets it claim clusters")
+			Expect(bound["mayClaim"]).To(BeTrue())
 			Expect(auditCount("agent_token.bind", orgA.ID)).To(Equal(1))
 
 			code, _ = call("BindAgentToken", map[string]any{"id": legacy.ID.String(), "orgId": orgB.ID.String()}, admin)
@@ -309,8 +309,8 @@ var _ = Describe("AdminService agent tokens", Label("integration"), func() {
 			Expect(auditCount("agent_token.bind", orgB.ID)).To(Equal(1))
 		})
 
-		// #389: a bind never grants a claim right the token did not have — an
-		// org admin's token (may_claim=false) stays non-claiming when an app
+		// #389: rebinding an already-bound token never changes its claim right —
+		// an org admin's token (may_claim=false) stays non-claiming when an app
 		// admin rebinds it, and an app admin's token keeps its right.
 		It("keeps a token's original claim right across a rebind", func() {
 			admin := session(true)
