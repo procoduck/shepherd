@@ -56,33 +56,21 @@ func regexGroupNames(expr string) ([]string, error) {
 	return out, nil
 }
 
-// patternIdent is a capture name in Loki's pattern syntax: <name>, where
-// <_> captures nothing.
-var patternIdent = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+// patternCapture is a capture in Loki's pattern syntax: <name>, where <_>
+// captures nothing. Every match counts, wherever it starts — a < before it
+// that opens no capture is literal text in Loki's lexer — and spaces inside
+// the brackets are allowed, so this reads at least every capture Loki does.
+var patternCapture = regexp.MustCompile(`<\s*([A-Za-z_][A-Za-z0-9_]*)\s*>`)
 
-// patternCaptureNames is a Loki pattern's named captures (`<name>`). Text
-// between < and > that is not an identifier is literal in Loki's lexer; it
-// is reported as a capture too when it names __tenant_id__ with spaces
-// around, so no spelling of that name passes. An unclosed < is refused.
+// patternCaptureNames is a Loki pattern's named captures (`<name>`).
 func patternCaptureNames(p string) ([]string, error) {
 	var out []string
-	for rest := p; ; {
-		i := strings.IndexByte(rest, '<')
-		if i < 0 {
-			return out, nil
+	for _, m := range patternCapture.FindAllStringSubmatch(p, -1) {
+		if m[1] != "_" {
+			out = append(out, m[1])
 		}
-		j := strings.IndexByte(rest[i+1:], '>')
-		if j < 0 {
-			return nil, fmt.Errorf("an unclosed < in the pattern")
-		}
-		inner := rest[i+1 : i+1+j]
-		switch name := strings.TrimSpace(inner); {
-		case name == "_":
-		case patternIdent.MatchString(name):
-			out = append(out, name)
-		}
-		rest = rest[i+1+j+1:]
 	}
+	return out, nil
 }
 
 // groupLabels checks a stage.regex or stage.pattern block b (named name).
@@ -117,6 +105,15 @@ func (l *tenantLinter) groupLabels(b *ast.BlockStmt, name string, sc scope) {
 	}
 	for _, t := range texts {
 		if !l.budget.charge(1 + len(t)/64) {
+			return
+		}
+		// A group name is literal text of the expression, so text without
+		// __tenant_id__ anywhere cannot name that label, whatever the
+		// expression's own parser makes of it. This holds even where the
+		// group reading below would miss a spelling.
+		if strings.Contains(t, tenantLabel) {
+			l.refuse(expr, fmt.Sprintf("%s with labels_from_groups: the %s contains %s, which may name a label "+
+				"after a group — strict tenant mode refuses it", name, st.attr, tenantLabel))
 			return
 		}
 		groups, err := st.groups(t)

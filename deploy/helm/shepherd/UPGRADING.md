@@ -45,7 +45,10 @@ collector's served config until it is fixed** — listed in the config's header 
 strict tenant check*, on the pipeline page and in the collector's Reconciliation tab, and audited
 once. It stays saved and enabled; saving a fix serves it again. If the check cannot finish in
 time, that collector keeps its last good config (a recorded recompute failure) rather than being
-served a config without the pipeline. Turning strict mode off clears the exclusions.
+served a config without the pipeline. Boot recomputes every strict org, so only a check that
+stays unable to finish keeps a collector on a config from before the upgrade; and while one
+pipeline's check cannot finish, that org's collectors receive no config updates. Turning strict
+mode off clears the exclusions.
 
 Run `shepherd admin tenant-preflight` with the new version **before upgrading** (point it at your
 database with the new image), or right after: it runs the same check and lists exactly the

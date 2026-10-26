@@ -717,8 +717,9 @@ other value read from that argument is refused.
 **Label names from text (v1.21.2 sources).** `stage.regex` and `stage.pattern` with
 `labels_from_groups = true` name a label after each named group; strict mode requires a literal
 `labels_from_groups`, and with `true` a literal expression (folded as above) that parses — Go
-`regexp` for `stage.regex` (its `SubexpNames`), Loki's `<name>` captures for `stage.pattern` — with
-no group named `__tenant_id__`. `loki.secretfilter`'s `origin_label` (a label it reads) must be a
+`regexp` for `stage.regex` (its `SubexpNames`), every `<name>` match for `stage.pattern`, wherever
+it starts — with no group named `__tenant_id__`, and with `__tenant_id__` nowhere in its text (a
+group name is literal text, so this holds whatever the expression's own parser reads). `loki.secretfilter`'s `origin_label` (a label it reads) must be a
 literal other than `__tenant_id__`. Checked and needing nothing: the other stages write the
 extracted map (`json`, `logfmt`, `geoip`, `eventlogmessage`, `windowsevent`, `template`,
 `replace`) or structured metadata (`structured_metadata`, its `regex` included), or set fixed
@@ -741,7 +742,10 @@ every collector it matches and lists it in the header under `// Excluded (N) - s
 check:` with the first findings. It stays stored and enabled; saving a fix includes it again. A
 check that cannot finish (the lint's wall-clock guard, tried three times) has no verdict: the
 recompute fails for that collector, which keeps its last good config (`serve.RecordFailure`), so
-neither an unchecked pipeline nor a config without it is served; only a refusal excludes.
+neither an unchecked pipeline nor a config without it is served; only a refusal excludes. Boot
+recomputes every strict org, so a collector keeps a config from before an upgrade only while the
+check stays unable to finish, and while one pipeline's check cannot finish the org's collectors
+receive no config updates.
 Verdicts are cached in-process by the org's policy and the text, so a steady fleet's polls do not
 re-lint; a pipeline with `import.git` is not cached, since its verdict depends on the module cache.
 Turning strict mode off for an org (`SetOrgStrictTenants`, or `tenants.require_owned` going off
