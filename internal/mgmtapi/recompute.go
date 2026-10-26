@@ -95,6 +95,10 @@ type orgServeInputs struct {
 	// pipelines were loaded; a collector with no row yet has generation 0.
 	expectedSeq map[pgtype.UUID]int64
 	pipelines   []merge.Pipeline
+	// loadErr is why the pipelines could not be loaded in their served form
+	// (a strict org's pinned import that cannot be inlined): every
+	// collector's recompute fails with it and keeps its last good config.
+	loadErr error
 }
 
 func (s *PipelineService) loadOrgServeInputs(ctx context.Context, orgID pgtype.UUID) (*orgServeInputs, error) {
@@ -125,11 +129,12 @@ func (s *PipelineService) loadOrgServeInputs(ctx context.Context, orgID pgtype.U
 	// match nothing -- which in stage 3 validates a merged config the collector
 	// will never actually be served, and in recompute writes a serve cache with
 	// the org's GitOps pipelines silently removed.
-	enabledPipelines, err := s.store.Queries.ListEnabledPipelinesForMerge(ctx, orgID)
-	if err != nil {
-		return nil, fmt.Errorf("listing pipelines: %w", err)
-	}
+	// The served form (serve.LoadPipelines), as the lazy path loads it: a
+	// strict org's pinned import.git modules inlined. One that cannot be
+	// inlined fails every collector's recompute (loadErr), never serves raw.
+	pipelines, loadErr := serve.LoadPipelines(ctx, s.store.Queries, orgID, s.requireOwned)
 	return &orgServeInputs{
+		loadErr:            loadErr,
 		orgID:              orgID,
 		collectors:         collectors,
 		allowLabelMatching: org.AllowLabelMatching,
@@ -138,7 +143,7 @@ func (s *PipelineService) loadOrgServeInputs(ctx context.Context, orgID pgtype.U
 		// The same row -> merge.Pipeline conversion agentapi's lazy recompute
 		// uses, current revision included (#296): the two paths must serve
 		// byte-identical config or the hash moves whenever a poll switches path.
-		pipelines: serve.PipelinesFromRows(enabledPipelines),
+		pipelines: pipelines,
 	}, nil
 }
 
@@ -148,6 +153,12 @@ func (s *PipelineService) loadOrgServeInputs(ctx context.Context, orgID pgtype.U
 // the collector's previous entry and is reported through serve.RecordFailure.
 func (s *PipelineService) recomputeCollector(ctx context.Context, in *orgServeInputs, c sqlc.ListCollectorsWithClusterByOrgRow) {
 	seq := in.expectedSeq[c.ID]
+	if in.loadErr != nil {
+		serve.RecordFailure(ctx, s.store, s.logger, serve.Failure{
+			CollectorID: c.ID, OrgID: in.orgID, DirtySeq: seq, Path: serve.PathEager, Err: in.loadErr,
+		})
+		return
+	}
 	// internal/serve.ComputeServed is the single merge -> append-baseline
 	// -> hash -> Stage-1-validate implementation this eager path shares
 	// with internal/agentapi's lazy recompute (docs/gateway-tier-plan.md

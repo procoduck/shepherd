@@ -12,6 +12,7 @@ import (
 	mgmtv1 "shepherd/gen/shepherd/mgmt/v1"
 	"shepherd/gen/shepherd/mgmt/v1/mgmtv1connect"
 	"shepherd/internal/config"
+	"shepherd/internal/pinnedimport"
 	"shepherd/internal/store/sqlc"
 	"shepherd/internal/tenancy"
 	"shepherd/internal/validate"
@@ -45,7 +46,10 @@ func tenantPolicy(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, requi
 
 // lintPolicy is orgID's policy as the validation gate takes it. An org that
 // cannot be read fails closed (an internal error), never an unlinted save.
-func lintPolicy(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, requireOwned bool) (validate.TenantPolicy, error) {
+//
+// src reads the pipeline's pinned import.git modules (pinnedimport): the
+// service's Resolver.Saving() on a save or validation path.
+func lintPolicy(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, requireOwned bool, src pinnedimport.Source) (validate.TenantPolicy, error) {
 	if !orgID.Valid {
 		// No org (RenderWizard's preview tolerates a missing one): nothing
 		// can be saved into it, and there are no tenants to own.
@@ -55,7 +59,7 @@ func lintPolicy(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, require
 	if err != nil {
 		return validate.TenantPolicy{}, err
 	}
-	return p.Validation(), nil
+	return p.Validation(q, src), nil
 }
 
 // checkStrictTenant refuses (invalid_argument) a tenant orgID does not own
@@ -178,6 +182,34 @@ func WithRequireOwnedTenants(on bool) PipelineServiceOption {
 	return func(s *PipelineService) { s.requireOwned = on }
 }
 
+// WithPinnedImports gives the pipeline write path (and the destination
+// service built on it) the fetcher of strict mode's pinned import.git
+// modules. Without it only modules already cached can be verified.
+func WithPinnedImports(r *pinnedimport.Resolver) PipelineServiceOption {
+	return func(s *PipelineService) { s.imports = r }
+}
+
+// WithWizardPinnedImports is WithPinnedImports for the wizard path.
+func WithWizardPinnedImports(r *pinnedimport.Resolver) WizardServiceOption {
+	return func(s *WizardService) { s.imports = r }
+}
+
+// WithVisualPinnedImports is WithPinnedImports for the visual builder.
+func WithVisualPinnedImports(r *pinnedimport.Resolver) VisualServiceOption {
+	return func(s *VisualService) { s.imports = r }
+}
+
+// WithAdminRecompute gives the strict toggle the eager recompute of an org's
+// served configs (PipelineService.RecomputeOrgCaches).
+func WithAdminRecompute(recompute func(ctx context.Context, orgID pgtype.UUID)) AdminServiceOption {
+	return func(s *AdminService) { s.recompute = recompute }
+}
+
+// WithAdminPinnedImports is WithPinnedImports for the tenant preflight.
+func WithAdminPinnedImports(r *pinnedimport.Resolver) AdminServiceOption {
+	return func(s *AdminService) { s.imports = r }
+}
+
 // WithWizardRequireOwnedTenants passes tenants.require_owned to the wizard
 // render/commit path.
 func WithWizardRequireOwnedTenants(on bool) WizardServiceOption {
@@ -224,12 +256,30 @@ func (s *AdminService) SetOrgStrictTenants(ctx context.Context, req *connect.Req
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid org id"))
 	}
 	on := req.Msg.GetStrictTenants()
-	return s.inOrgTenantTx(ctx, orgID, func(q *sqlc.Queries, org sqlc.Org, _ []sqlc.OrgTenant) error {
+	if on {
+		// Fetch, outside the lock, any pinned import.git module the org's
+		// enabled pipelines need and Shepherd has not cached: the check
+		// under the exclusive lock below reads the cache only, so it never
+		// holds every tenant write up on the network.
+		if org, err := s.store.Queries.GetOrgByID(ctx, orgID); err == nil {
+			if _, err := tenancy.Preflight(ctx, s.store.Queries, org, true, s.imports.Preflight()); err != nil {
+				s.logger.Warn("strict tenants: fetching pinned modules before the preflight", "err", err, "org_id", orgID.String())
+			}
+		}
+	}
+	changed := false
+	resp, err := s.inOrgTenantTx(ctx, orgID, func(q *sqlc.Queries, org sqlc.Org, _ []sqlc.OrgTenant) error {
 		if org.StrictTenants == on {
 			return nil
 		}
+		changed = true
+		// A strict org is served its pinned import.git modules inlined, a
+		// non-strict one as written: the toggle changes served bytes.
+		if err := q.MarkServeCacheDirtyByOrg(ctx, orgID); err != nil {
+			return connect.NewError(connect.CodeInternal, errors.New("failed to change strict tenant mode"))
+		}
 		if on {
-			vs, err := tenancy.Preflight(ctx, q, org, true)
+			vs, err := tenancy.Preflight(ctx, q, org, true, pinnedimport.Cached)
 			if err != nil {
 				s.logger.Error("strict tenants: preflight", "err", err, "org_id", orgID.String())
 				return busyOr(err, connect.NewError(connect.CodeInternal, errors.New("failed to check the org's tenants")))
@@ -249,6 +299,10 @@ func (s *AdminService) SetOrgStrictTenants(ctx context.Context, req *connect.Req
 		}
 		return nil
 	})
+	if err == nil && changed && s.recompute != nil {
+		go s.recompute(context.Background(), orgID) //nolint:contextcheck,gosec // G118+contextcheck: intentional detached context, as UpdatePipeline
+	}
+	return resp, err
 }
 
 // TenantPreflight reports what would break the strict tenant rule (app
@@ -258,7 +312,7 @@ func (s *AdminService) SetOrgStrictTenants(ctx context.Context, req *connect.Req
 func (s *AdminService) TenantPreflight(ctx context.Context, req *connect.Request[mgmtv1.TenantPreflightRequest]) (*connect.Response[mgmtv1.TenantPreflightResponse], error) {
 	q := s.store.Queries
 	if req.Msg.GetOrgId() == "" {
-		vs, err := tenancy.PreflightAll(ctx, q)
+		vs, err := tenancy.PreflightAll(ctx, q, s.imports.Preflight())
 		if err != nil {
 			s.logger.Error("tenant preflight", "err", err)
 			return nil, connect.NewError(connect.CodeInternal, errors.New("failed to run the tenant preflight"))
@@ -273,7 +327,7 @@ func (s *AdminService) TenantPreflight(ctx context.Context, req *connect.Request
 	if err != nil {
 		return nil, connect.NewError(connect.CodeNotFound, errors.New("org not found"))
 	}
-	vs, err := tenancy.Preflight(ctx, q, org, true)
+	vs, err := tenancy.Preflight(ctx, q, org, true, s.imports.Preflight())
 	if err != nil {
 		s.logger.Error("tenant preflight", "err", err, "org_id", orgID.String())
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to run the tenant preflight"))

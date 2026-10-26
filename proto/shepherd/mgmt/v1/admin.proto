@@ -43,6 +43,24 @@ service AdminService {
   // SetOrgStrictTenants would refuse over); empty checks every org, as the
   // server-wide tenants.require_owned setting would at boot.
   rpc TenantPreflight(TenantPreflightRequest) returns (TenantPreflightResponse) {}
+  // ListOrgImportRepositories lists the repositories an org's pipelines may
+  // import modules from in strict tenant mode, with import.git pinned to a
+  // full commit SHA. App admin only.
+  rpc ListOrgImportRepositories(ListOrgImportRepositoriesRequest) returns (ListOrgImportRepositoriesResponse) {}
+  // AddOrgImportRepository allows an org's pipelines to import.git from a
+  // repository, pinned to a full commit SHA; strict tenant mode fetches the
+  // module and lints its content. App admin only. The URL must be an
+  // https://, http://, ssh:// or git@host:path git remote; it is stored with
+  // its normal form, which a pipeline's repository must match
+  // (invalid_argument for an ambiguous spelling, already_exists for a second
+  // spelling of an entry). credential_id optionally names one of the org's
+  // git credentials, for a private repository.
+  rpc AddOrgImportRepository(AddOrgImportRepositoryRequest) returns (OrgImportRepository) {}
+  // RemoveOrgImportRepository takes a repository off an org's allowlist. App
+  // admin only. Refused (failed_precondition, naming each one) while the
+  // strict tenant rule applies to the org and an enabled pipeline imports
+  // from it.
+  rpc RemoveOrgImportRepository(RemoveOrgImportRepositoryRequest) returns (RemoveOrgImportRepositoryResponse) {}
 
   rpc ListClusters(ListClustersRequest) returns (ListClustersResponse) {}
   rpc ClaimCluster(ClaimClusterRequest) returns (ClaimClusterResponse) {}
@@ -235,6 +253,46 @@ message TenantPreflightResponse {
   // violations is empty when strict tenant mode could be turned on.
   repeated TenantViolation violations = 1;
 }
+
+// OrgImportRepository is one repository an org's pipelines may import.git
+// from, pinned to a full commit SHA (org_import_repositories, 0043).
+message OrgImportRepository {
+  string id = 1;
+  string org_id = 2;
+  // repository is the URL as the app admin entered it.
+  string repository = 3;
+  // normalized is the form a pipeline's import.git repository is compared
+  // in (internal/pinnedimport.NormalizeRepository).
+  string normalized = 4;
+  // credential_id is the org's git credential used to fetch the
+  // repository; empty for a public one. credential_name is its name.
+  string credential_id = 5;
+  string credential_name = 6;
+  string created_by = 7;
+  google.protobuf.Timestamp created_at = 8;
+}
+
+message ListOrgImportRepositoriesRequest {
+  string org_id = 1;
+}
+
+message ListOrgImportRepositoriesResponse {
+  repeated OrgImportRepository items = 1;
+}
+
+message AddOrgImportRepositoryRequest {
+  string org_id = 1;
+  string repository = 2;
+  // credential_id is optional: one of the org's git credentials.
+  string credential_id = 3;
+}
+
+message RemoveOrgImportRepositoryRequest {
+  string org_id = 1;
+  string id = 2;
+}
+
+message RemoveOrgImportRepositoryResponse {}
 
 message DeleteOrgRequest {
   string org_id = 1;

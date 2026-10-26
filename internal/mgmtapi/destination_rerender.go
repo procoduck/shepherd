@@ -188,7 +188,7 @@ func (s *PipelineService) renderWizardPipeline(ctx context.Context, p sqlc.Pipel
 	}
 	// The same Stage 1/2 gate UpdatePipeline (validateSaveInput) and
 	// CommitWizard run before they write, tenant lint included.
-	tenants, err := lintPolicy(ctx, s.store.Queries, p.OrgID, s.requireOwned)
+	tenants, err := lintPolicy(ctx, s.store.Queries, p.OrgID, s.requireOwned, s.imports.Saving())
 	if err != nil {
 		return fail("%v", err)
 	}

@@ -1,6 +1,7 @@
 package validate_test
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math/rand/v2"
@@ -248,19 +249,19 @@ func TestTenantLintWallClockIsNotAVerdict(t *testing.T) {
 	restore := validate.SetTenantLintDeadline(0)
 	defer restore()
 	src := pathological(5, 40)
-	diags, err := validate.TenantLintChecked(src, strictAcme())
+	diags, err := validate.TenantLintChecked(context.Background(), src, strictAcme())
 	if !errors.Is(err, validate.ErrLintBusy) || len(diags) != 0 {
 		t.Fatalf("a timed-out lint must be busy without a verdict, got %v and %d diagnostics", err, len(diags))
 	}
 	if _, _, err := validate.TenantLiterals(src); !errors.Is(err, validate.ErrLintBusy) {
 		t.Fatalf("TenantLiterals = %v, want ErrLintBusy", err)
 	}
-	r := validate.WithTenantLint(validate.Result{Valid: true}, src, strictAcme())
+	r := validate.WithTenantLint(context.Background(), validate.Result{Valid: true}, src, strictAcme())
 	if r.Valid || !r.Busy {
 		t.Fatalf("WithTenantLint on a timed-out lint = %+v, want busy and not valid", r)
 	}
 	restore()
-	diags, err = validate.TenantLintChecked(src, strictAcme())
+	diags, err = validate.TenantLintChecked(context.Background(), src, strictAcme())
 	if err != nil || len(diags) == 0 {
 		t.Fatalf("step exhaustion must stay a refusal, got %v and %d diagnostics", err, len(diags))
 	}
@@ -278,7 +279,7 @@ func TestTenantLintClockStartsAfterTheParse(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			restore := validate.SetTenantLintDeadline(5 * time.Millisecond)
 			defer restore()
-			if _, err := validate.TenantLintChecked(src, strictAcme()); err != nil {
+			if _, err := validate.TenantLintChecked(context.Background(), src, strictAcme()); err != nil {
 				t.Fatalf("TenantLintChecked = %v; the parse must not count against the lint clock", err)
 			}
 			if _, _, err := validate.TenantLiterals(src); err != nil {

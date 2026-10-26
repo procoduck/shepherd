@@ -2,10 +2,12 @@ package gitrepo
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/go-git/go-git/v6/plumbing/client"
 	"github.com/go-git/go-git/v6/plumbing/transport"
@@ -46,8 +48,13 @@ func (r Repo) clientOptions(ctx context.Context, counter *byteCounter) ([]client
 	httpClient := &http.Client{
 		Transport: &countingTransport{next: transport, counter: counter},
 	}
+	if r.SameHostRedirects {
+		httpClient.CheckRedirect = sameHostOnly
+	}
 
-	opts := []client.Option{client.WithHTTPClient(httpClient)}
+	// SSH (and git://) connections are counted too: max_repo_bytes bounds
+	// every transport, not only HTTP.
+	opts := []client.Option{client.WithHTTPClient(httpClient), client.WithDialer(countingDialer(counter))}
 
 	if r.Auth != nil {
 		username, password, ok, err := r.Auth.HTTP(ctx)
@@ -86,6 +93,52 @@ func (r Repo) clientOptions(ctx context.Context, counter *byteCounter) ([]client
 	}
 
 	return opts, nil
+}
+
+// countingDialer dials TCP with every byte read counting against counter,
+// so an SSH fetch trips ErrRepoTooLarge as an HTTP one does.
+func countingDialer(counter *byteCounter) func(ctx context.Context, network, addr string) (net.Conn, error) {
+	return func(ctx context.Context, network, addr string) (net.Conn, error) {
+		conn, err := (&net.Dialer{}).DialContext(ctx, network, addr)
+		if err != nil {
+			return nil, err
+		}
+		return &countingConn{Conn: conn, counter: counter}, nil
+	}
+}
+
+// countingConn is a net.Conn whose reads count against a byteCounter; the
+// read that crosses the limit fails with ErrRepoTooLarge.
+type countingConn struct {
+	net.Conn
+	counter *byteCounter
+}
+
+func (c *countingConn) Read(p []byte) (int, error) {
+	n, err := c.Conn.Read(p)
+	if n > 0 {
+		if total := c.counter.n.Add(int64(n)); total > c.counter.limit {
+			return n, fmt.Errorf("%w: read %d bytes, limit %d", ErrRepoTooLarge, total, c.counter.limit)
+		}
+	}
+	return n, err
+}
+
+// ErrRedirectRefused is an HTTP redirect to another scheme, host or port,
+// refused because Repo.SameHostRedirects is set.
+var ErrRedirectRefused = errors.New("gitrepo: redirect to another host refused")
+
+// sameHostOnly is an http.Client.CheckRedirect that refuses a hop off the
+// first request's scheme and host:port.
+func sameHostOnly(req *http.Request, via []*http.Request) error {
+	if len(via) == 0 {
+		return nil
+	}
+	first := via[0].URL
+	if req.URL.Scheme != first.Scheme || !strings.EqualFold(req.URL.Host, first.Host) {
+		return fmt.Errorf("%w: %s://%s to %s://%s", ErrRedirectRefused, first.Scheme, first.Host, req.URL.Scheme, req.URL.Host)
+	}
+	return nil
 }
 
 // sshClientConfig wraps an *xssh.PublicKeys auth into go-git's

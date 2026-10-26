@@ -18,6 +18,7 @@ import (
 	mgmtv1 "shepherd/gen/shepherd/mgmt/v1"
 	"shepherd/gen/shepherd/mgmt/v1/mgmtv1connect"
 	"shepherd/internal/merge"
+	"shepherd/internal/pinnedimport"
 	"shepherd/internal/schema"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
@@ -55,6 +56,8 @@ type WizardService struct {
 	schema *schema.Registry
 	// requireOwned is the server-wide tenants.require_owned setting.
 	requireOwned bool
+	// imports fetches pinned import.git modules (WithWizardPinnedImports).
+	imports *pinnedimport.Resolver
 }
 
 // WizardServiceOption configures optional WizardService dependencies.
@@ -140,7 +143,7 @@ func (s *WizardService) RenderWizard(ctx context.Context, req *connect.Request[m
 	if name == "" {
 		name = "preview"
 	}
-	tenants, err := lintPolicy(ctx, s.store.Queries, orgID, s.requireOwned)
+	tenants, err := lintPolicy(ctx, s.store.Queries, orgID, s.requireOwned, s.imports.Saving())
 	if err != nil {
 		return nil, err
 	}
@@ -314,7 +317,7 @@ func (s *WizardService) CommitWizard(ctx context.Context, req *connect.Request[m
 	if len(result.Contents) > MaxPipelineContentsBytes {
 		return nil, errPipelineTooLarge(len(result.Contents))
 	}
-	tenants, err := lintPolicy(ctx, s.store.Queries, orgID, s.requireOwned)
+	tenants, err := lintPolicy(ctx, s.store.Queries, orgID, s.requireOwned, s.imports.Saving())
 	if err != nil {
 		return nil, err
 	}

@@ -1,8 +1,11 @@
 package validate
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	pathpkg "path"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -24,6 +27,70 @@ type TenantPolicy struct {
 	// the org's tenants). Required when Strict is set; a nil Owns owns
 	// nothing.
 	Owns func(tenant string) bool
+	// Git is where the lint reads import.git modules from: a strict org may
+	// use import.git pinned to a full commit SHA of a repository on its
+	// allowlist, and the fetched module is linted with the same rules
+	// (#390). Nil refuses every import.git.
+	Git GitModules
+	// Inline builds what a strict org is served for a pipeline's text: each
+	// pinned import.git rewritten into an import.string of the module text
+	// the lint checked (pinnedimport.Inline). ValidatePipeline validates
+	// that form too. Nil: no served form is checked (a non-strict policy, or
+	// a caller with nothing to inline from).
+	Inline func(ctx context.Context, contents string) (string, error)
+}
+
+// GitModule is one import.git module: its repository, revision and path as
+// the pipeline spells them.
+type GitModule struct {
+	Repository, Revision, Path string
+}
+
+// GitModules is where strict tenant mode's lint reads import.git modules
+// from (internal/pinnedimport). The lint itself never waits on it: between
+// runs, TenantLintChecked fetches every module the previous run needed.
+type GitModules interface {
+	// Allowed returns nil when repository is on the org's allowlist, else
+	// the refusal.
+	Allowed(repository string) error
+	// Fetch returns the module's text. A non-empty warning is reported as a
+	// warning diagnostic on the import (the text was checked against a cached
+	// copy because its source is unreachable); err refuses the import.
+	Fetch(ctx context.Context, m GitModule) (content, warning string, err error)
+}
+
+// MaxGitImportDepth is how deep import.git may nest: a pipeline's import is
+// depth 1, an import.git inside that module depth 2, and so on.
+const MaxGitImportDepth = 4
+
+// maxGitModules is how many distinct import.git modules one lint run may
+// fetch, across every depth.
+const maxGitModules = 16
+
+// fullCommitSHA is the only revision strict mode accepts for import.git.
+var fullCommitSHA = regexp.MustCompile(`^[0-9a-f]{40}$`)
+
+// gitFetch is one fetched module, or why it could not be.
+type gitFetch struct {
+	content, warning string
+	err              error
+}
+
+// gitState is what one TenantLintChecked call has fetched so far, shared by
+// every run and every module it lints; needed is what the current run asked
+// for that it does not have yet.
+type gitState struct {
+	fetched map[GitModule]gitFetch
+	needed  []GitModule
+	asked   map[GitModule]bool
+}
+
+func (g *gitState) need(m GitModule) {
+	if g.asked[m] {
+		return
+	}
+	g.asked[m] = true
+	g.needed = append(g.needed, m)
 }
 
 func (p TenantPolicy) owns(tenant string) bool {
@@ -118,13 +185,18 @@ const (
 	// maxContentBytes is the largest text the lint reads at all — the
 	// pipeline contents cap (mgmtapi.MaxPipelineContentsBytes), so a larger
 	// one is never saved; parsing is linear in the text.
-	maxContentBytes = 1 << 20
+	maxContentBytes = MaxContentBytes
 	// maxLiterals is how many distinct tenants one pipeline may be recorded
 	// as writing to (pipeline_tenants); more is "incomplete".
 	maxLiterals = 256
 	// maxDiagnostics is how many refusals one run reports, plus one summary.
 	maxDiagnostics = 100
 )
+
+// MaxContentBytes is the largest pipeline text the tenant lint reads, and the
+// most a strict org's pipeline may be with its pinned modules inlined
+// (pinnedimport.Inline): the pipeline contents cap.
+const MaxContentBytes = 1 << 20
 
 // lintDeadline is the wall-clock guard of one run. It is a crash guard, not
 // a verdict: a run that hits it is "busy" (ErrLintBusy — retry), never a
@@ -155,7 +227,7 @@ var ErrLintBusy = errors.New("validation busy: the tenant check did not finish i
 // tenant authentication is the boundary. It is bounded (maxSteps and the
 // other caps), so no text makes it slow.
 func TenantLint(content string, p TenantPolicy) []Diagnostic {
-	diags, err := TenantLintChecked(content, p)
+	diags, err := TenantLintChecked(context.Background(), content, p)
 	if err != nil {
 		return []Diagnostic{{Line: 1, Col: 1, Stage: 1, Message: err.Error()}}
 	}
@@ -165,19 +237,51 @@ func TenantLint(content string, p TenantPolicy) []Diagnostic {
 // TenantLintChecked is TenantLint that reports a run which hit the
 // wall-clock guard as ErrLintBusy, with no diagnostics, instead of a
 // refusal: the gate turns it into a retryable "busy".
-func TenantLintChecked(content string, p TenantPolicy) ([]Diagnostic, error) {
+//
+// With p.Git set it reads pinned import.git modules: each run of the lint
+// (bounded as always) lists the modules it needs and has not got; they are
+// fetched (p.Git.Fetch, under ctx) between runs and the lint runs again, at
+// most once per level of nesting (MaxGitImportDepth) and for at most
+// maxGitModules modules in all. The fetch is the only part that waits on
+// the network, and the module source bounds it.
+func TenantLintChecked(ctx context.Context, content string, p TenantPolicy) ([]Diagnostic, error) {
 	if !p.Strict {
 		return nil, nil
 	}
-	b := newBudget()
-	l := newTenantLinter(content, p, nil, 0, b)
-	if b.timedOut {
-		return nil, ErrLintBusy
-	}
-	if l == nil {
-		return nil, nil
+	l, err := runLint(ctx, content, p)
+	if err != nil || l == nil {
+		return nil, err
 	}
 	return l.diags, nil
+}
+
+// runLint is the lint with its fetch rounds (see TenantLintChecked): nil
+// for content that does not parse.
+func runLint(ctx context.Context, content string, p TenantPolicy) (*tenantLinter, error) {
+	git := &gitState{fetched: map[GitModule]gitFetch{}}
+	for round := 0; ; round++ {
+		git.needed, git.asked = nil, map[GitModule]bool{}
+		b := newBudget()
+		l := newTenantLinter(content, p, nil, 0, 0, git, b)
+		if b.timedOut {
+			return nil, ErrLintBusy
+		}
+		if l == nil {
+			return nil, nil
+		}
+		if len(git.needed) == 0 || p.Git == nil || round > MaxGitImportDepth {
+			return l, nil
+		}
+		for _, m := range git.needed {
+			if len(git.fetched) >= maxGitModules {
+				git.fetched[m] = gitFetch{err: fmt.Errorf("the pipeline imports more than %d modules, more than "+
+					"the tenant check fetches", maxGitModules)}
+				continue
+			}
+			content, warning, err := p.Git.Fetch(ctx, m)
+			git.fetched[m] = gitFetch{content: content, warning: warning, err: err}
+		}
+	}
 }
 
 // TenantLiterals lists every tenant content writes to that the lint can
@@ -190,10 +294,16 @@ func TenantLintChecked(content string, p TenantPolicy) ([]Diagnostic, error) {
 // err is ErrLintBusy when the run hit the wall-clock guard: the result means
 // nothing, and the caller keeps what it had.
 func TenantLiterals(content string) (literals []string, complete bool, err error) {
-	b := newBudget()
-	l := newTenantLinter(content, TenantPolicy{Strict: true, Owns: func(string) bool { return true }}, nil, 0, b)
-	if b.timedOut {
-		return nil, false, ErrLintBusy
+	return TenantLiteralsWith(context.Background(), content, nil)
+}
+
+// TenantLiteralsWith is TenantLiterals reading pinned import.git modules from
+// git (nil: none, so a pipeline with one is incomplete): a strict org's
+// pipeline whose modules are cached is recorded with their tenants.
+func TenantLiteralsWith(ctx context.Context, content string, git GitModules) (literals []string, complete bool, err error) {
+	l, err := runLint(ctx, content, TenantPolicy{Strict: true, Owns: func(string) bool { return true }, Git: git})
+	if err != nil {
+		return nil, false, err
 	}
 	if l == nil {
 		return nil, true, nil
@@ -242,9 +352,9 @@ func (b *budget) charge(n int) bool {
 
 func (b *budget) take() bool { return b.charge(1) }
 
-func newTenantLinter(content string, p TenantPolicy, external map[string]map[string][]resolved, depth int, b *budget) *tenantLinter {
+func newTenantLinter(content string, p TenantPolicy, external map[string]map[string][]resolved, depth, gitDepth int, git *gitState, b *budget) *tenantLinter {
 	l := &tenantLinter{
-		policy: p, declares: map[string]*declareInfo{}, depth: depth, budget: b,
+		policy: p, declares: map[string]*declareInfo{}, depth: depth, gitDepth: gitDepth, git: git, budget: b,
 		memo: map[string]*resolved{}, components: map[string]map[string]*ast.BlockStmt{},
 		seenLiteral: map[string]bool{},
 	}
@@ -297,6 +407,10 @@ type tenantLinter struct {
 	memo   map[string]*resolved
 	depth  int
 	budget *budget
+	// gitDepth is how many import.git modules enclose this text; git is
+	// what the TenantLintChecked call has fetched (nil: none can be).
+	gitDepth int
+	git      *gitState
 	// exprNesting is how deep resolve is in one expression.
 	exprNesting int
 	// seenLiteral is literals as a set; incomplete is set when there were
@@ -349,6 +463,10 @@ type scope struct {
 	declare   string
 	// declDepth is how many declares enclose the scope.
 	declDepth int
+	// nested is set inside any block other than a declare (a foreach
+	// template, a component), declares within it included: an import
+	// block there is refused.
+	nested bool
 }
 
 // pathNode is one block of a scope's path, pointing at its parent: a child
@@ -375,7 +493,7 @@ func (s scope) nesting() int {
 }
 
 func (s scope) child(name string) scope {
-	return scope{component: s.component, path: &pathNode{name: name, parent: s.path, depth: s.nesting() + 1}, declare: s.declare, declDepth: s.declDepth}
+	return scope{component: s.component, path: &pathNode{name: name, parent: s.path, depth: s.nesting() + 1}, declare: s.declare, declDepth: s.declDepth, nested: s.nested}
 }
 
 // where spells out "<component> <block>… <attr>" for a refusal.
@@ -534,6 +652,7 @@ func (l *tenantLinter) body(stmts ast.Body, sc scope) {
 		case *ast.BlockStmt:
 			name := strings.Join(n.Name, ".")
 			atTop := sc.component == "" && sc.path == nil
+			importable := atTop && !sc.nested
 			if sc.nesting() >= maxNesting || sc.declDepth >= maxNesting {
 				l.refuse(n, fmt.Sprintf("blocks nested more than %d deep cannot be verified — strict tenant mode refuses them", maxNesting))
 				continue
@@ -543,9 +662,15 @@ func (l *tenantLinter) body(stmts ast.Body, sc scope) {
 				if !l.budget.charge(1 + (len(sc.declare)+len(n.Label))/64) {
 					return
 				}
-				l.body(n.Body, scope{declare: declareKey(sc.declare, n.Label), declDepth: sc.declDepth + 1})
-			case atTop && strings.HasPrefix(name, "import."):
+				l.body(n.Body, scope{declare: declareKey(sc.declare, n.Label), declDepth: sc.declDepth + 1, nested: !importable})
+			case importable && strings.HasPrefix(name, "import."):
 				l.importBlock(n, name, sc, stmts)
+			case strings.HasPrefix(name, "import."):
+				// Alloy loads an import block inside another block too (a
+				// foreach template); the lint follows modules only from the
+				// top level and a declare body, so any other is refused.
+				l.refuse(n, fmt.Sprintf("%s %q is nested in another block, where strict tenant mode cannot verify "+
+					"what it loads — strict tenant mode refuses it; import at the top level or in a declare", name, n.Label))
 			case atTop && (isTenantComponent(name) || name == "otelcol.auth.headers"):
 				l.body(n.Body, scope{component: name, declare: sc.declare, declDepth: sc.declDepth})
 			case atTop && name == "otelcol.auth.bearer":
@@ -817,7 +942,12 @@ func (l *tenantLinter) mayBeTenantHeader(v ast.Expr, sc scope, what string) bool
 // verified.
 func (l *tenantLinter) importBlock(b *ast.BlockStmt, name string, sc scope, siblings ast.Body) {
 	where := fmt.Sprintf("%s %q", name, b.Label)
-	if name != "import.string" {
+	switch name {
+	case "import.string":
+	case "import.git":
+		l.gitImport(b, where, siblings)
+		return
+	default:
 		l.refuse(b, where+" loads configuration from outside the pipeline, which cannot be verified — strict "+
 			"tenant mode refuses it; inline the module (declare, or import.string with literal content)")
 		return
@@ -831,13 +961,20 @@ func (l *tenantLinter) importBlock(b *ast.BlockStmt, name string, sc scope, sibl
 		l.refuse(content, where+" content cannot be verified — strict tenant mode refuses it")
 		return
 	}
+	l.lintModule(content, where, texts[0], l.moduleArguments(b.Label, siblings), l.gitDepth)
+}
+
+// lintModule lints an imported module's text with the same rules, at the
+// next depth (gitDepth is the module's import.git depth), and reports its
+// findings at the import (at).
+func (l *tenantLinter) lintModule(at ast.Node, where, text string, args map[string]map[string][]resolved, gitDepth int) {
 	if l.depth >= maxDepth {
-		l.refuse(content, where+" nests modules too deeply to verify — strict tenant mode refuses it")
+		l.refuse(at, where+" nests modules too deeply to verify — strict tenant mode refuses it")
 		return
 	}
-	inner := newTenantLinter(texts[0], l.policy, l.moduleArguments(b.Label, siblings), l.depth+1, l.budget)
+	inner := newTenantLinter(text, l.policy, args, l.depth+1, gitDepth, l.git, l.budget)
 	if inner == nil {
-		l.refuse(content, where+" content does not parse, so it cannot be verified — strict tenant mode refuses it")
+		l.refuse(at, where+" content does not parse, so it cannot be verified — strict tenant mode refuses it")
 		return
 	}
 	for _, t := range inner.literals {
@@ -845,8 +982,138 @@ func (l *tenantLinter) importBlock(b *ast.BlockStmt, name string, sc scope, sibl
 	}
 	l.incomplete = l.incomplete || inner.incomplete
 	for _, d := range inner.diags {
-		l.refuse(content, fmt.Sprintf("%s line %d: %s", where, d.Line, d.Message))
+		msg := fmt.Sprintf("%s line %d: %s", where, d.Line, d.Message)
+		if d.Warning {
+			l.warn(at, msg)
+		} else {
+			l.refuse(at, msg)
+		}
 	}
+}
+
+// gitImport handles import.git in strict mode (#390): allowed only when
+// repository, revision and path are literals, the revision is a full
+// lower-case commit SHA (Alloy follows a moving branch or tag; only a commit
+// cannot change), the path is a clean relative path, the repository is on
+// the org's allowlist (policy.Git) and the import nests at most
+// MaxGitImportDepth deep. The module is then fetched and linted with the
+// same rules, nested imports included.
+func (l *tenantLinter) gitImport(b *ast.BlockStmt, where string, siblings ast.Body) {
+	if l.policy.Git == nil || l.git == nil {
+		l.refuse(b, where+" loads configuration from outside the pipeline, which cannot be verified — strict "+
+			"tenant mode refuses it; inline the module (declare, or import.string with literal content)")
+		return
+	}
+	attrs := attrsOf(b)
+	literal := func(attr string) (string, bool) {
+		v := attrs[attr]
+		if v == nil {
+			if attr == "revision" {
+				l.refuse(b, where+" has no revision, so Alloy follows the branch it defaults to (main) — strict "+
+					"tenant mode refuses it; pin it to a full 40-character commit SHA")
+			} else {
+				l.refuse(b, fmt.Sprintf("%s has no %s — strict tenant mode refuses it", where, attr))
+			}
+			return "", false
+		}
+		// A plain string literal only: the serve path inlines the module
+		// (pinnedimport.Inline), reading the block exactly this way.
+		val, ok := PlainStringLiteral(v)
+		if !ok || !l.budget.take() {
+			l.refuse(v, fmt.Sprintf("%s %s cannot be verified — strict tenant mode refuses it; use a string literal", where, attr))
+			return "", false
+		}
+		return val, true
+	}
+	repo, ok1 := literal("repository")
+	rev, ok2 := literal("revision")
+	path, ok3 := literal("path")
+	if !ok1 || !ok2 || !ok3 {
+		return
+	}
+	if msg := revisionProblem(rev); msg != "" {
+		l.refuse(attrs["revision"], where+" "+msg)
+		return
+	}
+	if !CleanModulePath(path) {
+		l.refuse(attrs["path"], fmt.Sprintf("%s path %q is not a clean relative path (ASCII only) to one file in "+
+			"the repository — strict tenant mode refuses it", where, path))
+		return
+	}
+	if l.gitDepth >= MaxGitImportDepth {
+		l.refuse(b, fmt.Sprintf("%s nests import.git more than %d deep — strict tenant mode refuses it",
+			where, MaxGitImportDepth))
+		return
+	}
+	if err := l.policy.Git.Allowed(repo); err != nil {
+		l.refuse(attrs["repository"], fmt.Sprintf("%s: %v — strict tenant mode refuses it", where, err))
+		return
+	}
+	m := GitModule{Repository: repo, Revision: rev, Path: path}
+	got, ok := l.git.fetched[m]
+	if !ok {
+		l.git.need(m)
+		l.refuse(b, where+" has not been fetched yet, so it cannot be verified — strict tenant mode refuses it")
+		return
+	}
+	if got.err != nil {
+		l.refuse(b, fmt.Sprintf("%s could not be fetched for the tenant check (%v) — strict tenant mode refuses it",
+			where, got.err))
+		return
+	}
+	if got.warning != "" {
+		l.warn(b, where+": "+got.warning)
+	}
+	l.lintModule(b, where, got.content, l.moduleArguments(b.Label, siblings), l.gitDepth+1)
+}
+
+// revisionProblem says what is wrong with an import.git revision for strict
+// mode, or "".
+func revisionProblem(rev string) string {
+	const pin = " — strict tenant mode refuses it; pin it to a full 40-character commit SHA"
+	switch {
+	case fullCommitSHA.MatchString(rev):
+		return ""
+	case len(rev) == 40 && fullCommitSHA.MatchString(strings.ToLower(rev)):
+		return fmt.Sprintf("revision %q is not lower-case; write the commit SHA in lower-case", rev)
+	case len(rev) >= 4 && len(rev) < 40 && fullCommitSHA.MatchString(strings.ToLower(rev)+strings.Repeat("0", 40-len(rev))):
+		return fmt.Sprintf("revision %q is a short commit SHA, which a branch or tag of that name would shadow%s", rev, pin)
+	default:
+		return fmt.Sprintf("revision %q is not a full 40-character commit SHA; Alloy follows a branch or tag as it moves%s", rev, pin)
+	}
+}
+
+// CleanModulePath reports whether p may name a pinned import.git module: a
+// clean relative path — not empty, not absolute, no "." or ".." element, no
+// backslash — of printable ASCII only. Non-ASCII is refused outright, so no
+// two spellings (NFC and NFD forms of one name) can name the module; a
+// case-insensitive collision with another entry is refused when the module
+// is fetched (gitrepo.FileAtCommit).
+func CleanModulePath(p string) bool {
+	if p == "" || p == "." || strings.HasPrefix(p, "/") || strings.Contains(p, "\\") || pathpkg.Clean(p) != p {
+		return false
+	}
+	for i := 0; i < len(p); i++ {
+		if p[i] < 0x20 || p[i] > 0x7e {
+			return false
+		}
+	}
+	return p != ".." && !strings.HasPrefix(p, "../")
+}
+
+// PlainStringLiteral returns v's value when v is a string literal itself —
+// not parenthesised, not an expression. The only form strict mode reads an
+// import.git's repository, revision and path in.
+func PlainStringLiteral(v ast.Expr) (string, bool) {
+	lit, ok := v.(*ast.LiteralExpr)
+	if !ok || lit.Kind != token.STRING {
+		return "", false
+	}
+	s, err := strconv.Unquote(lit.Value)
+	if err != nil {
+		return "", false
+	}
+	return s, true
 }
 
 // moduleArguments resolves, in this text, every value an instantiation of
@@ -1298,6 +1565,16 @@ func (l *tenantLinter) refuse(at ast.Node, msg string) {
 	}
 	pos := ast.StartPos(at).Position()
 	l.diags = append(l.diags, Diagnostic{Line: pos.Line, Col: pos.Column, Message: msg, Stage: 1})
+}
+
+// warn records a warning at at: reported, but the pipeline is not refused.
+func (l *tenantLinter) warn(at ast.Node, msg string) {
+	l.budget.take()
+	if len(l.diags) >= maxDiagnostics {
+		return
+	}
+	pos := ast.StartPos(at).Position()
+	l.diags = append(l.diags, Diagnostic{Line: pos.Line, Col: pos.Column, Message: msg, Stage: 1, Warning: true})
 }
 
 // hasErrors reports whether diags holds a refusal (a non-warning

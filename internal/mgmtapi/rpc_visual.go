@@ -16,6 +16,7 @@ import (
 	mgmtv1 "shepherd/gen/shepherd/mgmt/v1"
 	"shepherd/gen/shepherd/mgmt/v1/mgmtv1connect"
 	"shepherd/internal/auth"
+	"shepherd/internal/pinnedimport"
 	"shepherd/internal/schema"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
@@ -32,6 +33,8 @@ type VisualService struct {
 	logger    *slog.Logger
 	// requireOwned is the server-wide tenants.require_owned setting.
 	requireOwned bool
+	// imports fetches pinned import.git modules (WithVisualPinnedImports).
+	imports *pinnedimport.Resolver
 }
 
 // NewVisualService constructs a VisualService.
@@ -248,11 +251,11 @@ func (s *VisualService) Validate(ctx context.Context, req *connect.Request[mgmtv
 	vr := s.validator.Stages12(ctx, result.Content)
 	// Strict tenant mode's lint on the rendered text, as a save of it
 	// (CreatePipeline/UpdatePipeline's gate) would run it.
-	tenants, err := lintPolicy(ctx, s.store.Queries, looseUUID(req.Msg.GetOrgId()), s.requireOwned)
+	tenants, err := lintPolicy(ctx, s.store.Queries, looseUUID(req.Msg.GetOrgId()), s.requireOwned, s.imports.Saving())
 	if err != nil {
 		return nil, err
 	}
-	vr = validate.WithTenantLint(vr, result.Content, tenants)
+	vr = validate.WithTenantLint(ctx, vr, result.Content, tenants)
 	out := make([]*mgmtv1.VisualNodeDiagnostic, 0, len(vr.Diagnostics))
 	for _, d := range vr.Diagnostics {
 		id := ""

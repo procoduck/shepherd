@@ -25,6 +25,7 @@ import (
 	"shepherd/internal/beacon"
 	"shepherd/internal/merge"
 	"shepherd/internal/metrics"
+	"shepherd/internal/pinnedimport"
 	"shepherd/internal/schema"
 	"shepherd/internal/serve"
 	"shepherd/internal/signals"
@@ -53,6 +54,9 @@ type PipelineService struct {
 	// requireOwned is the server-wide tenants.require_owned setting
 	// (WithRequireOwnedTenants): strict tenant mode for every org.
 	requireOwned bool
+	// imports fetches strict mode's pinned import.git modules
+	// (WithPinnedImports); nil reads only what is already cached.
+	imports *pinnedimport.Resolver
 }
 
 // PipelineServiceOption configures optional PipelineService behavior. See
@@ -584,7 +588,7 @@ func (s *PipelineService) validateSaveInput(ctx context.Context, in pipelineSave
 		return nil, connect.NewError(connect.CodeInvalidArgument, errMatchersInvalid)
 	}
 
-	tenants, err := lintPolicy(ctx, s.store.Queries, in.OrgID, s.requireOwned)
+	tenants, err := lintPolicy(ctx, s.store.Queries, in.OrgID, s.requireOwned, s.imports.Saving())
 	if err != nil {
 		return nil, err
 	}
@@ -1014,7 +1018,7 @@ func (s *PipelineService) ValidatePipeline(ctx context.Context, req *connect.Req
 	var tenants validate.TenantPolicy
 	if orgID := looseUUID(req.Msg.GetOrgId()); orgID.Valid {
 		var err error
-		if tenants, err = lintPolicy(ctx, s.store.Queries, orgID, s.requireOwned); err != nil {
+		if tenants, err = lintPolicy(ctx, s.store.Queries, orgID, s.requireOwned, s.imports.Saving()); err != nil {
 			return nil, err
 		}
 	}
@@ -1038,7 +1042,17 @@ func (s *PipelineService) ValidatePipeline(ctx context.Context, req *connect.Req
 	// that failure reported via valid/diagnostics above (signals.Derive
 	// would just fail the same parse), so a Derive error here is not
 	// surfaced as a second, redundant error.
-	if sig, sigErr := signals.Derive(req.Msg.GetContents(), s.schema); sigErr == nil {
+	//
+	// Derived from the served form: a strict org's pinned import.git
+	// modules inlined, which is what role enforcement sees (an import.git
+	// instance is Unknown, an inlined import.string module is not).
+	derived := req.Msg.GetContents()
+	if result.Valid && tenants.Inline != nil {
+		if servedForm, err := tenants.Inline(ctx, derived); err == nil {
+			derived = servedForm
+		}
+	}
+	if sig, sigErr := signals.Derive(derived, s.schema); sigErr == nil {
 		resp.Signals = signalStrings(sig.Combined)
 		resp.SignalsProven = sig.Proven()
 		for _, u := range sig.Unknown {
@@ -1549,6 +1563,17 @@ func (s *PipelineService) stage3CheckSet(ctx context.Context, orgID pgtype.UUID,
 		changed = append(changed, cand)
 	}
 
+	// The served form: a strict org's pinned import.git modules inlined from
+	// the cache, candidates included (their save just fetched them), so the
+	// dry run validates exactly what the collectors would be served.
+	inline, err := serve.OrgInliner(ctx, s.store.Queries, orgID, s.requireOwned)
+	if err != nil {
+		return fmt.Errorf("loading the org's serve settings: %w", err)
+	}
+	if mergePipelines, err = serve.ServedForm(ctx, inline, mergePipelines); err != nil {
+		return err
+	}
+
 	// One query for every collector with its cluster name (not one
 	// GetClusterByID per collector).
 	collectors, err := s.store.Queries.ListCollectorsWithClusterByOrg(ctx, orgID)
@@ -1684,13 +1709,15 @@ func (s *PipelineService) stage3TenantLint(ctx context.Context, orgID pgtype.UUI
 	if len(candidates) == 0 {
 		return nil
 	}
-	tenants, err := lintPolicy(ctx, s.store.Queries, orgID, s.requireOwned)
+	// What is enabled or restored was saved earlier: its modules are
+	// read as the preflight reads them (cached, or fetched if not).
+	tenants, err := lintPolicy(ctx, s.store.Queries, orgID, s.requireOwned, s.imports.Preflight())
 	if err != nil {
 		return fmt.Errorf("loading the org's tenant policy: %w", err)
 	}
 	var failures []string
 	for i := range candidates {
-		diags, err := validate.TenantLintChecked(candidates[i].Contents, tenants)
+		diags, err := validate.TenantLintChecked(ctx, candidates[i].Contents, tenants)
 		if err != nil {
 			return fmt.Errorf("pipeline %s: %w", candidates[i].Name, err) // ErrLintBusy: no verdict
 		}

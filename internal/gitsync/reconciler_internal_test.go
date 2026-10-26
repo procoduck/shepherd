@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,7 +25,9 @@ import (
 	"shepherd/internal/gitrepo"
 	"shepherd/internal/merge"
 	"shepherd/internal/metrics"
+	"shepherd/internal/pinnedimport"
 	"shepherd/internal/schema"
+	"shepherd/internal/serve"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
 	"shepherd/internal/validate"
@@ -164,6 +167,73 @@ var _ = Describe("Reconciler.reconcileLink", Label("integration"), func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(p.commitAndPush(ctx, map[string]string{pipelineName + ".alloy": content}, "sync fixture")).To(Succeed())
 	}
+
+	// #390 against a real git server: a strict org's synced file may
+	// import.git a module pinned to a full commit SHA of an allowlisted
+	// (here private) repository. Shepherd fetches it with the entry's stored
+	// credential and lints it, so a module writing to a foreign tenant
+	// refuses the commit like a file doing so itself.
+	It("syncs a strict org's file importing a pinned module from an allowlisted private repository, linting the module", func() {
+		r.imports = pinnedimport.New(&config.Config{}, enc, r.logger)
+		module := func(tenant string) string {
+			// Metrics only: the link's collector has role=metrics, and role
+			// enforcement sees the inlined module's signals (an import.git
+			// instance would be Unknown, worst case).
+			return "declare \"out\" {\n  prometheus.remote_write \"w\" {\n    endpoint {\n      url     = \"https://mimir.example.com/api/v1/push\"\n" +
+				"      headers = { \"X-Scope-OrgID\" = \"" + tenant + "\" }\n    }\n  }\n}\n"
+		}
+		modName := nextGiteaFixtureName("gitsync-modules")
+		_, modURL, err := giteaCreateRepo(ctx, modName)
+		Expect(err).NotTo(HaveOccurred())
+		mp, err := newPusher(ctx, modURL, giteaAdminUser, giteaAdminPass)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(mp.commitAndPush(ctx, map[string]string{"owned.alloy": module("gitsync"), "foreign.alloy": module("victim")}, "modules")).To(Succeed())
+		admin := gitrepo.BasicAuth{Username: giteaAdminUser, Password: giteaAdminPass}
+		sha, err := gitrepo.Repo{URL: modURL, Branch: "main", Auth: admin}.LatestCommit(ctx)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(giteaAPI(ctx, http.MethodPatch, "/api/v1/repos/"+giteaAdminUser+"/"+modName, []byte(`{"private":true}`), nil)).To(Succeed())
+		_, err = gitrepo.Repo{URL: modURL}.FileAtCommit(ctx, sha, "owned.alloy")
+		Expect(err).To(HaveOccurred(), "the module repository is private now")
+
+		_, err = st.Queries.AddOrgTenant(ctx, sqlc.AddOrgTenantParams{OrgID: link.OrgID, Tenant: "gitsync", Kind: "exact", IsDefault: true, CreatedBy: "test"})
+		Expect(err).NotTo(HaveOccurred())
+		_, err = st.Queries.SetOrgStrictTenants(ctx, sqlc.SetOrgStrictTenantsParams{ID: link.OrgID, StrictTenants: true})
+		Expect(err).NotTo(HaveOccurred())
+		key, err := pinnedimport.NormalizeRepository(modURL)
+		Expect(err).NotTo(HaveOccurred())
+		_, err = st.Queries.AddOrgImportRepository(ctx, sqlc.AddOrgImportRepositoryParams{
+			OrgID: link.OrgID, Repository: modURL, RepositoryKey: key, CredentialID: link.CredentialID, CreatedBy: "test",
+		})
+		Expect(err).NotTo(HaveOccurred())
+		importing := func(path string) string {
+			return "import.git \"m\" {\n  repository = \"" + modURL + "\"\n  revision   = \"" + sha + "\"\n  path       = \"" + path + "\"\n}\n"
+		}
+
+		push(importing("owned.alloy"))
+		Expect(r.reconcileLink(ctx, link)).To(Succeed())
+		p, err := st.Queries.GetPipelineByOrgAndName(ctx, sqlc.GetPipelineByOrgAndNameParams{OrgID: link.OrgID, Name: pipelineName})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(p.Contents).To(ContainSubstring(sha))
+		cached, err := st.Queries.GetPinnedImportModule(ctx, sqlc.GetPinnedImportModuleParams{
+			OrgID: link.OrgID, RepositoryKey: key, Revision: sha, Path: "owned.alloy",
+		})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(cached.Content).To(Equal(module("gitsync")), "fetched with the credential and cached")
+
+		// What the collector is served: the module inlined, not the import.
+		// planFile's gate ran Stages 1-2 — the real `alloy validate` here —
+		// on this form too.
+		served, err := serve.LoadPipelines(ctx, st.Queries, link.OrgID, false)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(served).To(ContainElement(HaveField("Contents", And(
+			ContainSubstring(`import.string "m"`), Not(ContainSubstring("import.git")),
+			ContainSubstring(`\"X-Scope-OrgID\" = \"gitsync\"`)))))
+
+		push(importing("foreign.alloy"))
+		err = r.reconcileLink(ctx, link)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(And(ContainSubstring(`import.git "m"`), ContainSubstring(`"victim"`)))
+	})
 
 	It("syncs a due link from reconcileAll while holding the sync lock, then releases it", func() {
 		push("// via the pass")

@@ -56,6 +56,15 @@ const (
 	// AdminServiceTenantPreflightProcedure is the fully-qualified name of the AdminService's
 	// TenantPreflight RPC.
 	AdminServiceTenantPreflightProcedure = "/shepherd.mgmt.v1.AdminService/TenantPreflight"
+	// AdminServiceListOrgImportRepositoriesProcedure is the fully-qualified name of the AdminService's
+	// ListOrgImportRepositories RPC.
+	AdminServiceListOrgImportRepositoriesProcedure = "/shepherd.mgmt.v1.AdminService/ListOrgImportRepositories"
+	// AdminServiceAddOrgImportRepositoryProcedure is the fully-qualified name of the AdminService's
+	// AddOrgImportRepository RPC.
+	AdminServiceAddOrgImportRepositoryProcedure = "/shepherd.mgmt.v1.AdminService/AddOrgImportRepository"
+	// AdminServiceRemoveOrgImportRepositoryProcedure is the fully-qualified name of the AdminService's
+	// RemoveOrgImportRepository RPC.
+	AdminServiceRemoveOrgImportRepositoryProcedure = "/shepherd.mgmt.v1.AdminService/RemoveOrgImportRepository"
 	// AdminServiceListClustersProcedure is the fully-qualified name of the AdminService's ListClusters
 	// RPC.
 	AdminServiceListClustersProcedure = "/shepherd.mgmt.v1.AdminService/ListClusters"
@@ -140,6 +149,24 @@ type AdminServiceClient interface {
 	// SetOrgStrictTenants would refuse over); empty checks every org, as the
 	// server-wide tenants.require_owned setting would at boot.
 	TenantPreflight(context.Context, *connect.Request[v1.TenantPreflightRequest]) (*connect.Response[v1.TenantPreflightResponse], error)
+	// ListOrgImportRepositories lists the repositories an org's pipelines may
+	// import modules from in strict tenant mode, with import.git pinned to a
+	// full commit SHA. App admin only.
+	ListOrgImportRepositories(context.Context, *connect.Request[v1.ListOrgImportRepositoriesRequest]) (*connect.Response[v1.ListOrgImportRepositoriesResponse], error)
+	// AddOrgImportRepository allows an org's pipelines to import.git from a
+	// repository, pinned to a full commit SHA; strict tenant mode fetches the
+	// module and lints its content. App admin only. The URL must be an
+	// https://, http://, ssh:// or git@host:path git remote; it is stored with
+	// its normal form, which a pipeline's repository must match
+	// (invalid_argument for an ambiguous spelling, already_exists for a second
+	// spelling of an entry). credential_id optionally names one of the org's
+	// git credentials, for a private repository.
+	AddOrgImportRepository(context.Context, *connect.Request[v1.AddOrgImportRepositoryRequest]) (*connect.Response[v1.OrgImportRepository], error)
+	// RemoveOrgImportRepository takes a repository off an org's allowlist. App
+	// admin only. Refused (failed_precondition, naming each one) while the
+	// strict tenant rule applies to the org and an enabled pipeline imports
+	// from it.
+	RemoveOrgImportRepository(context.Context, *connect.Request[v1.RemoveOrgImportRepositoryRequest]) (*connect.Response[v1.RemoveOrgImportRepositoryResponse], error)
 	ListClusters(context.Context, *connect.Request[v1.ListClustersRequest]) (*connect.Response[v1.ListClustersResponse], error)
 	ClaimCluster(context.Context, *connect.Request[v1.ClaimClusterRequest]) (*connect.Response[v1.ClaimClusterResponse], error)
 	UnclaimCluster(context.Context, *connect.Request[v1.UnclaimClusterRequest]) (*connect.Response[v1.UnclaimClusterResponse], error)
@@ -244,6 +271,24 @@ func NewAdminServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(adminServiceMethods.ByName("TenantPreflight")),
 			connect.WithClientOptions(opts...),
 		),
+		listOrgImportRepositories: connect.NewClient[v1.ListOrgImportRepositoriesRequest, v1.ListOrgImportRepositoriesResponse](
+			httpClient,
+			baseURL+AdminServiceListOrgImportRepositoriesProcedure,
+			connect.WithSchema(adminServiceMethods.ByName("ListOrgImportRepositories")),
+			connect.WithClientOptions(opts...),
+		),
+		addOrgImportRepository: connect.NewClient[v1.AddOrgImportRepositoryRequest, v1.OrgImportRepository](
+			httpClient,
+			baseURL+AdminServiceAddOrgImportRepositoryProcedure,
+			connect.WithSchema(adminServiceMethods.ByName("AddOrgImportRepository")),
+			connect.WithClientOptions(opts...),
+		),
+		removeOrgImportRepository: connect.NewClient[v1.RemoveOrgImportRepositoryRequest, v1.RemoveOrgImportRepositoryResponse](
+			httpClient,
+			baseURL+AdminServiceRemoveOrgImportRepositoryProcedure,
+			connect.WithSchema(adminServiceMethods.ByName("RemoveOrgImportRepository")),
+			connect.WithClientOptions(opts...),
+		),
 		listClusters: connect.NewClient[v1.ListClustersRequest, v1.ListClustersResponse](
 			httpClient,
 			baseURL+AdminServiceListClustersProcedure,
@@ -345,31 +390,34 @@ func NewAdminServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 
 // adminServiceClient implements AdminServiceClient.
 type adminServiceClient struct {
-	listOrgs                *connect.Client[v1.ListOrgsRequest, v1.ListOrgsResponse]
-	createOrg               *connect.Client[v1.CreateOrgRequest, v1.Org]
-	updateOrg               *connect.Client[v1.UpdateOrgRequest, v1.Org]
-	deleteOrg               *connect.Client[v1.DeleteOrgRequest, v1.DeleteOrgResponse]
-	addOrgTenant            *connect.Client[v1.AddOrgTenantRequest, v1.Org]
-	removeOrgTenant         *connect.Client[v1.RemoveOrgTenantRequest, v1.Org]
-	setDefaultOrgTenant     *connect.Client[v1.SetDefaultOrgTenantRequest, v1.Org]
-	setOrgStrictTenants     *connect.Client[v1.SetOrgStrictTenantsRequest, v1.Org]
-	tenantPreflight         *connect.Client[v1.TenantPreflightRequest, v1.TenantPreflightResponse]
-	listClusters            *connect.Client[v1.ListClustersRequest, v1.ListClustersResponse]
-	claimCluster            *connect.Client[v1.ClaimClusterRequest, v1.ClaimClusterResponse]
-	unclaimCluster          *connect.Client[v1.UnclaimClusterRequest, v1.UnclaimClusterResponse]
-	listAgentTokens         *connect.Client[v1.ListAgentTokensRequest, v1.ListAgentTokensResponse]
-	createAgentToken        *connect.Client[v1.CreateAgentTokenRequest, v1.CreateAgentTokenResponse]
-	revokeAgentToken        *connect.Client[v1.RevokeAgentTokenRequest, v1.RevokeAgentTokenResponse]
-	bindAgentToken          *connect.Client[v1.BindAgentTokenRequest, v1.AgentToken]
-	listAgentIdentities     *connect.Client[v1.ListAgentIdentitiesRequest, v1.ListAgentIdentitiesResponse]
-	createAgentIdentity     *connect.Client[v1.CreateAgentIdentityRequest, v1.AgentIdentity]
-	deleteAgentIdentity     *connect.Client[v1.DeleteAgentIdentityRequest, v1.DeleteAgentIdentityResponse]
-	searchGroups            *connect.Client[v1.SearchGroupsRequest, v1.SearchGroupsResponse]
-	getOidcSettings         *connect.Client[v1.GetOidcSettingsRequest, v1.OidcSettings]
-	updateOidcSettings      *connect.Client[v1.UpdateOidcSettingsRequest, v1.OidcSettings]
-	testOidcSettings        *connect.Client[v1.TestOidcSettingsRequest, v1.TestOidcSettingsResponse]
-	deleteOidcSettings      *connect.Client[v1.DeleteOidcSettingsRequest, v1.DeleteOidcSettingsResponse]
-	listOidcProviderPresets *connect.Client[v1.ListOidcProviderPresetsRequest, v1.ListOidcProviderPresetsResponse]
+	listOrgs                  *connect.Client[v1.ListOrgsRequest, v1.ListOrgsResponse]
+	createOrg                 *connect.Client[v1.CreateOrgRequest, v1.Org]
+	updateOrg                 *connect.Client[v1.UpdateOrgRequest, v1.Org]
+	deleteOrg                 *connect.Client[v1.DeleteOrgRequest, v1.DeleteOrgResponse]
+	addOrgTenant              *connect.Client[v1.AddOrgTenantRequest, v1.Org]
+	removeOrgTenant           *connect.Client[v1.RemoveOrgTenantRequest, v1.Org]
+	setDefaultOrgTenant       *connect.Client[v1.SetDefaultOrgTenantRequest, v1.Org]
+	setOrgStrictTenants       *connect.Client[v1.SetOrgStrictTenantsRequest, v1.Org]
+	tenantPreflight           *connect.Client[v1.TenantPreflightRequest, v1.TenantPreflightResponse]
+	listOrgImportRepositories *connect.Client[v1.ListOrgImportRepositoriesRequest, v1.ListOrgImportRepositoriesResponse]
+	addOrgImportRepository    *connect.Client[v1.AddOrgImportRepositoryRequest, v1.OrgImportRepository]
+	removeOrgImportRepository *connect.Client[v1.RemoveOrgImportRepositoryRequest, v1.RemoveOrgImportRepositoryResponse]
+	listClusters              *connect.Client[v1.ListClustersRequest, v1.ListClustersResponse]
+	claimCluster              *connect.Client[v1.ClaimClusterRequest, v1.ClaimClusterResponse]
+	unclaimCluster            *connect.Client[v1.UnclaimClusterRequest, v1.UnclaimClusterResponse]
+	listAgentTokens           *connect.Client[v1.ListAgentTokensRequest, v1.ListAgentTokensResponse]
+	createAgentToken          *connect.Client[v1.CreateAgentTokenRequest, v1.CreateAgentTokenResponse]
+	revokeAgentToken          *connect.Client[v1.RevokeAgentTokenRequest, v1.RevokeAgentTokenResponse]
+	bindAgentToken            *connect.Client[v1.BindAgentTokenRequest, v1.AgentToken]
+	listAgentIdentities       *connect.Client[v1.ListAgentIdentitiesRequest, v1.ListAgentIdentitiesResponse]
+	createAgentIdentity       *connect.Client[v1.CreateAgentIdentityRequest, v1.AgentIdentity]
+	deleteAgentIdentity       *connect.Client[v1.DeleteAgentIdentityRequest, v1.DeleteAgentIdentityResponse]
+	searchGroups              *connect.Client[v1.SearchGroupsRequest, v1.SearchGroupsResponse]
+	getOidcSettings           *connect.Client[v1.GetOidcSettingsRequest, v1.OidcSettings]
+	updateOidcSettings        *connect.Client[v1.UpdateOidcSettingsRequest, v1.OidcSettings]
+	testOidcSettings          *connect.Client[v1.TestOidcSettingsRequest, v1.TestOidcSettingsResponse]
+	deleteOidcSettings        *connect.Client[v1.DeleteOidcSettingsRequest, v1.DeleteOidcSettingsResponse]
+	listOidcProviderPresets   *connect.Client[v1.ListOidcProviderPresetsRequest, v1.ListOidcProviderPresetsResponse]
 }
 
 // ListOrgs calls shepherd.mgmt.v1.AdminService.ListOrgs.
@@ -415,6 +463,21 @@ func (c *adminServiceClient) SetOrgStrictTenants(ctx context.Context, req *conne
 // TenantPreflight calls shepherd.mgmt.v1.AdminService.TenantPreflight.
 func (c *adminServiceClient) TenantPreflight(ctx context.Context, req *connect.Request[v1.TenantPreflightRequest]) (*connect.Response[v1.TenantPreflightResponse], error) {
 	return c.tenantPreflight.CallUnary(ctx, req)
+}
+
+// ListOrgImportRepositories calls shepherd.mgmt.v1.AdminService.ListOrgImportRepositories.
+func (c *adminServiceClient) ListOrgImportRepositories(ctx context.Context, req *connect.Request[v1.ListOrgImportRepositoriesRequest]) (*connect.Response[v1.ListOrgImportRepositoriesResponse], error) {
+	return c.listOrgImportRepositories.CallUnary(ctx, req)
+}
+
+// AddOrgImportRepository calls shepherd.mgmt.v1.AdminService.AddOrgImportRepository.
+func (c *adminServiceClient) AddOrgImportRepository(ctx context.Context, req *connect.Request[v1.AddOrgImportRepositoryRequest]) (*connect.Response[v1.OrgImportRepository], error) {
+	return c.addOrgImportRepository.CallUnary(ctx, req)
+}
+
+// RemoveOrgImportRepository calls shepherd.mgmt.v1.AdminService.RemoveOrgImportRepository.
+func (c *adminServiceClient) RemoveOrgImportRepository(ctx context.Context, req *connect.Request[v1.RemoveOrgImportRepositoryRequest]) (*connect.Response[v1.RemoveOrgImportRepositoryResponse], error) {
+	return c.removeOrgImportRepository.CallUnary(ctx, req)
 }
 
 // ListClusters calls shepherd.mgmt.v1.AdminService.ListClusters.
@@ -531,6 +594,24 @@ type AdminServiceHandler interface {
 	// SetOrgStrictTenants would refuse over); empty checks every org, as the
 	// server-wide tenants.require_owned setting would at boot.
 	TenantPreflight(context.Context, *connect.Request[v1.TenantPreflightRequest]) (*connect.Response[v1.TenantPreflightResponse], error)
+	// ListOrgImportRepositories lists the repositories an org's pipelines may
+	// import modules from in strict tenant mode, with import.git pinned to a
+	// full commit SHA. App admin only.
+	ListOrgImportRepositories(context.Context, *connect.Request[v1.ListOrgImportRepositoriesRequest]) (*connect.Response[v1.ListOrgImportRepositoriesResponse], error)
+	// AddOrgImportRepository allows an org's pipelines to import.git from a
+	// repository, pinned to a full commit SHA; strict tenant mode fetches the
+	// module and lints its content. App admin only. The URL must be an
+	// https://, http://, ssh:// or git@host:path git remote; it is stored with
+	// its normal form, which a pipeline's repository must match
+	// (invalid_argument for an ambiguous spelling, already_exists for a second
+	// spelling of an entry). credential_id optionally names one of the org's
+	// git credentials, for a private repository.
+	AddOrgImportRepository(context.Context, *connect.Request[v1.AddOrgImportRepositoryRequest]) (*connect.Response[v1.OrgImportRepository], error)
+	// RemoveOrgImportRepository takes a repository off an org's allowlist. App
+	// admin only. Refused (failed_precondition, naming each one) while the
+	// strict tenant rule applies to the org and an enabled pipeline imports
+	// from it.
+	RemoveOrgImportRepository(context.Context, *connect.Request[v1.RemoveOrgImportRepositoryRequest]) (*connect.Response[v1.RemoveOrgImportRepositoryResponse], error)
 	ListClusters(context.Context, *connect.Request[v1.ListClustersRequest]) (*connect.Response[v1.ListClustersResponse], error)
 	ClaimCluster(context.Context, *connect.Request[v1.ClaimClusterRequest]) (*connect.Response[v1.ClaimClusterResponse], error)
 	UnclaimCluster(context.Context, *connect.Request[v1.UnclaimClusterRequest]) (*connect.Response[v1.UnclaimClusterResponse], error)
@@ -629,6 +710,24 @@ func NewAdminServiceHandler(svc AdminServiceHandler, opts ...connect.HandlerOpti
 		AdminServiceTenantPreflightProcedure,
 		svc.TenantPreflight,
 		connect.WithSchema(adminServiceMethods.ByName("TenantPreflight")),
+		connect.WithHandlerOptions(opts...),
+	)
+	adminServiceListOrgImportRepositoriesHandler := connect.NewUnaryHandler(
+		AdminServiceListOrgImportRepositoriesProcedure,
+		svc.ListOrgImportRepositories,
+		connect.WithSchema(adminServiceMethods.ByName("ListOrgImportRepositories")),
+		connect.WithHandlerOptions(opts...),
+	)
+	adminServiceAddOrgImportRepositoryHandler := connect.NewUnaryHandler(
+		AdminServiceAddOrgImportRepositoryProcedure,
+		svc.AddOrgImportRepository,
+		connect.WithSchema(adminServiceMethods.ByName("AddOrgImportRepository")),
+		connect.WithHandlerOptions(opts...),
+	)
+	adminServiceRemoveOrgImportRepositoryHandler := connect.NewUnaryHandler(
+		AdminServiceRemoveOrgImportRepositoryProcedure,
+		svc.RemoveOrgImportRepository,
+		connect.WithSchema(adminServiceMethods.ByName("RemoveOrgImportRepository")),
 		connect.WithHandlerOptions(opts...),
 	)
 	adminServiceListClustersHandler := connect.NewUnaryHandler(
@@ -747,6 +846,12 @@ func NewAdminServiceHandler(svc AdminServiceHandler, opts ...connect.HandlerOpti
 			adminServiceSetOrgStrictTenantsHandler.ServeHTTP(w, r)
 		case AdminServiceTenantPreflightProcedure:
 			adminServiceTenantPreflightHandler.ServeHTTP(w, r)
+		case AdminServiceListOrgImportRepositoriesProcedure:
+			adminServiceListOrgImportRepositoriesHandler.ServeHTTP(w, r)
+		case AdminServiceAddOrgImportRepositoryProcedure:
+			adminServiceAddOrgImportRepositoryHandler.ServeHTTP(w, r)
+		case AdminServiceRemoveOrgImportRepositoryProcedure:
+			adminServiceRemoveOrgImportRepositoryHandler.ServeHTTP(w, r)
 		case AdminServiceListClustersProcedure:
 			adminServiceListClustersHandler.ServeHTTP(w, r)
 		case AdminServiceClaimClusterProcedure:
@@ -822,6 +927,18 @@ func (UnimplementedAdminServiceHandler) SetOrgStrictTenants(context.Context, *co
 
 func (UnimplementedAdminServiceHandler) TenantPreflight(context.Context, *connect.Request[v1.TenantPreflightRequest]) (*connect.Response[v1.TenantPreflightResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.AdminService.TenantPreflight is not implemented"))
+}
+
+func (UnimplementedAdminServiceHandler) ListOrgImportRepositories(context.Context, *connect.Request[v1.ListOrgImportRepositoriesRequest]) (*connect.Response[v1.ListOrgImportRepositoriesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.AdminService.ListOrgImportRepositories is not implemented"))
+}
+
+func (UnimplementedAdminServiceHandler) AddOrgImportRepository(context.Context, *connect.Request[v1.AddOrgImportRepositoryRequest]) (*connect.Response[v1.OrgImportRepository], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.AdminService.AddOrgImportRepository is not implemented"))
+}
+
+func (UnimplementedAdminServiceHandler) RemoveOrgImportRepository(context.Context, *connect.Request[v1.RemoveOrgImportRepositoryRequest]) (*connect.Response[v1.RemoveOrgImportRepositoryResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.AdminService.RemoveOrgImportRepository is not implemented"))
 }
 
 func (UnimplementedAdminServiceHandler) ListClusters(context.Context, *connect.Request[v1.ListClustersRequest]) (*connect.Response[v1.ListClustersResponse], error) {

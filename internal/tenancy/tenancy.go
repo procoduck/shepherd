@@ -23,6 +23,7 @@ import (
 
 	"shepherd/internal/advisorylock"
 	"shepherd/internal/gateway"
+	"shepherd/internal/pinnedimport"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
 	"shepherd/internal/validate"
@@ -37,6 +38,10 @@ type Policy struct {
 	OrgStrict bool
 	// Owned is the org's tenants and tenant prefixes.
 	Owned []gateway.OrgTenant
+	// OrgID is the org's id; ImportRepos are the repositories its pipelines
+	// may import.git from, pinned to a full commit SHA (0043, #390).
+	OrgID       pgtype.UUID
+	ImportRepos []sqlc.OrgImportRepository
 }
 
 // Load reads orgID's policy through q. requireOwned is the server-wide
@@ -58,7 +63,14 @@ func LoadOrg(ctx context.Context, q *sqlc.Queries, org sqlc.Org, requireOwned bo
 	if err != nil {
 		return Policy{}, fmt.Errorf("loading org tenants: %w", err)
 	}
-	return Policy{Strict: org.StrictTenants || requireOwned, OrgStrict: org.StrictTenants, Owned: Rules(rows)}, nil
+	repos, err := q.ListOrgImportRepositories(ctx, org.ID)
+	if err != nil {
+		return Policy{}, fmt.Errorf("loading org import repositories: %w", err)
+	}
+	return Policy{
+		Strict: org.StrictTenants || requireOwned, OrgStrict: org.StrictTenants, Owned: Rules(rows),
+		OrgID: org.ID, ImportRepos: repos,
+	}, nil
 }
 
 // Rules converts org_tenants rows to gateway's form.
@@ -88,12 +100,23 @@ func (p Policy) Check(tenant string) error {
 }
 
 // Validation is the policy as the validation gate takes it
-// (validate.ValidatePipeline's tenant lint).
-func (p Policy) Validation() validate.TenantPolicy {
+// (validate.ValidatePipeline's tenant lint), reading pinned import.git
+// modules from src through q: pinnedimport.Resolver.Saving() for a save or
+// a validation, .Preflight() for a check of what is stored, and
+// pinnedimport.Cached inside a write transaction.
+func (p Policy) Validation(q *sqlc.Queries, src pinnedimport.Source) validate.TenantPolicy {
 	if !p.Strict {
 		return validate.TenantPolicy{}
 	}
-	return validate.TenantPolicy{Strict: true, Owns: p.Owns}
+	return validate.TenantPolicy{Strict: true, Owns: p.Owns, Git: src.Modules(q, p.OrgID, p.ImportRepos), Inline: inliner(q, p.OrgID, p.ImportRepos)}
+}
+
+// inliner is the served form of an org's pipeline text (pinnedimport.Inline),
+// read from the cache through q.
+func inliner(q *sqlc.Queries, orgID pgtype.UUID, repos []sqlc.OrgImportRepository) func(context.Context, string) (string, error) {
+	return func(ctx context.Context, contents string) (string, error) {
+		return pinnedimport.Inline(ctx, q, orgID, repos, contents)
+	}
 }
 
 // The kinds of object a Violation names.
@@ -123,12 +146,19 @@ func (v Violation) String() string {
 // does not own, and each enabled pipeline the tenant lint refuses. With
 // requireTenant, an org that owns no tenant at all is a violation too
 // (per-org strict mode needs one; the server-wide setting does not).
-func Preflight(ctx context.Context, q *sqlc.Queries, org sqlc.Org, requireTenant bool) ([]Violation, error) {
+// Pipelines' pinned import.git modules are read from src, as a save reads
+// them (src is pinnedimport.Resolver.Preflight(), or pinnedimport.Cached
+// under the exclusive ownership lock).
+func Preflight(ctx context.Context, q *sqlc.Queries, org sqlc.Org, requireTenant bool, src pinnedimport.Source) ([]Violation, error) {
 	rows, err := q.ListOrgTenants(ctx, org.ID)
 	if err != nil {
 		return nil, fmt.Errorf("loading org %q's tenants: %w", org.Name, err)
 	}
-	p := Policy{Strict: true, OrgStrict: org.StrictTenants, Owned: Rules(rows)}
+	repos, err := q.ListOrgImportRepositories(ctx, org.ID)
+	if err != nil {
+		return nil, fmt.Errorf("loading org %q's import repositories: %w", org.Name, err)
+	}
+	p := Policy{Strict: true, OrgStrict: org.StrictTenants, Owned: Rules(rows), OrgID: org.ID, ImportRepos: repos}
 	base := Violation{OrgID: org.ID.String(), OrgName: org.Name}
 	var out []Violation
 	if requireTenant && len(rows) == 0 {
@@ -158,7 +188,7 @@ func Preflight(ctx context.Context, q *sqlc.Queries, org sqlc.Org, requireTenant
 		return nil, fmt.Errorf("listing org %q's enabled pipelines: %w", org.Name, err)
 	}
 	for i := range pipelines {
-		msgs, err := lintErrors(pipelines[i].Contents, p.Validation())
+		msgs, err := lintErrors(ctx, pipelines[i].Contents, p.Validation(q, src))
 		if err != nil {
 			return nil, err
 		}
@@ -177,14 +207,14 @@ func Preflight(ctx context.Context, q *sqlc.Queries, org sqlc.Org, requireTenant
 
 // PreflightAll is Preflight over every org without requireTenant: what the
 // server-wide tenants.require_owned setting refuses to start over.
-func PreflightAll(ctx context.Context, q *sqlc.Queries) ([]Violation, error) {
+func PreflightAll(ctx context.Context, q *sqlc.Queries, src pinnedimport.Source) ([]Violation, error) {
 	orgs, err := q.ListOrgs(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("listing orgs: %w", err)
 	}
 	var out []Violation
 	for i := range orgs {
-		v, err := Preflight(ctx, q, orgs[i], false)
+		v, err := Preflight(ctx, q, orgs[i], false, src)
 		if err != nil {
 			return nil, err
 		}
@@ -210,8 +240,8 @@ var ErrRequireOwnedViolations = errors.New("tenants.require_owned is on, but sto
 // CheckRequireOwned is the boot preflight for tenants.require_owned: nil
 // when nothing breaks the rule, else an error listing every violation and
 // how to clear them.
-func CheckRequireOwned(ctx context.Context, q *sqlc.Queries) error {
-	vs, err := PreflightAll(ctx, q)
+func CheckRequireOwned(ctx context.Context, q *sqlc.Queries, src pinnedimport.Source) error {
+	vs, err := PreflightAll(ctx, q, src)
 	if err != nil {
 		return fmt.Errorf("tenant preflight: %w", err)
 	}
@@ -240,7 +270,9 @@ var ErrPipelineNotOwned = errors.New("strict tenant mode refuses pipeline(s)")
 // Every pipeline write runs it in its writing transaction, so it serialises
 // with SetOrgStrictTenants and ownership changes (both exclusive): neither
 // can commit between this check and the write. A no-op for an org not in
-// strict tenant mode, beyond the lock.
+// strict tenant mode, beyond the lock. Pinned import.git modules are read
+// from the cache only (pinnedimport.Cached): the write's own validation
+// fetched them moments before, outside the transaction.
 func LintLocked(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, requireOwned bool, pipelines ...Pipeline) error {
 	if err := q.LockOrgTenantsShared(ctx, advisorylock.TenantID); err != nil {
 		return fmt.Errorf("taking the tenant ownership lock: %w", err)
@@ -254,7 +286,7 @@ func LintLocked(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, require
 	}
 	var failures []string
 	for i := range pipelines {
-		msgs, err := lintErrors(pipelines[i].Contents, p.Validation())
+		msgs, err := lintErrors(ctx, pipelines[i].Contents, p.Validation(q, pinnedimport.Cached))
 		if err != nil {
 			return err
 		}
@@ -271,13 +303,14 @@ func LintLocked(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, require
 // lintErrors is TenantLint's refusals in contents, as "line:col message";
 // validate.ErrLintBusy (wrapped) when the lint hit its wall-clock guard —
 // no verdict, so callers answer "busy, try again" rather than refuse.
-func lintErrors(contents string, policy validate.TenantPolicy) ([]string, error) {
-	diags, err := validate.TenantLintChecked(contents, policy)
-	if err != nil {
-		return nil, fmt.Errorf("tenant check: %w", err)
+func lintErrors(ctx context.Context, contents string, policy validate.TenantPolicy) ([]string, error) {
+	// WithTenantLint lints the served form too (policy.Inline).
+	r := validate.WithTenantLint(ctx, validate.Result{Valid: true}, contents, policy)
+	if r.Busy {
+		return nil, fmt.Errorf("tenant check: %w", validate.ErrLintBusy)
 	}
 	var msgs []string
-	for _, d := range diags {
+	for _, d := range r.Diagnostics {
 		if !d.Warning {
 			msgs = append(msgs, fmt.Sprintf("%d:%d %s", d.Line, d.Col, d.Message))
 		}
@@ -288,16 +321,23 @@ func lintErrors(contents string, policy validate.TenantPolicy) ([]string, error)
 // OrphanedPipelines names org's enabled pipelines that would fail the tenant
 // lint if the org owned only remaining — what removing a tenant rule from a
 // strict org must not leave behind. q should hold the exclusive ownership
-// lock.
+// lock. Pinned import.git modules are read from the cache only.
 func OrphanedPipelines(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, remaining []gateway.OrgTenant) ([]string, error) {
 	pipelines, err := q.ListEnabledPipelinesByOrg(ctx, orgID)
 	if err != nil {
 		return nil, fmt.Errorf("listing enabled pipelines: %w", err)
 	}
-	policy := validate.TenantPolicy{Strict: true, Owns: func(t string) bool { return gateway.OrgOwnsTenant(remaining, t) }}
+	repos, err := q.ListOrgImportRepositories(ctx, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("listing import repositories: %w", err)
+	}
+	policy := validate.TenantPolicy{
+		Strict: true, Owns: func(t string) bool { return gateway.OrgOwnsTenant(remaining, t) },
+		Git: pinnedimport.Cached.Modules(q, orgID, repos), Inline: inliner(q, orgID, repos),
+	}
 	var out []string
 	for i := range pipelines {
-		msgs, err := lintErrors(pipelines[i].Contents, policy)
+		msgs, err := lintErrors(ctx, pipelines[i].Contents, policy)
 		if err != nil {
 			return nil, err
 		}
@@ -398,7 +438,13 @@ func RecordPipelineTenants(ctx context.Context, q *sqlc.Queries, p sqlc.Pipeline
 		}
 		return nil
 	}
-	lits, complete, err := validate.TenantLiterals(p.Contents)
+	// Pinned import.git modules are read from the cache, so a strict org's
+	// pipeline using them is recorded with their tenants.
+	repos, err := q.ListOrgImportRepositories(ctx, p.OrgID)
+	if err != nil {
+		return fmt.Errorf("loading the org's import repositories: %w", err)
+	}
+	lits, complete, err := validate.TenantLiteralsWith(ctx, p.Contents, pinnedimport.Cached.Modules(q, p.OrgID, repos))
 	if err != nil {
 		// The lint's wall-clock guard (validate.ErrLintBusy): no verdict.
 		// The previous rows stay, now stale by their sha, so AddOrgTenant
@@ -469,4 +515,80 @@ func recordOne(ctx context.Context, st *store.Store, p sqlc.Pipeline) error {
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+// ImportRepositoryUsers names org's enabled pipelines that import.git from
+// the allowlist entry whose normal form is key, directly or through a
+// cached module — what taking the entry off a strict org's allowlist must
+// not leave behind. repos is the org's allowlist as it stands (key still
+// on it); modules are read from the cache only. q should hold the
+// exclusive ownership lock.
+func ImportRepositoryUsers(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, key string, repos []sqlc.OrgImportRepository) ([]string, error) {
+	pipelines, err := q.ListEnabledPipelinesByOrg(ctx, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("listing enabled pipelines: %w", err)
+	}
+	var out []string
+	for i := range pipelines {
+		rec := &recordingModules{GitModules: pinnedimport.Cached.Modules(q, orgID, repos), key: key}
+		policy := validate.TenantPolicy{Strict: true, Owns: func(string) bool { return true }, Git: rec}
+		if _, err := validate.TenantLintChecked(ctx, pipelines[i].Contents, policy); err != nil {
+			return nil, fmt.Errorf("tenant check: %w", err)
+		}
+		if rec.used {
+			out = append(out, fmt.Sprintf("pipeline %q", pipelines[i].Name))
+		}
+	}
+	return out, nil
+}
+
+// recordingModules notes whether the lint asked about the repository key.
+type recordingModules struct {
+	validate.GitModules
+	key  string
+	used bool
+}
+
+func (r *recordingModules) Allowed(repository string) error {
+	if k, err := pinnedimport.NormalizeRepository(repository); err == nil && k == r.key {
+		r.used = true
+	}
+	return r.GitModules.Allowed(repository)
+}
+
+// MarkPinnedImportOrgsDirty marks dirty, at boot, the served configs of
+// every org whose served form may differ from what was computed under the
+// last boot's settings: every org in strict tenant mode now (all of them
+// with requireOwned, tenants.require_owned), and every org with an enabled
+// pipeline that may hold an import.git — decided by parsing
+// (validate.ServedFormProblem), never by searching the text — since it was
+// served inlined if tenants.require_owned was on before. No other org's
+// collectors are recomputed.
+func MarkPinnedImportOrgsDirty(ctx context.Context, q *sqlc.Queries, requireOwned bool) error {
+	orgs, err := q.ListOrgs(ctx)
+	if err != nil {
+		return fmt.Errorf("listing orgs: %w", err)
+	}
+	for i := range orgs {
+		mark := requireOwned || orgs[i].StrictTenants
+		if !mark {
+			pipelines, err := q.ListEnabledPipelinesByOrg(ctx, orgs[i].ID)
+			if err != nil {
+				return fmt.Errorf("listing an org's enabled pipelines: %w", err)
+			}
+			for j := range pipelines {
+				if validate.ServedFormProblem(pipelines[j].Contents) != nil {
+					mark = true
+					break
+				}
+			}
+		}
+		if !mark {
+			continue
+		}
+		if err := q.MarkServeCacheDirtyByOrg(ctx, orgs[i].ID); err != nil {
+			return fmt.Errorf("marking an org's served configs dirty: %w", err)
+		}
+	}
+	return nil
 }

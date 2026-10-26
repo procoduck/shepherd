@@ -19,6 +19,7 @@ import (
 	"shepherd/gen/shepherd/mgmt/v1/mgmtv1connect"
 	"shepherd/internal/auth"
 	"shepherd/internal/gateway"
+	"shepherd/internal/pinnedimport"
 	"shepherd/internal/signals"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
@@ -53,6 +54,13 @@ type AdminService struct {
 	// requireOwned is the server-wide tenants.require_owned setting
 	// (WithAdminRequireOwnedTenants).
 	requireOwned bool
+	// imports fetches pinned import.git modules for the tenant preflight
+	// (WithAdminPinnedImports); nil reads only what is cached.
+	imports *pinnedimport.Resolver
+	// recompute eagerly recomputes an org's served configs
+	// (WithAdminRecompute): the strict toggle changes how a pinned
+	// import.git is served. Nil leaves it to each collector's next poll.
+	recompute func(ctx context.Context, orgID pgtype.UUID)
 }
 
 // AdminServiceOption configures optional AdminService dependencies. The

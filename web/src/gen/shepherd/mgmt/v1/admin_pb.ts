@@ -14,7 +14,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file shepherd/mgmt/v1/admin.proto.
  */
 export const file_shepherd_mgmt_v1_admin: GenFile = /*@__PURE__*/
-  fileDesc("ChxzaGVwaGVyZC9tZ210L3YxL2FkbWluLnByb3RvEhBzaGVwaGVyZC5tZ210LnYxIs8DCgNPcmcSCgoCaWQYASABKAkSDAoEbmFtZRgCIAEoCRIUCgxkaXNwbGF5X25hbWUYAyABKAkSFgoOYWRtaW5fZ3JvdXBfaWQYBCABKAkSFwoPdmlld2VyX2dyb3VwX2lkGAUgASgJEi4KCmNyZWF0ZWRfYXQYBiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCnVwZGF0ZWRfYXQYByABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhcKD2VkaXRvcl9ncm91cF9pZBgJIAEoCRIlCh1hbGxvd19leHBlcmltZW50YWxfY29tcG9uZW50cxgKIAEoCBIcChRhbGxvd19sYWJlbF9tYXRjaGluZxgLIAEoCBImCh5hbGxvd19sb2NhbF9hdHRyaWJ1dGVfbWF0Y2hpbmcYDCABKAgSLAoHdGVuYW50cxgNIAMoCzIbLnNoZXBoZXJkLm1nbXQudjEuT3JnVGVuYW50EhYKDnN0cmljdF90ZW5hbnRzGA4gASgIEhgKEHRlbmFudHNfcmVxdWlyZWQYDyABKAgSEAoId2FybmluZ3MYECADKAlKBAgIEAlSCXRlbmFudF9pZCIRCg9MaXN0T3Jnc1JlcXVlc3QiRwoQTGlzdE9yZ3NSZXNwb25zZRIkCgVpdGVtcxgBIAMoCzIVLnNoZXBoZXJkLm1nbXQudjEuT3JnEg0KBXRvdGFsGAIgASgFIpMBChBDcmVhdGVPcmdSZXF1ZXN0EgwKBG5hbWUYASABKAkSFAoMZGlzcGxheV9uYW1lGAIgASgJEhYKDmFkbWluX2dyb3VwX2lkGAMgASgJEhcKD3ZpZXdlcl9ncm91cF9pZBgEIAEoCRIRCgl0ZW5hbnRfaWQYBSABKAkSFwoPZWRpdG9yX2dyb3VwX2lkGAYgASgJIu8BChBVcGRhdGVPcmdSZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCRIUCgxkaXNwbGF5X25hbWUYAiABKAkSFgoOYWRtaW5fZ3JvdXBfaWQYAyABKAkSFwoPdmlld2VyX2dyb3VwX2lkGAQgASgJEhcKD2VkaXRvcl9ncm91cF9pZBgFIAEoCRIlCh1hbGxvd19leHBlcmltZW50YWxfY29tcG9uZW50cxgGIAEoCBIcChRhbGxvd19sYWJlbF9tYXRjaGluZxgHIAEoCBImCh5hbGxvd19sb2NhbF9hdHRyaWJ1dGVfbWF0Y2hpbmcYCCABKAgiegoTQWRkT3JnVGVuYW50UmVxdWVzdBIOCgZvcmdfaWQYASABKAkSDgoGdGVuYW50GAIgASgJEi0KBGtpbmQYAyABKA4yHy5zaGVwaGVyZC5tZ210LnYxLk9yZ1RlbmFudEtpbmQSFAoMbWFrZV9kZWZhdWx0GAQgASgIImcKFlJlbW92ZU9yZ1RlbmFudFJlcXVlc3QSDgoGb3JnX2lkGAEgASgJEg4KBnRlbmFudBgCIAEoCRItCgRraW5kGAMgASgOMh8uc2hlcGhlcmQubWdtdC52MS5PcmdUZW5hbnRLaW5kIjwKGlNldERlZmF1bHRPcmdUZW5hbnRSZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCRIOCgZ0ZW5hbnQYAiABKAkiRAoaU2V0T3JnU3RyaWN0VGVuYW50c1JlcXVlc3QSDgoGb3JnX2lkGAEgASgJEhYKDnN0cmljdF90ZW5hbnRzGAIgASgIIigKFlRlbmFudFByZWZsaWdodFJlcXVlc3QSDgoGb3JnX2lkGAEgASgJInAKD1RlbmFudFZpb2xhdGlvbhIOCgZvcmdfaWQYASABKAkSEAoIb3JnX25hbWUYAiABKAkSDAoEa2luZBgDIAEoCRIMCgRuYW1lGAQgASgJEg4KBnRlbmFudBgFIAEoCRIPCgdtZXNzYWdlGAYgASgJIlAKF1RlbmFudFByZWZsaWdodFJlc3BvbnNlEjUKCnZpb2xhdGlvbnMYASADKAsyIS5zaGVwaGVyZC5tZ210LnYxLlRlbmFudFZpb2xhdGlvbiIiChBEZWxldGVPcmdSZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCSITChFEZWxldGVPcmdSZXNwb25zZSJjCgdDbHVzdGVyEgoKAmlkGAEgASgJEgwKBG5hbWUYAiABKAkSDgoGb3JnX2lkGAMgASgJEi4KCmNyZWF0ZWRfYXQYBCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIigKE0xpc3RDbHVzdGVyc1JlcXVlc3QSEQoJdW5jbGFpbWVkGAEgASgIIk8KFExpc3RDbHVzdGVyc1Jlc3BvbnNlEigKBWl0ZW1zGAEgAygLMhkuc2hlcGhlcmQubWdtdC52MS5DbHVzdGVyEg0KBXRvdGFsGAIgASgFIjYKE0NsYWltQ2x1c3RlclJlcXVlc3QSDwoHY2x1c3RlchgBIAEoCRIOCgZvcmdfaWQYAiABKAkiJgoUQ2xhaW1DbHVzdGVyUmVzcG9uc2USDgoGc3RhdHVzGAEgASgJIigKFVVuY2xhaW1DbHVzdGVyUmVxdWVzdBIPCgdjbHVzdGVyGAEgASgJIigKFlVuY2xhaW1DbHVzdGVyUmVzcG9uc2USDgoGc3RhdHVzGAEgASgJItABCgpBZ2VudFRva2VuEgoKAmlkGAEgASgJEgwKBG5hbWUYAiABKAkSEgoKY3JlYXRlZF9ieRgDIAEoCRIOCgZzdGF0dXMYBCABKAkSLgoKY3JlYXRlZF9hdBgFIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASDgoGb3JnX2lkGAYgASgJEhAKCG9yZ19uYW1lGAcgASgJEhAKCGNsdXN0ZXJzGAggAygJEg0KBXJvbGVzGAkgAygJEhEKCW1heV9jbGFpbRgKIAEoCCIoChZMaXN0QWdlbnRUb2tlbnNSZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCSJVChdMaXN0QWdlbnRUb2tlbnNSZXNwb25zZRIrCgVpdGVtcxgBIAMoCzIcLnNoZXBoZXJkLm1nbXQudjEuQWdlbnRUb2tlbhINCgV0b3RhbBgCIAEoBSJYChdDcmVhdGVBZ2VudFRva2VuUmVxdWVzdBIMCgRuYW1lGAEgASgJEg4KBm9yZ19pZBgCIAEoCRIQCghjbHVzdGVycxgDIAMoCRINCgVyb2xlcxgEIAMoCSJEChhDcmVhdGVBZ2VudFRva2VuUmVzcG9uc2USCgoCaWQYASABKAkSDAoEbmFtZRgCIAEoCRIOCgZzZWNyZXQYAyABKAkiNQoXUmV2b2tlQWdlbnRUb2tlblJlcXVlc3QSCgoCaWQYASABKAkSDgoGb3JnX2lkGAIgASgJIhoKGFJldm9rZUFnZW50VG9rZW5SZXNwb25zZSJUChVCaW5kQWdlbnRUb2tlblJlcXVlc3QSCgoCaWQYASABKAkSDgoGb3JnX2lkGAIgASgJEhAKCGNsdXN0ZXJzGAMgAygJEg0KBXJvbGVzGAQgAygJIrYBCg1BZ2VudElkZW50aXR5Eg4KBmlzc3VlchgBIAEoCRIOCgZhcHBfaWQYAiABKAkSDgoGb3JnX2lkGAMgASgJEhAKCG9yZ19uYW1lGAQgASgJEhAKCGNsdXN0ZXJzGAUgAygJEg0KBXJvbGVzGAYgAygJEhIKCmNyZWF0ZWRfYnkYByABKAkSLgoKY3JlYXRlZF9hdBgIIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiHAoaTGlzdEFnZW50SWRlbnRpdGllc1JlcXVlc3QiXAobTGlzdEFnZW50SWRlbnRpdGllc1Jlc3BvbnNlEi4KBWl0ZW1zGAEgAygLMh8uc2hlcGhlcmQubWdtdC52MS5BZ2VudElkZW50aXR5Eg0KBXRvdGFsGAIgASgFImoKGkNyZWF0ZUFnZW50SWRlbnRpdHlSZXF1ZXN0Eg4KBmlzc3VlchgBIAEoCRIOCgZhcHBfaWQYAiABKAkSCwoDb3JnGAMgASgJEhAKCGNsdXN0ZXJzGAQgAygJEg0KBXJvbGVzGAUgAygJIjwKGkRlbGV0ZUFnZW50SWRlbnRpdHlSZXF1ZXN0Eg4KBmlzc3VlchgBIAEoCRIOCgZhcHBfaWQYAiABKAkiHQobRGVsZXRlQWdlbnRJZGVudGl0eVJlc3BvbnNlIjUKEUdyb3VwU2VhcmNoUmVzdWx0EgoKAmlkGAEgASgJEhQKDGRpc3BsYXlfbmFtZRgCIAEoCSIwChNTZWFyY2hHcm91cHNSZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCRIJCgFxGAIgASgJIlkKFFNlYXJjaEdyb3Vwc1Jlc3BvbnNlEjIKBWl0ZW1zGAEgAygLMiMuc2hlcGhlcmQubWdtdC52MS5Hcm91cFNlYXJjaFJlc3VsdBINCgV0b3RhbBgCIAEoBSKABQoMT2lkY1NldHRpbmdzEhIKCmNvbmZpZ3VyZWQYASABKAgSDwoHZW5hYmxlZBgCIAEoCBIOCgZhY3RpdmUYAyABKAgSDgoGc291cmNlGAQgASgJEhAKCGVkaXRhYmxlGAUgASgIEhAKCHByb3ZpZGVyGAYgASgJEhQKDGRpc3BsYXlfbmFtZRgHIAEoCRIOCgZpc3N1ZXIYCCABKAkSEQoJY2xpZW50X2lkGAkgASgJEhkKEWNsaWVudF9zZWNyZXRfc2V0GAogASgIEhQKDHJlZGlyZWN0X3VybBgLIAEoCRIOCgZzY29wZXMYDCADKAkSFQoNc3ViamVjdF9jbGFpbRgNIAEoCRITCgtlbWFpbF9jbGFpbRgOIAEoCRISCgpuYW1lX2NsYWltGA8gASgJEhQKDGdyb3Vwc19jbGFpbRgQIAEoCRIYChBhcHBfYWRtaW5fZ3JvdXBzGBEgAygJEhgKEHVzZV9ncmFwaF9ncm91cHMYEiABKAgSFgoOZ3JhcGhfYmFzZV91cmwYEyABKAkSFgoOc3RhdHVzX21lc3NhZ2UYFCABKAkSLgoKdXBkYXRlZF9hdBgVIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASEgoKdXBkYXRlZF9ieRgWIAEoCRIWCg5hZ2VudF9hdWRpZW5jZRgXIAEoCRIbChNhZ2VudF9yZXF1aXJlZF9yb2xlGBggASgJEhwKFGFnZW50X3JlcXVpcmVkX3Njb3BlGBkgASgJEh0KFWFnZW50X3RydXN0X29yZ19jbGFpbRgaIAEoCRIdChVhZ2VudF9vcmdfcm9sZV9wcmVmaXgYGyABKAkiGAoWR2V0T2lkY1NldHRpbmdzUmVxdWVzdCLWAgoZVXBkYXRlT2lkY1NldHRpbmdzUmVxdWVzdBIPCgdlbmFibGVkGAEgASgIEhAKCHByb3ZpZGVyGAIgASgJEhQKDGRpc3BsYXlfbmFtZRgDIAEoCRIOCgZpc3N1ZXIYBCABKAkSEQoJY2xpZW50X2lkGAUgASgJEhUKDWNsaWVudF9zZWNyZXQYBiABKAkSFAoMcmVkaXJlY3RfdXJsGAcgASgJEg4KBnNjb3BlcxgIIAMoCRIVCg1zdWJqZWN0X2NsYWltGAkgASgJEhMKC2VtYWlsX2NsYWltGAogASgJEhIKCm5hbWVfY2xhaW0YCyABKAkSFAoMZ3JvdXBzX2NsYWltGAwgASgJEhgKEGFwcF9hZG1pbl9ncm91cHMYDSADKAkSGAoQdXNlX2dyYXBoX2dyb3VwcxgOIAEoCBIWCg5ncmFwaF9iYXNlX3VybBgPIAEoCSJ1ChdUZXN0T2lkY1NldHRpbmdzUmVxdWVzdBIQCghwcm92aWRlchgBIAEoCRIOCgZpc3N1ZXIYAiABKAkSEQoJY2xpZW50X2lkGAMgASgJEhUKDWNsaWVudF9zZWNyZXQYBCABKAkSDgoGc2NvcGVzGAUgAygJIvMBChhUZXN0T2lkY1NldHRpbmdzUmVzcG9uc2USCgoCb2sYASABKAgSDwoHbWVzc2FnZRgCIAEoCRIOCgZpc3N1ZXIYAyABKAkSHgoWYXV0aG9yaXphdGlvbl9lbmRwb2ludBgEIAEoCRIWCg50b2tlbl9lbmRwb2ludBgFIAEoCRIQCghqd2tzX3VyaRgGIAEoCRIYChBzdXBwb3J0ZWRfc2NvcGVzGAcgAygJEhYKDm1pc3Npbmdfc2NvcGVzGAggAygJEhUKDXN1cHBvcnRzX3BrY2UYCSABKAgSFwoPaXNzdWVyX21pc21hdGNoGAogASgJIhsKGURlbGV0ZU9pZGNTZXR0aW5nc1JlcXVlc3QiHAoaRGVsZXRlT2lkY1NldHRpbmdzUmVzcG9uc2UiIAoeTGlzdE9pZGNQcm92aWRlclByZXNldHNSZXF1ZXN0IlYKH0xpc3RPaWRjUHJvdmlkZXJQcmVzZXRzUmVzcG9uc2USMwoFaXRlbXMYASADKAsyJC5zaGVwaGVyZC5tZ210LnYxLk9pZGNQcm92aWRlclByZXNldCL/AQoST2lkY1Byb3ZpZGVyUHJlc2V0EgsKA2tleRgBIAEoCRIUCgxkaXNwbGF5X25hbWUYAiABKAkSFwoPaXNzdWVyX3RlbXBsYXRlGAMgASgJEhMKC2lzc3Vlcl9oaW50GAQgASgJEg4KBnNjb3BlcxgFIAMoCRIVCg1zdWJqZWN0X2NsYWltGAYgASgJEhMKC2VtYWlsX2NsYWltGAcgASgJEhIKCm5hbWVfY2xhaW0YCCABKAkSFAoMZ3JvdXBzX2NsYWltGAkgASgJEh0KFXN1cHBvcnRzX2dyYXBoX2dyb3VwcxgKIAEoCBITCgtncm91cHNfbm90ZRgLIAEoCTK/EwoMQWRtaW5TZXJ2aWNlElMKCExpc3RPcmdzEiEuc2hlcGhlcmQubWdtdC52MS5MaXN0T3Jnc1JlcXVlc3QaIi5zaGVwaGVyZC5tZ210LnYxLkxpc3RPcmdzUmVzcG9uc2UiABJICglDcmVhdGVPcmcSIi5zaGVwaGVyZC5tZ210LnYxLkNyZWF0ZU9yZ1JlcXVlc3QaFS5zaGVwaGVyZC5tZ210LnYxLk9yZyIAEkgKCVVwZGF0ZU9yZxIiLnNoZXBoZXJkLm1nbXQudjEuVXBkYXRlT3JnUmVxdWVzdBoVLnNoZXBoZXJkLm1nbXQudjEuT3JnIgASVgoJRGVsZXRlT3JnEiIuc2hlcGhlcmQubWdtdC52MS5EZWxldGVPcmdSZXF1ZXN0GiMuc2hlcGhlcmQubWdtdC52MS5EZWxldGVPcmdSZXNwb25zZSIAEk4KDEFkZE9yZ1RlbmFudBIlLnNoZXBoZXJkLm1nbXQudjEuQWRkT3JnVGVuYW50UmVxdWVzdBoVLnNoZXBoZXJkLm1nbXQudjEuT3JnIgASVAoPUmVtb3ZlT3JnVGVuYW50Eiguc2hlcGhlcmQubWdtdC52MS5SZW1vdmVPcmdUZW5hbnRSZXF1ZXN0GhUuc2hlcGhlcmQubWdtdC52MS5PcmciABJcChNTZXREZWZhdWx0T3JnVGVuYW50Eiwuc2hlcGhlcmQubWdtdC52MS5TZXREZWZhdWx0T3JnVGVuYW50UmVxdWVzdBoVLnNoZXBoZXJkLm1nbXQudjEuT3JnIgASXAoTU2V0T3JnU3RyaWN0VGVuYW50cxIsLnNoZXBoZXJkLm1nbXQudjEuU2V0T3JnU3RyaWN0VGVuYW50c1JlcXVlc3QaFS5zaGVwaGVyZC5tZ210LnYxLk9yZyIAEmgKD1RlbmFudFByZWZsaWdodBIoLnNoZXBoZXJkLm1nbXQudjEuVGVuYW50UHJlZmxpZ2h0UmVxdWVzdBopLnNoZXBoZXJkLm1nbXQudjEuVGVuYW50UHJlZmxpZ2h0UmVzcG9uc2UiABJfCgxMaXN0Q2x1c3RlcnMSJS5zaGVwaGVyZC5tZ210LnYxLkxpc3RDbHVzdGVyc1JlcXVlc3QaJi5zaGVwaGVyZC5tZ210LnYxLkxpc3RDbHVzdGVyc1Jlc3BvbnNlIgASXwoMQ2xhaW1DbHVzdGVyEiUuc2hlcGhlcmQubWdtdC52MS5DbGFpbUNsdXN0ZXJSZXF1ZXN0GiYuc2hlcGhlcmQubWdtdC52MS5DbGFpbUNsdXN0ZXJSZXNwb25zZSIAEmUKDlVuY2xhaW1DbHVzdGVyEicuc2hlcGhlcmQubWdtdC52MS5VbmNsYWltQ2x1c3RlclJlcXVlc3QaKC5zaGVwaGVyZC5tZ210LnYxLlVuY2xhaW1DbHVzdGVyUmVzcG9uc2UiABJoCg9MaXN0QWdlbnRUb2tlbnMSKC5zaGVwaGVyZC5tZ210LnYxLkxpc3RBZ2VudFRva2Vuc1JlcXVlc3QaKS5zaGVwaGVyZC5tZ210LnYxLkxpc3RBZ2VudFRva2Vuc1Jlc3BvbnNlIgASawoQQ3JlYXRlQWdlbnRUb2tlbhIpLnNoZXBoZXJkLm1nbXQudjEuQ3JlYXRlQWdlbnRUb2tlblJlcXVlc3QaKi5zaGVwaGVyZC5tZ210LnYxLkNyZWF0ZUFnZW50VG9rZW5SZXNwb25zZSIAEmsKEFJldm9rZUFnZW50VG9rZW4SKS5zaGVwaGVyZC5tZ210LnYxLlJldm9rZUFnZW50VG9rZW5SZXF1ZXN0Giouc2hlcGhlcmQubWdtdC52MS5SZXZva2VBZ2VudFRva2VuUmVzcG9uc2UiABJZCg5CaW5kQWdlbnRUb2tlbhInLnNoZXBoZXJkLm1nbXQudjEuQmluZEFnZW50VG9rZW5SZXF1ZXN0Ghwuc2hlcGhlcmQubWdtdC52MS5BZ2VudFRva2VuIgASdAoTTGlzdEFnZW50SWRlbnRpdGllcxIsLnNoZXBoZXJkLm1nbXQudjEuTGlzdEFnZW50SWRlbnRpdGllc1JlcXVlc3QaLS5zaGVwaGVyZC5tZ210LnYxLkxpc3RBZ2VudElkZW50aXRpZXNSZXNwb25zZSIAEmYKE0NyZWF0ZUFnZW50SWRlbnRpdHkSLC5zaGVwaGVyZC5tZ210LnYxLkNyZWF0ZUFnZW50SWRlbnRpdHlSZXF1ZXN0Gh8uc2hlcGhlcmQubWdtdC52MS5BZ2VudElkZW50aXR5IgASdAoTRGVsZXRlQWdlbnRJZGVudGl0eRIsLnNoZXBoZXJkLm1nbXQudjEuRGVsZXRlQWdlbnRJZGVudGl0eVJlcXVlc3QaLS5zaGVwaGVyZC5tZ210LnYxLkRlbGV0ZUFnZW50SWRlbnRpdHlSZXNwb25zZSIAEl8KDFNlYXJjaEdyb3VwcxIlLnNoZXBoZXJkLm1nbXQudjEuU2VhcmNoR3JvdXBzUmVxdWVzdBomLnNoZXBoZXJkLm1nbXQudjEuU2VhcmNoR3JvdXBzUmVzcG9uc2UiABJdCg9HZXRPaWRjU2V0dGluZ3MSKC5zaGVwaGVyZC5tZ210LnYxLkdldE9pZGNTZXR0aW5nc1JlcXVlc3QaHi5zaGVwaGVyZC5tZ210LnYxLk9pZGNTZXR0aW5ncyIAEmMKElVwZGF0ZU9pZGNTZXR0aW5ncxIrLnNoZXBoZXJkLm1nbXQudjEuVXBkYXRlT2lkY1NldHRpbmdzUmVxdWVzdBoeLnNoZXBoZXJkLm1nbXQudjEuT2lkY1NldHRpbmdzIgASawoQVGVzdE9pZGNTZXR0aW5ncxIpLnNoZXBoZXJkLm1nbXQudjEuVGVzdE9pZGNTZXR0aW5nc1JlcXVlc3QaKi5zaGVwaGVyZC5tZ210LnYxLlRlc3RPaWRjU2V0dGluZ3NSZXNwb25zZSIAEnEKEkRlbGV0ZU9pZGNTZXR0aW5ncxIrLnNoZXBoZXJkLm1nbXQudjEuRGVsZXRlT2lkY1NldHRpbmdzUmVxdWVzdBosLnNoZXBoZXJkLm1nbXQudjEuRGVsZXRlT2lkY1NldHRpbmdzUmVzcG9uc2UiABKAAQoXTGlzdE9pZGNQcm92aWRlclByZXNldHMSMC5zaGVwaGVyZC5tZ210LnYxLkxpc3RPaWRjUHJvdmlkZXJQcmVzZXRzUmVxdWVzdBoxLnNoZXBoZXJkLm1nbXQudjEuTGlzdE9pZGNQcm92aWRlclByZXNldHNSZXNwb25zZSIAQiZaJHNoZXBoZXJkL2dlbi9zaGVwaGVyZC9tZ210L3YxO21nbXR2MWIGcHJvdG8z", [file_google_protobuf_timestamp, file_shepherd_mgmt_v1_common]);
+  fileDesc("ChxzaGVwaGVyZC9tZ210L3YxL2FkbWluLnByb3RvEhBzaGVwaGVyZC5tZ210LnYxIs8DCgNPcmcSCgoCaWQYASABKAkSDAoEbmFtZRgCIAEoCRIUCgxkaXNwbGF5X25hbWUYAyABKAkSFgoOYWRtaW5fZ3JvdXBfaWQYBCABKAkSFwoPdmlld2VyX2dyb3VwX2lkGAUgASgJEi4KCmNyZWF0ZWRfYXQYBiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCnVwZGF0ZWRfYXQYByABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhcKD2VkaXRvcl9ncm91cF9pZBgJIAEoCRIlCh1hbGxvd19leHBlcmltZW50YWxfY29tcG9uZW50cxgKIAEoCBIcChRhbGxvd19sYWJlbF9tYXRjaGluZxgLIAEoCBImCh5hbGxvd19sb2NhbF9hdHRyaWJ1dGVfbWF0Y2hpbmcYDCABKAgSLAoHdGVuYW50cxgNIAMoCzIbLnNoZXBoZXJkLm1nbXQudjEuT3JnVGVuYW50EhYKDnN0cmljdF90ZW5hbnRzGA4gASgIEhgKEHRlbmFudHNfcmVxdWlyZWQYDyABKAgSEAoId2FybmluZ3MYECADKAlKBAgIEAlSCXRlbmFudF9pZCIRCg9MaXN0T3Jnc1JlcXVlc3QiRwoQTGlzdE9yZ3NSZXNwb25zZRIkCgVpdGVtcxgBIAMoCzIVLnNoZXBoZXJkLm1nbXQudjEuT3JnEg0KBXRvdGFsGAIgASgFIpMBChBDcmVhdGVPcmdSZXF1ZXN0EgwKBG5hbWUYASABKAkSFAoMZGlzcGxheV9uYW1lGAIgASgJEhYKDmFkbWluX2dyb3VwX2lkGAMgASgJEhcKD3ZpZXdlcl9ncm91cF9pZBgEIAEoCRIRCgl0ZW5hbnRfaWQYBSABKAkSFwoPZWRpdG9yX2dyb3VwX2lkGAYgASgJIu8BChBVcGRhdGVPcmdSZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCRIUCgxkaXNwbGF5X25hbWUYAiABKAkSFgoOYWRtaW5fZ3JvdXBfaWQYAyABKAkSFwoPdmlld2VyX2dyb3VwX2lkGAQgASgJEhcKD2VkaXRvcl9ncm91cF9pZBgFIAEoCRIlCh1hbGxvd19leHBlcmltZW50YWxfY29tcG9uZW50cxgGIAEoCBIcChRhbGxvd19sYWJlbF9tYXRjaGluZxgHIAEoCBImCh5hbGxvd19sb2NhbF9hdHRyaWJ1dGVfbWF0Y2hpbmcYCCABKAgiegoTQWRkT3JnVGVuYW50UmVxdWVzdBIOCgZvcmdfaWQYASABKAkSDgoGdGVuYW50GAIgASgJEi0KBGtpbmQYAyABKA4yHy5zaGVwaGVyZC5tZ210LnYxLk9yZ1RlbmFudEtpbmQSFAoMbWFrZV9kZWZhdWx0GAQgASgIImcKFlJlbW92ZU9yZ1RlbmFudFJlcXVlc3QSDgoGb3JnX2lkGAEgASgJEg4KBnRlbmFudBgCIAEoCRItCgRraW5kGAMgASgOMh8uc2hlcGhlcmQubWdtdC52MS5PcmdUZW5hbnRLaW5kIjwKGlNldERlZmF1bHRPcmdUZW5hbnRSZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCRIOCgZ0ZW5hbnQYAiABKAkiRAoaU2V0T3JnU3RyaWN0VGVuYW50c1JlcXVlc3QSDgoGb3JnX2lkGAEgASgJEhYKDnN0cmljdF90ZW5hbnRzGAIgASgIIigKFlRlbmFudFByZWZsaWdodFJlcXVlc3QSDgoGb3JnX2lkGAEgASgJInAKD1RlbmFudFZpb2xhdGlvbhIOCgZvcmdfaWQYASABKAkSEAoIb3JnX25hbWUYAiABKAkSDAoEa2luZBgDIAEoCRIMCgRuYW1lGAQgASgJEg4KBnRlbmFudBgFIAEoCRIPCgdtZXNzYWdlGAYgASgJIlAKF1RlbmFudFByZWZsaWdodFJlc3BvbnNlEjUKCnZpb2xhdGlvbnMYASADKAsyIS5zaGVwaGVyZC5tZ210LnYxLlRlbmFudFZpb2xhdGlvbiLNAQoTT3JnSW1wb3J0UmVwb3NpdG9yeRIKCgJpZBgBIAEoCRIOCgZvcmdfaWQYAiABKAkSEgoKcmVwb3NpdG9yeRgDIAEoCRISCgpub3JtYWxpemVkGAQgASgJEhUKDWNyZWRlbnRpYWxfaWQYBSABKAkSFwoPY3JlZGVudGlhbF9uYW1lGAYgASgJEhIKCmNyZWF0ZWRfYnkYByABKAkSLgoKY3JlYXRlZF9hdBgIIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiMgogTGlzdE9yZ0ltcG9ydFJlcG9zaXRvcmllc1JlcXVlc3QSDgoGb3JnX2lkGAEgASgJIlkKIUxpc3RPcmdJbXBvcnRSZXBvc2l0b3JpZXNSZXNwb25zZRI0CgVpdGVtcxgBIAMoCzIlLnNoZXBoZXJkLm1nbXQudjEuT3JnSW1wb3J0UmVwb3NpdG9yeSJaCh1BZGRPcmdJbXBvcnRSZXBvc2l0b3J5UmVxdWVzdBIOCgZvcmdfaWQYASABKAkSEgoKcmVwb3NpdG9yeRgCIAEoCRIVCg1jcmVkZW50aWFsX2lkGAMgASgJIj4KIFJlbW92ZU9yZ0ltcG9ydFJlcG9zaXRvcnlSZXF1ZXN0Eg4KBm9yZ19pZBgBIAEoCRIKCgJpZBgCIAEoCSIjCiFSZW1vdmVPcmdJbXBvcnRSZXBvc2l0b3J5UmVzcG9uc2UiIgoQRGVsZXRlT3JnUmVxdWVzdBIOCgZvcmdfaWQYASABKAkiEwoRRGVsZXRlT3JnUmVzcG9uc2UiYwoHQ2x1c3RlchIKCgJpZBgBIAEoCRIMCgRuYW1lGAIgASgJEg4KBm9yZ19pZBgDIAEoCRIuCgpjcmVhdGVkX2F0GAQgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCIoChNMaXN0Q2x1c3RlcnNSZXF1ZXN0EhEKCXVuY2xhaW1lZBgBIAEoCCJPChRMaXN0Q2x1c3RlcnNSZXNwb25zZRIoCgVpdGVtcxgBIAMoCzIZLnNoZXBoZXJkLm1nbXQudjEuQ2x1c3RlchINCgV0b3RhbBgCIAEoBSI2ChNDbGFpbUNsdXN0ZXJSZXF1ZXN0Eg8KB2NsdXN0ZXIYASABKAkSDgoGb3JnX2lkGAIgASgJIiYKFENsYWltQ2x1c3RlclJlc3BvbnNlEg4KBnN0YXR1cxgBIAEoCSIoChVVbmNsYWltQ2x1c3RlclJlcXVlc3QSDwoHY2x1c3RlchgBIAEoCSIoChZVbmNsYWltQ2x1c3RlclJlc3BvbnNlEg4KBnN0YXR1cxgBIAEoCSLQAQoKQWdlbnRUb2tlbhIKCgJpZBgBIAEoCRIMCgRuYW1lGAIgASgJEhIKCmNyZWF0ZWRfYnkYAyABKAkSDgoGc3RhdHVzGAQgASgJEi4KCmNyZWF0ZWRfYXQYBSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEg4KBm9yZ19pZBgGIAEoCRIQCghvcmdfbmFtZRgHIAEoCRIQCghjbHVzdGVycxgIIAMoCRINCgVyb2xlcxgJIAMoCRIRCgltYXlfY2xhaW0YCiABKAgiKAoWTGlzdEFnZW50VG9rZW5zUmVxdWVzdBIOCgZvcmdfaWQYASABKAkiVQoXTGlzdEFnZW50VG9rZW5zUmVzcG9uc2USKwoFaXRlbXMYASADKAsyHC5zaGVwaGVyZC5tZ210LnYxLkFnZW50VG9rZW4SDQoFdG90YWwYAiABKAUiWAoXQ3JlYXRlQWdlbnRUb2tlblJlcXVlc3QSDAoEbmFtZRgBIAEoCRIOCgZvcmdfaWQYAiABKAkSEAoIY2x1c3RlcnMYAyADKAkSDQoFcm9sZXMYBCADKAkiRAoYQ3JlYXRlQWdlbnRUb2tlblJlc3BvbnNlEgoKAmlkGAEgASgJEgwKBG5hbWUYAiABKAkSDgoGc2VjcmV0GAMgASgJIjUKF1Jldm9rZUFnZW50VG9rZW5SZXF1ZXN0EgoKAmlkGAEgASgJEg4KBm9yZ19pZBgCIAEoCSIaChhSZXZva2VBZ2VudFRva2VuUmVzcG9uc2UiVAoVQmluZEFnZW50VG9rZW5SZXF1ZXN0EgoKAmlkGAEgASgJEg4KBm9yZ19pZBgCIAEoCRIQCghjbHVzdGVycxgDIAMoCRINCgVyb2xlcxgEIAMoCSK2AQoNQWdlbnRJZGVudGl0eRIOCgZpc3N1ZXIYASABKAkSDgoGYXBwX2lkGAIgASgJEg4KBm9yZ19pZBgDIAEoCRIQCghvcmdfbmFtZRgEIAEoCRIQCghjbHVzdGVycxgFIAMoCRINCgVyb2xlcxgGIAMoCRISCgpjcmVhdGVkX2J5GAcgASgJEi4KCmNyZWF0ZWRfYXQYCCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIhwKGkxpc3RBZ2VudElkZW50aXRpZXNSZXF1ZXN0IlwKG0xpc3RBZ2VudElkZW50aXRpZXNSZXNwb25zZRIuCgVpdGVtcxgBIAMoCzIfLnNoZXBoZXJkLm1nbXQudjEuQWdlbnRJZGVudGl0eRINCgV0b3RhbBgCIAEoBSJqChpDcmVhdGVBZ2VudElkZW50aXR5UmVxdWVzdBIOCgZpc3N1ZXIYASABKAkSDgoGYXBwX2lkGAIgASgJEgsKA29yZxgDIAEoCRIQCghjbHVzdGVycxgEIAMoCRINCgVyb2xlcxgFIAMoCSI8ChpEZWxldGVBZ2VudElkZW50aXR5UmVxdWVzdBIOCgZpc3N1ZXIYASABKAkSDgoGYXBwX2lkGAIgASgJIh0KG0RlbGV0ZUFnZW50SWRlbnRpdHlSZXNwb25zZSI1ChFHcm91cFNlYXJjaFJlc3VsdBIKCgJpZBgBIAEoCRIUCgxkaXNwbGF5X25hbWUYAiABKAkiMAoTU2VhcmNoR3JvdXBzUmVxdWVzdBIOCgZvcmdfaWQYASABKAkSCQoBcRgCIAEoCSJZChRTZWFyY2hHcm91cHNSZXNwb25zZRIyCgVpdGVtcxgBIAMoCzIjLnNoZXBoZXJkLm1nbXQudjEuR3JvdXBTZWFyY2hSZXN1bHQSDQoFdG90YWwYAiABKAUigAUKDE9pZGNTZXR0aW5ncxISCgpjb25maWd1cmVkGAEgASgIEg8KB2VuYWJsZWQYAiABKAgSDgoGYWN0aXZlGAMgASgIEg4KBnNvdXJjZRgEIAEoCRIQCghlZGl0YWJsZRgFIAEoCBIQCghwcm92aWRlchgGIAEoCRIUCgxkaXNwbGF5X25hbWUYByABKAkSDgoGaXNzdWVyGAggASgJEhEKCWNsaWVudF9pZBgJIAEoCRIZChFjbGllbnRfc2VjcmV0X3NldBgKIAEoCBIUCgxyZWRpcmVjdF91cmwYCyABKAkSDgoGc2NvcGVzGAwgAygJEhUKDXN1YmplY3RfY2xhaW0YDSABKAkSEwoLZW1haWxfY2xhaW0YDiABKAkSEgoKbmFtZV9jbGFpbRgPIAEoCRIUCgxncm91cHNfY2xhaW0YECABKAkSGAoQYXBwX2FkbWluX2dyb3VwcxgRIAMoCRIYChB1c2VfZ3JhcGhfZ3JvdXBzGBIgASgIEhYKDmdyYXBoX2Jhc2VfdXJsGBMgASgJEhYKDnN0YXR1c19tZXNzYWdlGBQgASgJEi4KCnVwZGF0ZWRfYXQYFSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhIKCnVwZGF0ZWRfYnkYFiABKAkSFgoOYWdlbnRfYXVkaWVuY2UYFyABKAkSGwoTYWdlbnRfcmVxdWlyZWRfcm9sZRgYIAEoCRIcChRhZ2VudF9yZXF1aXJlZF9zY29wZRgZIAEoCRIdChVhZ2VudF90cnVzdF9vcmdfY2xhaW0YGiABKAkSHQoVYWdlbnRfb3JnX3JvbGVfcHJlZml4GBsgASgJIhgKFkdldE9pZGNTZXR0aW5nc1JlcXVlc3Qi1gIKGVVwZGF0ZU9pZGNTZXR0aW5nc1JlcXVlc3QSDwoHZW5hYmxlZBgBIAEoCBIQCghwcm92aWRlchgCIAEoCRIUCgxkaXNwbGF5X25hbWUYAyABKAkSDgoGaXNzdWVyGAQgASgJEhEKCWNsaWVudF9pZBgFIAEoCRIVCg1jbGllbnRfc2VjcmV0GAYgASgJEhQKDHJlZGlyZWN0X3VybBgHIAEoCRIOCgZzY29wZXMYCCADKAkSFQoNc3ViamVjdF9jbGFpbRgJIAEoCRITCgtlbWFpbF9jbGFpbRgKIAEoCRISCgpuYW1lX2NsYWltGAsgASgJEhQKDGdyb3Vwc19jbGFpbRgMIAEoCRIYChBhcHBfYWRtaW5fZ3JvdXBzGA0gAygJEhgKEHVzZV9ncmFwaF9ncm91cHMYDiABKAgSFgoOZ3JhcGhfYmFzZV91cmwYDyABKAkidQoXVGVzdE9pZGNTZXR0aW5nc1JlcXVlc3QSEAoIcHJvdmlkZXIYASABKAkSDgoGaXNzdWVyGAIgASgJEhEKCWNsaWVudF9pZBgDIAEoCRIVCg1jbGllbnRfc2VjcmV0GAQgASgJEg4KBnNjb3BlcxgFIAMoCSLzAQoYVGVzdE9pZGNTZXR0aW5nc1Jlc3BvbnNlEgoKAm9rGAEgASgIEg8KB21lc3NhZ2UYAiABKAkSDgoGaXNzdWVyGAMgASgJEh4KFmF1dGhvcml6YXRpb25fZW5kcG9pbnQYBCABKAkSFgoOdG9rZW5fZW5kcG9pbnQYBSABKAkSEAoIandrc191cmkYBiABKAkSGAoQc3VwcG9ydGVkX3Njb3BlcxgHIAMoCRIWCg5taXNzaW5nX3Njb3BlcxgIIAMoCRIVCg1zdXBwb3J0c19wa2NlGAkgASgIEhcKD2lzc3Vlcl9taXNtYXRjaBgKIAEoCSIbChlEZWxldGVPaWRjU2V0dGluZ3NSZXF1ZXN0IhwKGkRlbGV0ZU9pZGNTZXR0aW5nc1Jlc3BvbnNlIiAKHkxpc3RPaWRjUHJvdmlkZXJQcmVzZXRzUmVxdWVzdCJWCh9MaXN0T2lkY1Byb3ZpZGVyUHJlc2V0c1Jlc3BvbnNlEjMKBWl0ZW1zGAEgAygLMiQuc2hlcGhlcmQubWdtdC52MS5PaWRjUHJvdmlkZXJQcmVzZXQi/wEKEk9pZGNQcm92aWRlclByZXNldBILCgNrZXkYASABKAkSFAoMZGlzcGxheV9uYW1lGAIgASgJEhcKD2lzc3Vlcl90ZW1wbGF0ZRgDIAEoCRITCgtpc3N1ZXJfaGludBgEIAEoCRIOCgZzY29wZXMYBSADKAkSFQoNc3ViamVjdF9jbGFpbRgGIAEoCRITCgtlbWFpbF9jbGFpbRgHIAEoCRISCgpuYW1lX2NsYWltGAggASgJEhQKDGdyb3Vwc19jbGFpbRgJIAEoCRIdChVzdXBwb3J0c19ncmFwaF9ncm91cHMYCiABKAgSEwoLZ3JvdXBzX25vdGUYCyABKAkyxRYKDEFkbWluU2VydmljZRJTCghMaXN0T3JncxIhLnNoZXBoZXJkLm1nbXQudjEuTGlzdE9yZ3NSZXF1ZXN0GiIuc2hlcGhlcmQubWdtdC52MS5MaXN0T3Jnc1Jlc3BvbnNlIgASSAoJQ3JlYXRlT3JnEiIuc2hlcGhlcmQubWdtdC52MS5DcmVhdGVPcmdSZXF1ZXN0GhUuc2hlcGhlcmQubWdtdC52MS5PcmciABJICglVcGRhdGVPcmcSIi5zaGVwaGVyZC5tZ210LnYxLlVwZGF0ZU9yZ1JlcXVlc3QaFS5zaGVwaGVyZC5tZ210LnYxLk9yZyIAElYKCURlbGV0ZU9yZxIiLnNoZXBoZXJkLm1nbXQudjEuRGVsZXRlT3JnUmVxdWVzdBojLnNoZXBoZXJkLm1nbXQudjEuRGVsZXRlT3JnUmVzcG9uc2UiABJOCgxBZGRPcmdUZW5hbnQSJS5zaGVwaGVyZC5tZ210LnYxLkFkZE9yZ1RlbmFudFJlcXVlc3QaFS5zaGVwaGVyZC5tZ210LnYxLk9yZyIAElQKD1JlbW92ZU9yZ1RlbmFudBIoLnNoZXBoZXJkLm1nbXQudjEuUmVtb3ZlT3JnVGVuYW50UmVxdWVzdBoVLnNoZXBoZXJkLm1nbXQudjEuT3JnIgASXAoTU2V0RGVmYXVsdE9yZ1RlbmFudBIsLnNoZXBoZXJkLm1nbXQudjEuU2V0RGVmYXVsdE9yZ1RlbmFudFJlcXVlc3QaFS5zaGVwaGVyZC5tZ210LnYxLk9yZyIAElwKE1NldE9yZ1N0cmljdFRlbmFudHMSLC5zaGVwaGVyZC5tZ210LnYxLlNldE9yZ1N0cmljdFRlbmFudHNSZXF1ZXN0GhUuc2hlcGhlcmQubWdtdC52MS5PcmciABJoCg9UZW5hbnRQcmVmbGlnaHQSKC5zaGVwaGVyZC5tZ210LnYxLlRlbmFudFByZWZsaWdodFJlcXVlc3QaKS5zaGVwaGVyZC5tZ210LnYxLlRlbmFudFByZWZsaWdodFJlc3BvbnNlIgAShgEKGUxpc3RPcmdJbXBvcnRSZXBvc2l0b3JpZXMSMi5zaGVwaGVyZC5tZ210LnYxLkxpc3RPcmdJbXBvcnRSZXBvc2l0b3JpZXNSZXF1ZXN0GjMuc2hlcGhlcmQubWdtdC52MS5MaXN0T3JnSW1wb3J0UmVwb3NpdG9yaWVzUmVzcG9uc2UiABJyChZBZGRPcmdJbXBvcnRSZXBvc2l0b3J5Ei8uc2hlcGhlcmQubWdtdC52MS5BZGRPcmdJbXBvcnRSZXBvc2l0b3J5UmVxdWVzdBolLnNoZXBoZXJkLm1nbXQudjEuT3JnSW1wb3J0UmVwb3NpdG9yeSIAEoYBChlSZW1vdmVPcmdJbXBvcnRSZXBvc2l0b3J5EjIuc2hlcGhlcmQubWdtdC52MS5SZW1vdmVPcmdJbXBvcnRSZXBvc2l0b3J5UmVxdWVzdBozLnNoZXBoZXJkLm1nbXQudjEuUmVtb3ZlT3JnSW1wb3J0UmVwb3NpdG9yeVJlc3BvbnNlIgASXwoMTGlzdENsdXN0ZXJzEiUuc2hlcGhlcmQubWdtdC52MS5MaXN0Q2x1c3RlcnNSZXF1ZXN0GiYuc2hlcGhlcmQubWdtdC52MS5MaXN0Q2x1c3RlcnNSZXNwb25zZSIAEl8KDENsYWltQ2x1c3RlchIlLnNoZXBoZXJkLm1nbXQudjEuQ2xhaW1DbHVzdGVyUmVxdWVzdBomLnNoZXBoZXJkLm1nbXQudjEuQ2xhaW1DbHVzdGVyUmVzcG9uc2UiABJlCg5VbmNsYWltQ2x1c3RlchInLnNoZXBoZXJkLm1nbXQudjEuVW5jbGFpbUNsdXN0ZXJSZXF1ZXN0Giguc2hlcGhlcmQubWdtdC52MS5VbmNsYWltQ2x1c3RlclJlc3BvbnNlIgASaAoPTGlzdEFnZW50VG9rZW5zEiguc2hlcGhlcmQubWdtdC52MS5MaXN0QWdlbnRUb2tlbnNSZXF1ZXN0Gikuc2hlcGhlcmQubWdtdC52MS5MaXN0QWdlbnRUb2tlbnNSZXNwb25zZSIAEmsKEENyZWF0ZUFnZW50VG9rZW4SKS5zaGVwaGVyZC5tZ210LnYxLkNyZWF0ZUFnZW50VG9rZW5SZXF1ZXN0Giouc2hlcGhlcmQubWdtdC52MS5DcmVhdGVBZ2VudFRva2VuUmVzcG9uc2UiABJrChBSZXZva2VBZ2VudFRva2VuEikuc2hlcGhlcmQubWdtdC52MS5SZXZva2VBZ2VudFRva2VuUmVxdWVzdBoqLnNoZXBoZXJkLm1nbXQudjEuUmV2b2tlQWdlbnRUb2tlblJlc3BvbnNlIgASWQoOQmluZEFnZW50VG9rZW4SJy5zaGVwaGVyZC5tZ210LnYxLkJpbmRBZ2VudFRva2VuUmVxdWVzdBocLnNoZXBoZXJkLm1nbXQudjEuQWdlbnRUb2tlbiIAEnQKE0xpc3RBZ2VudElkZW50aXRpZXMSLC5zaGVwaGVyZC5tZ210LnYxLkxpc3RBZ2VudElkZW50aXRpZXNSZXF1ZXN0Gi0uc2hlcGhlcmQubWdtdC52MS5MaXN0QWdlbnRJZGVudGl0aWVzUmVzcG9uc2UiABJmChNDcmVhdGVBZ2VudElkZW50aXR5Eiwuc2hlcGhlcmQubWdtdC52MS5DcmVhdGVBZ2VudElkZW50aXR5UmVxdWVzdBofLnNoZXBoZXJkLm1nbXQudjEuQWdlbnRJZGVudGl0eSIAEnQKE0RlbGV0ZUFnZW50SWRlbnRpdHkSLC5zaGVwaGVyZC5tZ210LnYxLkRlbGV0ZUFnZW50SWRlbnRpdHlSZXF1ZXN0Gi0uc2hlcGhlcmQubWdtdC52MS5EZWxldGVBZ2VudElkZW50aXR5UmVzcG9uc2UiABJfCgxTZWFyY2hHcm91cHMSJS5zaGVwaGVyZC5tZ210LnYxLlNlYXJjaEdyb3Vwc1JlcXVlc3QaJi5zaGVwaGVyZC5tZ210LnYxLlNlYXJjaEdyb3Vwc1Jlc3BvbnNlIgASXQoPR2V0T2lkY1NldHRpbmdzEiguc2hlcGhlcmQubWdtdC52MS5HZXRPaWRjU2V0dGluZ3NSZXF1ZXN0Gh4uc2hlcGhlcmQubWdtdC52MS5PaWRjU2V0dGluZ3MiABJjChJVcGRhdGVPaWRjU2V0dGluZ3MSKy5zaGVwaGVyZC5tZ210LnYxLlVwZGF0ZU9pZGNTZXR0aW5nc1JlcXVlc3QaHi5zaGVwaGVyZC5tZ210LnYxLk9pZGNTZXR0aW5ncyIAEmsKEFRlc3RPaWRjU2V0dGluZ3MSKS5zaGVwaGVyZC5tZ210LnYxLlRlc3RPaWRjU2V0dGluZ3NSZXF1ZXN0Giouc2hlcGhlcmQubWdtdC52MS5UZXN0T2lkY1NldHRpbmdzUmVzcG9uc2UiABJxChJEZWxldGVPaWRjU2V0dGluZ3MSKy5zaGVwaGVyZC5tZ210LnYxLkRlbGV0ZU9pZGNTZXR0aW5nc1JlcXVlc3QaLC5zaGVwaGVyZC5tZ210LnYxLkRlbGV0ZU9pZGNTZXR0aW5nc1Jlc3BvbnNlIgASgAEKF0xpc3RPaWRjUHJvdmlkZXJQcmVzZXRzEjAuc2hlcGhlcmQubWdtdC52MS5MaXN0T2lkY1Byb3ZpZGVyUHJlc2V0c1JlcXVlc3QaMS5zaGVwaGVyZC5tZ210LnYxLkxpc3RPaWRjUHJvdmlkZXJQcmVzZXRzUmVzcG9uc2UiAEImWiRzaGVwaGVyZC9nZW4vc2hlcGhlcmQvbWdtdC92MTttZ210djFiBnByb3RvMw", [file_google_protobuf_timestamp, file_shepherd_mgmt_v1_common]);
 
 /**
  * Org is a tenant: its IdP groups per role and its per-org feature settings.
@@ -500,6 +500,167 @@ export const TenantPreflightResponseSchema: GenMessage<TenantPreflightResponse> 
   messageDesc(file_shepherd_mgmt_v1_admin, 11);
 
 /**
+ * OrgImportRepository is one repository an org's pipelines may import.git
+ * from, pinned to a full commit SHA (org_import_repositories, 0043).
+ *
+ * @generated from message shepherd.mgmt.v1.OrgImportRepository
+ */
+export type OrgImportRepository = Message<"shepherd.mgmt.v1.OrgImportRepository"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * @generated from field: string org_id = 2;
+   */
+  orgId: string;
+
+  /**
+   * repository is the URL as the app admin entered it.
+   *
+   * @generated from field: string repository = 3;
+   */
+  repository: string;
+
+  /**
+   * normalized is the form a pipeline's import.git repository is compared
+   * in (internal/pinnedimport.NormalizeRepository).
+   *
+   * @generated from field: string normalized = 4;
+   */
+  normalized: string;
+
+  /**
+   * credential_id is the org's git credential used to fetch the
+   * repository; empty for a public one. credential_name is its name.
+   *
+   * @generated from field: string credential_id = 5;
+   */
+  credentialId: string;
+
+  /**
+   * @generated from field: string credential_name = 6;
+   */
+  credentialName: string;
+
+  /**
+   * @generated from field: string created_by = 7;
+   */
+  createdBy: string;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp created_at = 8;
+   */
+  createdAt?: Timestamp | undefined;
+};
+
+/**
+ * Describes the message shepherd.mgmt.v1.OrgImportRepository.
+ * Use `create(OrgImportRepositorySchema)` to create a new message.
+ */
+export const OrgImportRepositorySchema: GenMessage<OrgImportRepository> = /*@__PURE__*/
+  messageDesc(file_shepherd_mgmt_v1_admin, 12);
+
+/**
+ * @generated from message shepherd.mgmt.v1.ListOrgImportRepositoriesRequest
+ */
+export type ListOrgImportRepositoriesRequest = Message<"shepherd.mgmt.v1.ListOrgImportRepositoriesRequest"> & {
+  /**
+   * @generated from field: string org_id = 1;
+   */
+  orgId: string;
+};
+
+/**
+ * Describes the message shepherd.mgmt.v1.ListOrgImportRepositoriesRequest.
+ * Use `create(ListOrgImportRepositoriesRequestSchema)` to create a new message.
+ */
+export const ListOrgImportRepositoriesRequestSchema: GenMessage<ListOrgImportRepositoriesRequest> = /*@__PURE__*/
+  messageDesc(file_shepherd_mgmt_v1_admin, 13);
+
+/**
+ * @generated from message shepherd.mgmt.v1.ListOrgImportRepositoriesResponse
+ */
+export type ListOrgImportRepositoriesResponse = Message<"shepherd.mgmt.v1.ListOrgImportRepositoriesResponse"> & {
+  /**
+   * @generated from field: repeated shepherd.mgmt.v1.OrgImportRepository items = 1;
+   */
+  items: OrgImportRepository[];
+};
+
+/**
+ * Describes the message shepherd.mgmt.v1.ListOrgImportRepositoriesResponse.
+ * Use `create(ListOrgImportRepositoriesResponseSchema)` to create a new message.
+ */
+export const ListOrgImportRepositoriesResponseSchema: GenMessage<ListOrgImportRepositoriesResponse> = /*@__PURE__*/
+  messageDesc(file_shepherd_mgmt_v1_admin, 14);
+
+/**
+ * @generated from message shepherd.mgmt.v1.AddOrgImportRepositoryRequest
+ */
+export type AddOrgImportRepositoryRequest = Message<"shepherd.mgmt.v1.AddOrgImportRepositoryRequest"> & {
+  /**
+   * @generated from field: string org_id = 1;
+   */
+  orgId: string;
+
+  /**
+   * @generated from field: string repository = 2;
+   */
+  repository: string;
+
+  /**
+   * credential_id is optional: one of the org's git credentials.
+   *
+   * @generated from field: string credential_id = 3;
+   */
+  credentialId: string;
+};
+
+/**
+ * Describes the message shepherd.mgmt.v1.AddOrgImportRepositoryRequest.
+ * Use `create(AddOrgImportRepositoryRequestSchema)` to create a new message.
+ */
+export const AddOrgImportRepositoryRequestSchema: GenMessage<AddOrgImportRepositoryRequest> = /*@__PURE__*/
+  messageDesc(file_shepherd_mgmt_v1_admin, 15);
+
+/**
+ * @generated from message shepherd.mgmt.v1.RemoveOrgImportRepositoryRequest
+ */
+export type RemoveOrgImportRepositoryRequest = Message<"shepherd.mgmt.v1.RemoveOrgImportRepositoryRequest"> & {
+  /**
+   * @generated from field: string org_id = 1;
+   */
+  orgId: string;
+
+  /**
+   * @generated from field: string id = 2;
+   */
+  id: string;
+};
+
+/**
+ * Describes the message shepherd.mgmt.v1.RemoveOrgImportRepositoryRequest.
+ * Use `create(RemoveOrgImportRepositoryRequestSchema)` to create a new message.
+ */
+export const RemoveOrgImportRepositoryRequestSchema: GenMessage<RemoveOrgImportRepositoryRequest> = /*@__PURE__*/
+  messageDesc(file_shepherd_mgmt_v1_admin, 16);
+
+/**
+ * @generated from message shepherd.mgmt.v1.RemoveOrgImportRepositoryResponse
+ */
+export type RemoveOrgImportRepositoryResponse = Message<"shepherd.mgmt.v1.RemoveOrgImportRepositoryResponse"> & {
+};
+
+/**
+ * Describes the message shepherd.mgmt.v1.RemoveOrgImportRepositoryResponse.
+ * Use `create(RemoveOrgImportRepositoryResponseSchema)` to create a new message.
+ */
+export const RemoveOrgImportRepositoryResponseSchema: GenMessage<RemoveOrgImportRepositoryResponse> = /*@__PURE__*/
+  messageDesc(file_shepherd_mgmt_v1_admin, 17);
+
+/**
  * @generated from message shepherd.mgmt.v1.DeleteOrgRequest
  */
 export type DeleteOrgRequest = Message<"shepherd.mgmt.v1.DeleteOrgRequest"> & {
@@ -514,7 +675,7 @@ export type DeleteOrgRequest = Message<"shepherd.mgmt.v1.DeleteOrgRequest"> & {
  * Use `create(DeleteOrgRequestSchema)` to create a new message.
  */
 export const DeleteOrgRequestSchema: GenMessage<DeleteOrgRequest> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_admin, 12);
+  messageDesc(file_shepherd_mgmt_v1_admin, 18);
 
 /**
  * @generated from message shepherd.mgmt.v1.DeleteOrgResponse
@@ -527,7 +688,7 @@ export type DeleteOrgResponse = Message<"shepherd.mgmt.v1.DeleteOrgResponse"> & 
  * Use `create(DeleteOrgResponseSchema)` to create a new message.
  */
 export const DeleteOrgResponseSchema: GenMessage<DeleteOrgResponse> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_admin, 13);
+  messageDesc(file_shepherd_mgmt_v1_admin, 19);
 
 /**
  * Cluster is a registered cluster; org_id is empty until an app admin claims it.
@@ -561,7 +722,7 @@ export type Cluster = Message<"shepherd.mgmt.v1.Cluster"> & {
  * Use `create(ClusterSchema)` to create a new message.
  */
 export const ClusterSchema: GenMessage<Cluster> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_admin, 14);
+  messageDesc(file_shepherd_mgmt_v1_admin, 20);
 
 /**
  * @generated from message shepherd.mgmt.v1.ListClustersRequest
@@ -581,7 +742,7 @@ export type ListClustersRequest = Message<"shepherd.mgmt.v1.ListClustersRequest"
  * Use `create(ListClustersRequestSchema)` to create a new message.
  */
 export const ListClustersRequestSchema: GenMessage<ListClustersRequest> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_admin, 15);
+  messageDesc(file_shepherd_mgmt_v1_admin, 21);
 
 /**
  * @generated from message shepherd.mgmt.v1.ListClustersResponse
@@ -603,7 +764,7 @@ export type ListClustersResponse = Message<"shepherd.mgmt.v1.ListClustersRespons
  * Use `create(ListClustersResponseSchema)` to create a new message.
  */
 export const ListClustersResponseSchema: GenMessage<ListClustersResponse> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_admin, 16);
+  messageDesc(file_shepherd_mgmt_v1_admin, 22);
 
 /**
  * @generated from message shepherd.mgmt.v1.ClaimClusterRequest
@@ -627,7 +788,7 @@ export type ClaimClusterRequest = Message<"shepherd.mgmt.v1.ClaimClusterRequest"
  * Use `create(ClaimClusterRequestSchema)` to create a new message.
  */
 export const ClaimClusterRequestSchema: GenMessage<ClaimClusterRequest> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_admin, 17);
+  messageDesc(file_shepherd_mgmt_v1_admin, 23);
 
 /**
  * @generated from message shepherd.mgmt.v1.ClaimClusterResponse
@@ -644,7 +805,7 @@ export type ClaimClusterResponse = Message<"shepherd.mgmt.v1.ClaimClusterRespons
  * Use `create(ClaimClusterResponseSchema)` to create a new message.
  */
 export const ClaimClusterResponseSchema: GenMessage<ClaimClusterResponse> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_admin, 18);
+  messageDesc(file_shepherd_mgmt_v1_admin, 24);
 
 /**
  * @generated from message shepherd.mgmt.v1.UnclaimClusterRequest
@@ -661,7 +822,7 @@ export type UnclaimClusterRequest = Message<"shepherd.mgmt.v1.UnclaimClusterRequ
  * Use `create(UnclaimClusterRequestSchema)` to create a new message.
  */
 export const UnclaimClusterRequestSchema: GenMessage<UnclaimClusterRequest> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_admin, 19);
+  messageDesc(file_shepherd_mgmt_v1_admin, 25);
 
 /**
  * @generated from message shepherd.mgmt.v1.UnclaimClusterResponse
@@ -678,7 +839,7 @@ export type UnclaimClusterResponse = Message<"shepherd.mgmt.v1.UnclaimClusterRes
  * Use `create(UnclaimClusterResponseSchema)` to create a new message.
  */
 export const UnclaimClusterResponseSchema: GenMessage<UnclaimClusterResponse> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_admin, 20);
+  messageDesc(file_shepherd_mgmt_v1_admin, 26);
 
 /**
  * AgentToken is a collector credential's metadata; the secret is never returned after creation.
@@ -755,7 +916,7 @@ export type AgentToken = Message<"shepherd.mgmt.v1.AgentToken"> & {
  * Use `create(AgentTokenSchema)` to create a new message.
  */
 export const AgentTokenSchema: GenMessage<AgentToken> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_admin, 21);
+  messageDesc(file_shepherd_mgmt_v1_admin, 27);
 
 /**
  * ListAgentTokensRequest: org_id set lists only the tokens bound to that org
@@ -776,7 +937,7 @@ export type ListAgentTokensRequest = Message<"shepherd.mgmt.v1.ListAgentTokensRe
  * Use `create(ListAgentTokensRequestSchema)` to create a new message.
  */
 export const ListAgentTokensRequestSchema: GenMessage<ListAgentTokensRequest> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_admin, 22);
+  messageDesc(file_shepherd_mgmt_v1_admin, 28);
 
 /**
  * @generated from message shepherd.mgmt.v1.ListAgentTokensResponse
@@ -798,7 +959,7 @@ export type ListAgentTokensResponse = Message<"shepherd.mgmt.v1.ListAgentTokensR
  * Use `create(ListAgentTokensResponseSchema)` to create a new message.
  */
 export const ListAgentTokensResponseSchema: GenMessage<ListAgentTokensResponse> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_admin, 23);
+  messageDesc(file_shepherd_mgmt_v1_admin, 29);
 
 /**
  * @generated from message shepherd.mgmt.v1.CreateAgentTokenRequest
@@ -832,7 +993,7 @@ export type CreateAgentTokenRequest = Message<"shepherd.mgmt.v1.CreateAgentToken
  * Use `create(CreateAgentTokenRequestSchema)` to create a new message.
  */
 export const CreateAgentTokenRequestSchema: GenMessage<CreateAgentTokenRequest> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_admin, 24);
+  messageDesc(file_shepherd_mgmt_v1_admin, 30);
 
 /**
  * CreateAgentTokenResponse carries the one-time plaintext secret alongside
@@ -862,7 +1023,7 @@ export type CreateAgentTokenResponse = Message<"shepherd.mgmt.v1.CreateAgentToke
  * Use `create(CreateAgentTokenResponseSchema)` to create a new message.
  */
 export const CreateAgentTokenResponseSchema: GenMessage<CreateAgentTokenResponse> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_admin, 25);
+  messageDesc(file_shepherd_mgmt_v1_admin, 31);
 
 /**
  * RevokeAgentTokenRequest: with org_id set, only a token bound to that org
@@ -887,7 +1048,7 @@ export type RevokeAgentTokenRequest = Message<"shepherd.mgmt.v1.RevokeAgentToken
  * Use `create(RevokeAgentTokenRequestSchema)` to create a new message.
  */
 export const RevokeAgentTokenRequestSchema: GenMessage<RevokeAgentTokenRequest> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_admin, 26);
+  messageDesc(file_shepherd_mgmt_v1_admin, 32);
 
 /**
  * @generated from message shepherd.mgmt.v1.RevokeAgentTokenResponse
@@ -900,7 +1061,7 @@ export type RevokeAgentTokenResponse = Message<"shepherd.mgmt.v1.RevokeAgentToke
  * Use `create(RevokeAgentTokenResponseSchema)` to create a new message.
  */
 export const RevokeAgentTokenResponseSchema: GenMessage<RevokeAgentTokenResponse> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_admin, 27);
+  messageDesc(file_shepherd_mgmt_v1_admin, 33);
 
 /**
  * BindAgentTokenRequest binds (or rebinds) a live token to an organisation.
@@ -935,7 +1096,7 @@ export type BindAgentTokenRequest = Message<"shepherd.mgmt.v1.BindAgentTokenRequ
  * Use `create(BindAgentTokenRequestSchema)` to create a new message.
  */
 export const BindAgentTokenRequestSchema: GenMessage<BindAgentTokenRequest> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_admin, 28);
+  messageDesc(file_shepherd_mgmt_v1_admin, 34);
 
 /**
  * AgentIdentity is one collector-OIDC binding: a token identity (issuer +
@@ -991,7 +1152,7 @@ export type AgentIdentity = Message<"shepherd.mgmt.v1.AgentIdentity"> & {
  * Use `create(AgentIdentitySchema)` to create a new message.
  */
 export const AgentIdentitySchema: GenMessage<AgentIdentity> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_admin, 29);
+  messageDesc(file_shepherd_mgmt_v1_admin, 35);
 
 /**
  * @generated from message shepherd.mgmt.v1.ListAgentIdentitiesRequest
@@ -1004,7 +1165,7 @@ export type ListAgentIdentitiesRequest = Message<"shepherd.mgmt.v1.ListAgentIden
  * Use `create(ListAgentIdentitiesRequestSchema)` to create a new message.
  */
 export const ListAgentIdentitiesRequestSchema: GenMessage<ListAgentIdentitiesRequest> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_admin, 30);
+  messageDesc(file_shepherd_mgmt_v1_admin, 36);
 
 /**
  * @generated from message shepherd.mgmt.v1.ListAgentIdentitiesResponse
@@ -1026,7 +1187,7 @@ export type ListAgentIdentitiesResponse = Message<"shepherd.mgmt.v1.ListAgentIde
  * Use `create(ListAgentIdentitiesResponseSchema)` to create a new message.
  */
 export const ListAgentIdentitiesResponseSchema: GenMessage<ListAgentIdentitiesResponse> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_admin, 31);
+  messageDesc(file_shepherd_mgmt_v1_admin, 37);
 
 /**
  * @generated from message shepherd.mgmt.v1.CreateAgentIdentityRequest
@@ -1065,7 +1226,7 @@ export type CreateAgentIdentityRequest = Message<"shepherd.mgmt.v1.CreateAgentId
  * Use `create(CreateAgentIdentityRequestSchema)` to create a new message.
  */
 export const CreateAgentIdentityRequestSchema: GenMessage<CreateAgentIdentityRequest> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_admin, 32);
+  messageDesc(file_shepherd_mgmt_v1_admin, 38);
 
 /**
  * @generated from message shepherd.mgmt.v1.DeleteAgentIdentityRequest
@@ -1087,7 +1248,7 @@ export type DeleteAgentIdentityRequest = Message<"shepherd.mgmt.v1.DeleteAgentId
  * Use `create(DeleteAgentIdentityRequestSchema)` to create a new message.
  */
 export const DeleteAgentIdentityRequestSchema: GenMessage<DeleteAgentIdentityRequest> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_admin, 33);
+  messageDesc(file_shepherd_mgmt_v1_admin, 39);
 
 /**
  * @generated from message shepherd.mgmt.v1.DeleteAgentIdentityResponse
@@ -1100,7 +1261,7 @@ export type DeleteAgentIdentityResponse = Message<"shepherd.mgmt.v1.DeleteAgentI
  * Use `create(DeleteAgentIdentityResponseSchema)` to create a new message.
  */
 export const DeleteAgentIdentityResponseSchema: GenMessage<DeleteAgentIdentityResponse> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_admin, 34);
+  messageDesc(file_shepherd_mgmt_v1_admin, 40);
 
 /**
  * GroupSearchResult is a Graph-backed group search hit. Not yet populated by
@@ -1126,7 +1287,7 @@ export type GroupSearchResult = Message<"shepherd.mgmt.v1.GroupSearchResult"> & 
  * Use `create(GroupSearchResultSchema)` to create a new message.
  */
 export const GroupSearchResultSchema: GenMessage<GroupSearchResult> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_admin, 35);
+  messageDesc(file_shepherd_mgmt_v1_admin, 41);
 
 /**
  * SearchGroupsRequest carries org_id so the authz interceptor can allow org
@@ -1151,7 +1312,7 @@ export type SearchGroupsRequest = Message<"shepherd.mgmt.v1.SearchGroupsRequest"
  * Use `create(SearchGroupsRequestSchema)` to create a new message.
  */
 export const SearchGroupsRequestSchema: GenMessage<SearchGroupsRequest> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_admin, 36);
+  messageDesc(file_shepherd_mgmt_v1_admin, 42);
 
 /**
  * @generated from message shepherd.mgmt.v1.SearchGroupsResponse
@@ -1173,7 +1334,7 @@ export type SearchGroupsResponse = Message<"shepherd.mgmt.v1.SearchGroupsRespons
  * Use `create(SearchGroupsResponseSchema)` to create a new message.
  */
 export const SearchGroupsResponseSchema: GenMessage<SearchGroupsResponse> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_admin, 37);
+  messageDesc(file_shepherd_mgmt_v1_admin, 43);
 
 /**
  * OidcSettings is the effective single sign-on configuration.
@@ -1363,7 +1524,7 @@ export type OidcSettings = Message<"shepherd.mgmt.v1.OidcSettings"> & {
  * Use `create(OidcSettingsSchema)` to create a new message.
  */
 export const OidcSettingsSchema: GenMessage<OidcSettings> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_admin, 38);
+  messageDesc(file_shepherd_mgmt_v1_admin, 44);
 
 /**
  * @generated from message shepherd.mgmt.v1.GetOidcSettingsRequest
@@ -1376,7 +1537,7 @@ export type GetOidcSettingsRequest = Message<"shepherd.mgmt.v1.GetOidcSettingsRe
  * Use `create(GetOidcSettingsRequestSchema)` to create a new message.
  */
 export const GetOidcSettingsRequestSchema: GenMessage<GetOidcSettingsRequest> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_admin, 39);
+  messageDesc(file_shepherd_mgmt_v1_admin, 45);
 
 /**
  * UpdateOidcSettingsRequest is a full replacement of the settings row, with
@@ -1471,7 +1632,7 @@ export type UpdateOidcSettingsRequest = Message<"shepherd.mgmt.v1.UpdateOidcSett
  * Use `create(UpdateOidcSettingsRequestSchema)` to create a new message.
  */
 export const UpdateOidcSettingsRequestSchema: GenMessage<UpdateOidcSettingsRequest> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_admin, 40);
+  messageDesc(file_shepherd_mgmt_v1_admin, 46);
 
 /**
  * TestOidcSettingsRequest mirrors UpdateOidcSettingsRequest's connection
@@ -1513,7 +1674,7 @@ export type TestOidcSettingsRequest = Message<"shepherd.mgmt.v1.TestOidcSettings
  * Use `create(TestOidcSettingsRequestSchema)` to create a new message.
  */
 export const TestOidcSettingsRequestSchema: GenMessage<TestOidcSettingsRequest> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_admin, 41);
+  messageDesc(file_shepherd_mgmt_v1_admin, 47);
 
 /**
  * TestOidcSettingsResponse reports what discovery found, so an admin can
@@ -1601,7 +1762,7 @@ export type TestOidcSettingsResponse = Message<"shepherd.mgmt.v1.TestOidcSetting
  * Use `create(TestOidcSettingsResponseSchema)` to create a new message.
  */
 export const TestOidcSettingsResponseSchema: GenMessage<TestOidcSettingsResponse> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_admin, 42);
+  messageDesc(file_shepherd_mgmt_v1_admin, 48);
 
 /**
  * @generated from message shepherd.mgmt.v1.DeleteOidcSettingsRequest
@@ -1614,7 +1775,7 @@ export type DeleteOidcSettingsRequest = Message<"shepherd.mgmt.v1.DeleteOidcSett
  * Use `create(DeleteOidcSettingsRequestSchema)` to create a new message.
  */
 export const DeleteOidcSettingsRequestSchema: GenMessage<DeleteOidcSettingsRequest> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_admin, 43);
+  messageDesc(file_shepherd_mgmt_v1_admin, 49);
 
 /**
  * @generated from message shepherd.mgmt.v1.DeleteOidcSettingsResponse
@@ -1627,7 +1788,7 @@ export type DeleteOidcSettingsResponse = Message<"shepherd.mgmt.v1.DeleteOidcSet
  * Use `create(DeleteOidcSettingsResponseSchema)` to create a new message.
  */
 export const DeleteOidcSettingsResponseSchema: GenMessage<DeleteOidcSettingsResponse> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_admin, 44);
+  messageDesc(file_shepherd_mgmt_v1_admin, 50);
 
 /**
  * @generated from message shepherd.mgmt.v1.ListOidcProviderPresetsRequest
@@ -1640,7 +1801,7 @@ export type ListOidcProviderPresetsRequest = Message<"shepherd.mgmt.v1.ListOidcP
  * Use `create(ListOidcProviderPresetsRequestSchema)` to create a new message.
  */
 export const ListOidcProviderPresetsRequestSchema: GenMessage<ListOidcProviderPresetsRequest> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_admin, 45);
+  messageDesc(file_shepherd_mgmt_v1_admin, 51);
 
 /**
  * @generated from message shepherd.mgmt.v1.ListOidcProviderPresetsResponse
@@ -1657,7 +1818,7 @@ export type ListOidcProviderPresetsResponse = Message<"shepherd.mgmt.v1.ListOidc
  * Use `create(ListOidcProviderPresetsResponseSchema)` to create a new message.
  */
 export const ListOidcProviderPresetsResponseSchema: GenMessage<ListOidcProviderPresetsResponse> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_admin, 46);
+  messageDesc(file_shepherd_mgmt_v1_admin, 52);
 
 /**
  * OidcProviderPreset is one entry in the built-in provider catalogue
@@ -1739,7 +1900,7 @@ export type OidcProviderPreset = Message<"shepherd.mgmt.v1.OidcProviderPreset"> 
  * Use `create(OidcProviderPresetSchema)` to create a new message.
  */
 export const OidcProviderPresetSchema: GenMessage<OidcProviderPreset> = /*@__PURE__*/
-  messageDesc(file_shepherd_mgmt_v1_admin, 47);
+  messageDesc(file_shepherd_mgmt_v1_admin, 53);
 
 /**
  * AdminService is org, cluster, and agent-token administration plus group
@@ -1848,6 +2009,48 @@ export const AdminService: GenService<{
     methodKind: "unary";
     input: typeof TenantPreflightRequestSchema;
     output: typeof TenantPreflightResponseSchema;
+  },
+  /**
+   * ListOrgImportRepositories lists the repositories an org's pipelines may
+   * import modules from in strict tenant mode, with import.git pinned to a
+   * full commit SHA. App admin only.
+   *
+   * @generated from rpc shepherd.mgmt.v1.AdminService.ListOrgImportRepositories
+   */
+  listOrgImportRepositories: {
+    methodKind: "unary";
+    input: typeof ListOrgImportRepositoriesRequestSchema;
+    output: typeof ListOrgImportRepositoriesResponseSchema;
+  },
+  /**
+   * AddOrgImportRepository allows an org's pipelines to import.git from a
+   * repository, pinned to a full commit SHA; strict tenant mode fetches the
+   * module and lints its content. App admin only. The URL must be an
+   * https://, http://, ssh:// or git@host:path git remote; it is stored with
+   * its normal form, which a pipeline's repository must match
+   * (invalid_argument for an ambiguous spelling, already_exists for a second
+   * spelling of an entry). credential_id optionally names one of the org's
+   * git credentials, for a private repository.
+   *
+   * @generated from rpc shepherd.mgmt.v1.AdminService.AddOrgImportRepository
+   */
+  addOrgImportRepository: {
+    methodKind: "unary";
+    input: typeof AddOrgImportRepositoryRequestSchema;
+    output: typeof OrgImportRepositorySchema;
+  },
+  /**
+   * RemoveOrgImportRepository takes a repository off an org's allowlist. App
+   * admin only. Refused (failed_precondition, naming each one) while the
+   * strict tenant rule applies to the org and an enabled pipeline imports
+   * from it.
+   *
+   * @generated from rpc shepherd.mgmt.v1.AdminService.RemoveOrgImportRepository
+   */
+  removeOrgImportRepository: {
+    methodKind: "unary";
+    input: typeof RemoveOrgImportRepositoryRequestSchema;
+    output: typeof RemoveOrgImportRepositoryResponseSchema;
   },
   /**
    * @generated from rpc shepherd.mgmt.v1.AdminService.ListClusters

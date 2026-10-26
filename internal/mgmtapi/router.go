@@ -11,6 +11,7 @@ import (
 	"shepherd/internal/auth"
 	"shepherd/internal/config"
 	"shepherd/internal/crypto"
+	"shepherd/internal/pinnedimport"
 	"shepherd/internal/schema"
 	"shepherd/internal/serve"
 	"shepherd/internal/store"
@@ -165,14 +166,18 @@ func MountRPC(r chi.Router, st *store.Store, cfg *config.Config, enc *crypto.Enc
 	}
 
 	requireOwned := cfg.Tenants.RequireOwned
-	pipelineSvc := NewPipelineService(st, v, schemaReg, logger, WithBeaconBaseline(serve.BeaconBaseline(cfg)), WithRequireOwnedTenants(requireOwned))
+	// Strict tenant mode's pinned import.git modules: fetched with git
+	// sync's limits, cached in the database (internal/pinnedimport).
+	imports := pinnedimport.New(cfg, enc, logger)
+	pipelineSvc := NewPipelineService(st, v, schemaReg, logger, WithBeaconBaseline(serve.BeaconBaseline(cfg)),
+		WithRequireOwnedTenants(requireOwned), WithPinnedImports(imports))
 
 	mounts := []func() (string, http.Handler){
 		func() (string, http.Handler) {
 			return mgmtv1connect.NewMeServiceHandler(NewMeService(st, logger, WithMeRequireOwnedTenants(requireOwned)), authz...)
 		},
 		func() (string, http.Handler) {
-			return mgmtv1connect.NewAdminServiceHandler(NewAdminService(st, logger, WithOIDCHandler(mc.oidc), WithTokenChangedHook(mc.tokenChanged), WithIdentityChangedHook(mc.identityChanged), WithAdminRequireOwnedTenants(requireOwned)), authz...)
+			return mgmtv1connect.NewAdminServiceHandler(NewAdminService(st, logger, WithOIDCHandler(mc.oidc), WithTokenChangedHook(mc.tokenChanged), WithIdentityChangedHook(mc.identityChanged), WithAdminRequireOwnedTenants(requireOwned), WithAdminPinnedImports(imports), WithAdminRecompute(pipelineSvc.RecomputeOrgCaches)), authz...)
 		},
 		func() (string, http.Handler) {
 			var users *auth.UserStore
@@ -182,7 +187,7 @@ func MountRPC(r chi.Router, st *store.Store, cfg *config.Config, enc *crypto.Enc
 			return mgmtv1connect.NewUserServiceHandler(NewUserService(st, users, logger), authz...)
 		},
 		func() (string, http.Handler) {
-			return mgmtv1connect.NewFleetServiceHandler(NewFleetService(st, logger, WithFleetSchema(schemaReg), WithFleetBaseURL(cfg.Server.BaseURL), WithFleetInactiveAfter(cfg.Agent.InactiveAfter)), authz...)
+			return mgmtv1connect.NewFleetServiceHandler(NewFleetService(st, logger, WithFleetSchema(schemaReg), WithFleetBaseURL(cfg.Server.BaseURL), WithFleetInactiveAfter(cfg.Agent.InactiveAfter), WithFleetRequireOwnedTenants(requireOwned)), authz...)
 		},
 		func() (string, http.Handler) {
 			return mgmtv1connect.NewPipelineServiceHandler(pipelineSvc, authz...)
@@ -197,10 +202,10 @@ func MountRPC(r chi.Router, st *store.Store, cfg *config.Config, enc *crypto.Enc
 			return mgmtv1connect.NewGitOpsServiceHandler(NewGitOpsService(st, enc, pipelineSvc, logger), authz...)
 		},
 		func() (string, http.Handler) {
-			return mgmtv1connect.NewWizardServiceHandler(NewWizardService(st, v, logger, WithWizardSchema(schemaReg), WithWizardRequireOwnedTenants(requireOwned)), authz...)
+			return mgmtv1connect.NewWizardServiceHandler(NewWizardService(st, v, logger, WithWizardSchema(schemaReg), WithWizardRequireOwnedTenants(requireOwned), WithWizardPinnedImports(imports)), authz...)
 		},
 		func() (string, http.Handler) {
-			return mgmtv1connect.NewVisualServiceHandler(NewVisualService(st, v, schemaReg, logger, WithVisualRequireOwnedTenants(requireOwned)), authz...)
+			return mgmtv1connect.NewVisualServiceHandler(NewVisualService(st, v, schemaReg, logger, WithVisualRequireOwnedTenants(requireOwned), WithVisualPinnedImports(imports)), authz...)
 		},
 		func() (string, http.Handler) {
 			return mgmtv1connect.NewSimulateServiceHandler(NewSimulateService(st, cfg.Simulator, logger), authz...)

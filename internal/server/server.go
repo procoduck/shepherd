@@ -30,6 +30,7 @@ import (
 	"shepherd/internal/gitsync"
 	"shepherd/internal/mgmtapi"
 	"shepherd/internal/migrations"
+	"shepherd/internal/pinnedimport"
 	"shepherd/internal/routeapply"
 	"shepherd/internal/schema"
 	"shepherd/internal/serve"
@@ -148,15 +149,11 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	// AddOrgTenant re-records it on demand.
 	tenancy.RebuildPipelineTenants(context.Background(), st)
 
-	// Server-wide strict tenant mode fails closed: with tenants.require_owned
-	// on, nothing that already uses a tenant its org does not own may keep
-	// being served under a setting that says it cannot exist.
-	if cfg.Tenants.RequireOwned {
-		if err := tenancy.CheckRequireOwned(context.Background(), st.Queries); err != nil {
-			st.Close()
-			return nil, fmt.Errorf("refusing to start: %w", err)
-		}
-		logger.Info("strict tenant mode is on for every organisation (tenants.require_owned)")
+	// A strict org is served its pinned import.git modules inlined, and
+	// tenants.require_owned may have changed since the last boot: recompute
+	// the orgs that use import.git (and only those) on their next poll.
+	if err := tenancy.MarkPinnedImportOrgsDirty(context.Background(), st.Queries, cfg.Tenants.RequireOwned); err != nil {
+		logger.Error("strict tenants: marking orgs with pinned imports for recompute", "err", err)
 	}
 
 	// Build encryptor for secret-at-rest (may be nil if key not configured yet).
@@ -167,6 +164,21 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 		if encErr != nil {
 			return nil, fmt.Errorf("initializing encryptor: %w", encErr)
 		}
+	}
+
+	// Server-wide strict tenant mode fails closed: with tenants.require_owned
+	// on, nothing that already uses a tenant its org does not own may keep
+	// being served under a setting that says it cannot exist. Pinned
+	// import.git modules are read as the save path reads them: from the
+	// cache, fetched (with the stored credential, hence after the
+	// encryptor) only when not cached.
+	if cfg.Tenants.RequireOwned {
+		imports := pinnedimport.New(cfg, enc, logger)
+		if err := tenancy.CheckRequireOwned(context.Background(), st.Queries, imports.Preflight()); err != nil {
+			st.Close()
+			return nil, fmt.Errorf("refusing to start: %w", err)
+		}
+		logger.Info("strict tenant mode is on for every organisation (tenants.require_owned)")
 	}
 
 	// The auth handler is now always constructed, not only when the chart
@@ -317,7 +329,7 @@ func newRouter(cfg *config.Config, st *store.Store, enc *crypto.Encryptor, authH
 	// Normal requests always go to the database. A ttl of 0 disables both.
 	tokenVerdicts := agentapi.NewTokenVerdicts(cfg.Agent.OutageCacheTTL, agentapi.DefaultTokenVerdictMax)
 	svc := agentapi.New(st, v, logger, schemaReg, agentapi.WithBeaconBaseline(serve.BeaconBaseline(cfg)),
-		agentapi.WithOutageCache(cfg.Agent.OutageCacheTTL))
+		agentapi.WithOutageCache(cfg.Agent.OutageCacheTTL), agentapi.WithRequireOwnedTenants(cfg.Tenants.RequireOwned))
 	// The Bearer branch of the collector gate: a collector's OIDC access token
 	// is verified with the same provider as user login. nil when authHandler
 	// is absent (the route-tree unit test) or OIDC is unconfigured, which
@@ -461,7 +473,8 @@ func (s *Server) Run(ctx context.Context) error {
 		// built the way mgmtapi.MountRPC builds its PipelineService.
 		ps := mgmtapi.NewPipelineService(s.store, s.validator, s.schema, s.logger,
 			mgmtapi.WithBeaconBaseline(serve.BeaconBaseline(s.cfg)),
-			mgmtapi.WithRequireOwnedTenants(s.cfg.Tenants.RequireOwned))
+			mgmtapi.WithRequireOwnedTenants(s.cfg.Tenants.RequireOwned),
+			mgmtapi.WithPinnedImports(pinnedimport.New(s.cfg, s.enc, s.logger)))
 		syncOpts = append(syncOpts, gitsync.WithRecompute(ps.RecomputeCollectorCache))
 		reconciler := gitsync.New(s.store, s.enc, s.validator, s.schema, s.cfg, s.logger, syncOpts...)
 		reconciler.Start(ctx)

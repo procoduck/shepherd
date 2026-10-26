@@ -3,10 +3,13 @@ package cli
 import (
 	"fmt"
 	"io"
+	"log/slog"
 
 	"github.com/spf13/cobra"
 
 	"shepherd/internal/config"
+	"shepherd/internal/crypto"
+	"shepherd/internal/pinnedimport"
 	"shepherd/internal/store"
 	"shepherd/internal/tenancy"
 )
@@ -41,7 +44,16 @@ func runAdminTenantPreflight(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("connecting to database: %w", err)
 	}
 	defer st.Close()
-	vs, err := tenancy.PreflightAll(cmd.Context(), st.Queries)
+	// Pinned import.git modules are read as the save path and the boot
+	// check read them: cached, or fetched when not.
+	var enc *crypto.Encryptor
+	if cfg.Security.EncryptionKey != "" {
+		if enc, err = crypto.NewEncryptor(cfg.Security.EncryptionKey); err != nil {
+			return fmt.Errorf("initializing encryptor: %w", err)
+		}
+	}
+	imports := pinnedimport.New(cfg, enc, slog.New(slog.NewTextHandler(cmd.ErrOrStderr(), nil)))
+	vs, err := tenancy.PreflightAll(cmd.Context(), st.Queries, imports.Preflight())
 	if err != nil {
 		return err
 	}

@@ -14,6 +14,7 @@ import (
 	"github.com/grafana/alloy/syntax/parser"
 	"github.com/grafana/alloy/syntax/scanner"
 	"github.com/grafana/alloy/syntax/token"
+	"github.com/grafana/alloy/syntax/token/builder"
 )
 
 // MaxNesting is the deepest nesting ParseFile accepts: brackets, braces and
@@ -271,4 +272,12 @@ func TreeDepth(f *ast.File) int {
 		}
 	}
 	return deepest
+}
+
+// QuoteString renders s as an Alloy string literal, with the Alloy syntax
+// package's own encoder (token/builder): parsed back, it is exactly s.
+func QuoteString(s string) string {
+	e := builder.NewExpr()
+	e.SetValue(s)
+	return string(e.Bytes())
 }

@@ -541,7 +541,7 @@ var _ = Describe("BeaconHandler", Label("integration"), func() {
 
 		resp := postRaw(encodeWrite([][]prompb.Label{healthySeries("10.0.0.14:1", "pipe_x")}, 1), authHeader)
 		Expect(resp.StatusCode).To(Equal(http.StatusServiceUnavailable))
-		Expect(denied() - before).To(BeZero(), "an outage is not counted as a denial")
+		Expect(denied()-before).To(BeZero(), "an outage is not counted as a denial")
 	})
 
 	// #389: one batch comes from one Alloy, so every series carries the same

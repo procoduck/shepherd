@@ -55,9 +55,14 @@ var procedureRequirements = map[string]auth.Requirement{
 	// like tenant ownership, only an app admin changes or previews it.
 	mgmtv1connect.AdminServiceSetOrgStrictTenantsProcedure: reqAppAdmin,
 	mgmtv1connect.AdminServiceTenantPreflightProcedure:     reqAppAdmin,
-	mgmtv1connect.AdminServiceListClustersProcedure:        reqAppAdmin,
-	mgmtv1connect.AdminServiceClaimClusterProcedure:        reqAppAdmin,
-	mgmtv1connect.AdminServiceUnclaimClusterProcedure:      reqAppAdmin,
+	// Which repositories a strict org may import modules from bounds where
+	// Shepherd fetches on its behalf: an app admin's decision too.
+	mgmtv1connect.AdminServiceListOrgImportRepositoriesProcedure: reqAppAdmin,
+	mgmtv1connect.AdminServiceAddOrgImportRepositoryProcedure:    reqAppAdmin,
+	mgmtv1connect.AdminServiceRemoveOrgImportRepositoryProcedure: reqAppAdmin,
+	mgmtv1connect.AdminServiceListClustersProcedure:              reqAppAdmin,
+	mgmtv1connect.AdminServiceClaimClusterProcedure:              reqAppAdmin,
+	mgmtv1connect.AdminServiceUnclaimClusterProcedure:            reqAppAdmin,
 	// Agent tokens are bound to an org. An org admin manages its own org's
 	// tokens: the handlers scope every read and write to the request's
 	// org_id, which this requirement has just checked; an empty org_id
@@ -244,20 +249,22 @@ var procedureRequirements = map[string]auth.Requirement{
 // added without a classification decision, so "forgot to gate the new
 // write path" cannot happen silently.
 var capabilityRequirements = map[string]string{
-	mgmtv1connect.AdminServiceCreateOrgProcedure:           capabilityApply,
-	mgmtv1connect.AdminServiceUpdateOrgProcedure:           capabilityApply,
-	mgmtv1connect.AdminServiceDeleteOrgProcedure:           capabilityApply,
-	mgmtv1connect.AdminServiceAddOrgTenantProcedure:        capabilityApply,
-	mgmtv1connect.AdminServiceRemoveOrgTenantProcedure:     capabilityApply,
-	mgmtv1connect.AdminServiceSetDefaultOrgTenantProcedure: capabilityApply,
-	mgmtv1connect.AdminServiceSetOrgStrictTenantsProcedure: capabilityApply,
-	mgmtv1connect.AdminServiceClaimClusterProcedure:        capabilityApply,
-	mgmtv1connect.AdminServiceUnclaimClusterProcedure:      capabilityApply,
-	mgmtv1connect.AdminServiceCreateAgentTokenProcedure:    capabilityApply,
-	mgmtv1connect.AdminServiceRevokeAgentTokenProcedure:    capabilityApply,
-	mgmtv1connect.AdminServiceBindAgentTokenProcedure:      capabilityApply,
-	mgmtv1connect.AdminServiceCreateAgentIdentityProcedure: capabilityApply,
-	mgmtv1connect.AdminServiceDeleteAgentIdentityProcedure: capabilityApply,
+	mgmtv1connect.AdminServiceCreateOrgProcedure:                 capabilityApply,
+	mgmtv1connect.AdminServiceUpdateOrgProcedure:                 capabilityApply,
+	mgmtv1connect.AdminServiceDeleteOrgProcedure:                 capabilityApply,
+	mgmtv1connect.AdminServiceAddOrgTenantProcedure:              capabilityApply,
+	mgmtv1connect.AdminServiceRemoveOrgTenantProcedure:           capabilityApply,
+	mgmtv1connect.AdminServiceSetDefaultOrgTenantProcedure:       capabilityApply,
+	mgmtv1connect.AdminServiceSetOrgStrictTenantsProcedure:       capabilityApply,
+	mgmtv1connect.AdminServiceAddOrgImportRepositoryProcedure:    capabilityApply,
+	mgmtv1connect.AdminServiceRemoveOrgImportRepositoryProcedure: capabilityApply,
+	mgmtv1connect.AdminServiceClaimClusterProcedure:              capabilityApply,
+	mgmtv1connect.AdminServiceUnclaimClusterProcedure:            capabilityApply,
+	mgmtv1connect.AdminServiceCreateAgentTokenProcedure:          capabilityApply,
+	mgmtv1connect.AdminServiceRevokeAgentTokenProcedure:          capabilityApply,
+	mgmtv1connect.AdminServiceBindAgentTokenProcedure:            capabilityApply,
+	mgmtv1connect.AdminServiceCreateAgentIdentityProcedure:       capabilityApply,
+	mgmtv1connect.AdminServiceDeleteAgentIdentityProcedure:       capabilityApply,
 
 	// Repointing or removing the identity provider is as apply-only as a write
 	// gets: it decides who can authenticate at all. A service account can
