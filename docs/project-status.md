@@ -502,7 +502,12 @@ below ships in v0.19.0 — steps 1–6, 4b–4d and 7a (first in rc.1), the plan
   migration `0042`); ships in 0.20.
 - **#375** — validation ignores each collector's Alloy version.
 - **#378, role-enforcement half** — module-based (chart-generated) pipelines' instances count as
-  Unknown and the pipeline is dropped from restricted roles.
+  Unknown and the pipeline is dropped from restricted roles. **Fixed on main, unreleased**: an
+  instance of a module declared in the pipeline or in a literal `import.string` carries its
+  declare body's signals (lexical scope); `import.file`/`import.git`/`import.http` modules stay
+  Unknown. Still open: the chart's OTLP bridges (`otelcol.exporter.prometheus`/`.loki`, whose
+  `input` is `otel.any`) count as metrics+logs+traces, so verbatim chart output stays off
+  `metrics`/`logs` collectors.
 - **#389** — beacon ingest hardening follow-ups. **Shipped in v0.19.1** (PR #402).
 - **#390** — strict tenant mode: allow pinned external module imports.
 - **#400** — the in-browser visual preview (`web/src/visual/renderTS.ts`) has no label or output

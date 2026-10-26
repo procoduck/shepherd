@@ -41,6 +41,19 @@
         <em>Matched, excluded by role</em>, and a wizard&rsquo;s Review step marks it before you
         commit.
       </p>
+      <p>
+        Shepherd works out a pipeline&rsquo;s signals from the components in its text, including
+        those inside <code>declare</code> blocks. An instance of a module the pipeline declares
+        itself, or loads with <code>import.string</code> from literal text, carries the signals of
+        that module&rsquo;s components, so the inlined feature modules the grafana/k8s-monitoring
+        chart renders reach a <code>metrics</code> or <code>logs</code> collector. A module loaded
+        with <code>import.file</code>, <code>import.git</code> or <code>import.http</code> is not
+        in the text, so a pipeline that uses one counts as carrying every signal and only a
+        <code>singleton</code> collector runs it. An OpenTelemetry component such as
+        <code>otelcol.exporter.prometheus</code> accepts any OpenTelemetry signal, so it counts as
+        metrics, logs and traces and keeps its pipeline off <code>metrics</code> and
+        <code>logs</code> collectors.
+      </p>
 
       <h2 id="matching-on-labels">Matching on labels and agent attributes</h2>
       <p>

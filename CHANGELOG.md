@@ -26,6 +26,21 @@ Categories used here:
   every replica runs v0.20: an older pod rejects a viewer's credential and answers `Internal`
   to its org's `ListServiceAccounts` (UPGRADING, 0.24.0). (#362)
 
+### Fixed
+
+- **Module-based pipelines reach restricted roles.** Shipped. An instance of a module the
+  pipeline declares itself (`declare "x" { … }` plus `x "feature" { … }`, the shape the
+  grafana/k8s-monitoring chart renders for every feature) counted as an unknown component, so
+  role enforcement assumed every signal and left the pipeline off every `metrics`, `logs` and
+  `receiver` collector. Such an instance now carries the signals of its declare body, as does an
+  instance of a module from an `import.string` with literal content. Modules from `import.file`,
+  `import.git` and `import.http` still count as every signal. The pipeline editor's derived
+  signals, the Reconciliation tab, wizards' role check and the MCP proposal all use the same
+  derivation. The chart's OTLP bridge components (`otelcol.exporter.prometheus`,
+  `otelcol.exporter.loki`) still count as metrics, logs and traces, so a chart config that
+  includes one still stays off `metrics` and `logs` collectors. The served config format is
+  unchanged. (#378)
+
 ## v0.19.1
 
 Chart 0.23.1, released 2026-10-26. A patch release: **beacon ingest hardening**, a **bounded

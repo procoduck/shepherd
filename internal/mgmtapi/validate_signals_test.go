@@ -63,6 +63,44 @@ prometheus.remote_write "sink" {
 		}
 	})
 
+	// #378: the editor shows a declared module's instance as known, with its
+	// declare body's signals, the same derivation role enforcement uses.
+	t.Run("declared module instance is known and proven", func(t *testing.T) {
+		const contents = `
+declare "feat" {
+  argument "dest" { }
+
+  prometheus.scrape "app" {
+    targets    = []
+    forward_to = argument.dest.value
+  }
+}
+
+feat "feature" {
+  dest = [prometheus.remote_write.sink.receiver]
+}
+
+prometheus.remote_write "sink" {
+  endpoint {
+    url = "https://example.com/write"
+  }
+}
+`
+		resp, err := svc.ValidatePipeline(context.Background(), connect.NewRequest(&mgmtv1.ValidatePipelineRequest{
+			Name: "t", Contents: contents,
+		}))
+		if err != nil {
+			t.Fatalf("ValidatePipeline: %v", err)
+		}
+		if got := resp.Msg.GetSignals(); len(got) != 1 || got[0] != "metrics" {
+			t.Fatalf("Signals = %v, want [metrics]", got)
+		}
+		if !resp.Msg.GetSignalsProven() || len(resp.Msg.GetUnknownComponents()) != 0 {
+			t.Fatalf("SignalsProven = %v, UnknownComponents = %v, want proven with none",
+				resp.Msg.GetSignalsProven(), resp.Msg.GetUnknownComponents())
+		}
+	})
+
 	t.Run("unknown component is reported, not silently dropped, and signals_proven is false", func(t *testing.T) {
 		const contents = `
 totally.bogus.component "x" {

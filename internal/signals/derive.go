@@ -4,9 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/grafana/alloy/syntax/ast"
+	"github.com/grafana/alloy/syntax/token"
 
 	"shepherd/internal/alloysyntax"
 	"shepherd/internal/schema"
@@ -109,7 +111,10 @@ type Signals struct {
 	Contributions []Contribution
 	// Unknown lists every top-level block Derive treated as a possible
 	// component (i.e. not a recognized non-component construct) but could
-	// not find in the schema. Never silently dropped — see Derive's doc.
+	// not find in the schema and could not resolve as an instance of a
+	// module defined in readable text (a module instance it does resolve
+	// has no entry here or in Contributions: its declare body's components
+	// do). Never silently dropped — see Derive's doc.
 	Unknown []UnknownComponent
 	// Unclassified lists any wire type Derive encountered on a known
 	// component's ports that classifyWireType does not recognize, sorted
@@ -156,16 +161,38 @@ type componentDef struct {
 //
 // Derive is intentionally shallow: it reads each component's OWN declared
 // ports from the schema, not the graph of references between components. It
-// does not evaluate expressions, does not follow which component's output
-// feeds which component's input, and does not descend into `declare` blocks
-// (custom components) — the schema has no ports for those anyway. A
-// pipeline's signal set is the union of what every component IN it is
+// does not evaluate expressions and does not follow which component's output
+// feeds which component's input. It does descend into `declare` and
+// `foreach` bodies (containerBlocks), so every component written anywhere in
+// the text counts, whether or not anything instantiates the declare around
+// it. A pipeline's signal set is the union of what every component IN it is
 // capable of speaking, which is exactly what a role-enforcement decision
 // needs ("could this pipeline put a log line on a metrics-only collector"),
 // and is deliberately more conservative than a true dataflow analysis: a
 // component with an unused loki.logs port still marks the pipeline as
 // carrying Logs, even if nothing in this particular file happens to feed it.
 // That is the safe direction to be wrong in for a refusal check.
+//
+// Module instances (#378). An instance of a custom component whose
+// definition Derive can read — a `declare` in the text, or a declare inside
+// an `import.string` whose content is a string literal — is known and adds
+// nothing: its signals are its declare body's, which the walk already
+// counted. This is the shape the grafana/k8s-monitoring chart renders (each
+// feature module inlined as a declare plus a `<name> "feature"` instance).
+// Scoping is lexical: an instance is known when a declare of that name (or
+// an import.string of that label, for `<label>.<module>`) sits in the same
+// statement list or in any enclosing one, in either order. That is the
+// simplest rule that admits every reference Alloy resolves; if it admits
+// one Alloy would not, validation refuses that config anyway. Either way no
+// signal goes uncounted: a name only becomes known from a declare whose body
+// this walk counts. An import.string module's text is
+// its own scope (it does not see the importing text's declares), is parsed
+// with alloysyntax.ParseFile (its nesting caps), and is followed at most
+// maxModuleDepth imports deep and maxModuleBytes in total; content past
+// those caps, content that is not a literal, and content that does not parse
+// are not read, so instances of their modules stay Unknown. Instances of
+// import.file / import.git / import.http modules always stay Unknown: what
+// they load is not in the text, so the worst case is assumed.
 //
 // Unknown components (a top-level block that looks like a component but
 // is not in the schema — a typo, or a component from an Alloy release the
@@ -195,12 +222,44 @@ func Derive(contents string, reg *schema.Registry) (Signals, error) {
 	var out Signals
 	combined := Set{}
 	unclassified := map[string]bool{}
+	moduleBudget := maxModuleBytes
 
 	// walk processes one statement list, recursing into container blocks so a
 	// component nested inside `foreach`/`declare` counts exactly as much as a
-	// top-level one.
-	var walk func(body []ast.Stmt)
-	walk = func(body []ast.Stmt) {
+	// top-level one. parent is the enclosing scope (nil for a module text's
+	// top level); moduleDepth is how many import.string levels deep body is.
+	var walk func(body []ast.Stmt, parent *moduleScope, moduleDepth int)
+	walk = func(body []ast.Stmt, parent *moduleScope, moduleDepth int) {
+		sc := &moduleScope{parent: parent, modules: map[string]bool{}}
+		// First pass: the modules this statement list defines, so an
+		// instance resolves whichever order it and its declare come in.
+		for _, stmt := range body {
+			block, ok := stmt.(*ast.BlockStmt)
+			if !ok {
+				continue
+			}
+			switch strings.Join(block.Name, ".") {
+			case "declare":
+				sc.modules[block.Label] = true
+			case "import.string":
+				if moduleDepth >= maxModuleDepth {
+					continue
+				}
+				imported, ok := importedModule(block, &moduleBudget)
+				if !ok {
+					continue
+				}
+				// The module text is walked like inline text (its components
+				// count) in a scope of its own.
+				walk(imported.Body, nil, moduleDepth+1)
+				for _, st := range imported.Body {
+					if b, ok := st.(*ast.BlockStmt); ok && strings.Join(b.Name, ".") == "declare" {
+						sc.modules[block.Label+"."+b.Label] = true
+					}
+				}
+			}
+		}
+
 		for _, stmt := range body {
 			block, ok := stmt.(*ast.BlockStmt)
 			if !ok {
@@ -213,12 +272,17 @@ func Derive(contents string, reg *schema.Registry) (Signals, error) {
 				continue
 			}
 			if containerBlocks[name] {
-				walk(block.Body)
+				walk(block.Body, sc, moduleDepth)
 				continue
 			}
 
 			def, known := defs[name]
 			if !known {
+				if sc.has(name) {
+					// An instance of a module defined in readable text: its
+					// declare body was walked, so it adds nothing.
+					continue
+				}
 				out.Unknown = append(out.Unknown, UnknownComponent{Component: name, Label: block.Label})
 				continue
 			}
@@ -245,7 +309,7 @@ func Derive(contents string, reg *schema.Registry) (Signals, error) {
 			})
 		}
 	}
-	walk(file.Body)
+	walk(file.Body, nil, 0)
 
 	out.Combined = combined
 	if len(unclassified) > 0 {
@@ -256,6 +320,67 @@ func Derive(contents string, reg *schema.Registry) (Signals, error) {
 		sort.Strings(out.Unclassified)
 	}
 	return out, nil
+}
+
+const (
+	// maxModuleDepth is how many nested import.string modules Derive reads
+	// (the tenant lint, internal/validate, follows the same depth).
+	maxModuleDepth = 8
+	// maxModuleBytes is the most import.string content one Derive call
+	// parses in total: the pipeline contents cap
+	// (mgmtapi.MaxPipelineContentsBytes). Each module's text is a literal
+	// inside its parent's, so this only binds on nested modules.
+	maxModuleBytes = 1 << 20
+)
+
+// moduleScope is one statement list's custom-component names, chained to the
+// enclosing statement lists' (see Derive's "Module instances").
+type moduleScope struct {
+	parent  *moduleScope
+	modules map[string]bool
+}
+
+func (s *moduleScope) has(name string) bool {
+	for ; s != nil; s = s.parent {
+		if s.modules[name] {
+			return true
+		}
+	}
+	return false
+}
+
+// importedModule parses an import.string block's content when it is a string
+// literal and fits what is left of budget, which it charges. ok is false for
+// content Derive cannot read: absent, not a literal, over budget, or not
+// parseable (including past alloysyntax's nesting caps).
+func importedModule(block *ast.BlockStmt, budget *int) (*ast.File, bool) {
+	var content ast.Expr
+	for _, st := range block.Body {
+		if a, ok := st.(*ast.AttributeStmt); ok && a.Name.Name == "content" {
+			content = a.Value
+		}
+	}
+	for {
+		p, ok := content.(*ast.ParenExpr)
+		if !ok {
+			break
+		}
+		content = p.Inner
+	}
+	lit, ok := content.(*ast.LiteralExpr)
+	if !ok || lit.Kind != token.STRING {
+		return nil, false
+	}
+	text, err := strconv.Unquote(lit.Value)
+	if err != nil || len(text) > *budget {
+		return nil, false
+	}
+	*budget -= len(text)
+	file, err := alloysyntax.ParseFile("<import.string "+block.Label+">", []byte(text))
+	if err != nil {
+		return nil, false
+	}
+	return file, true
 }
 
 // loadComponentDefs reads reg's current schema version and reduces every
