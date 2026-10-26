@@ -149,7 +149,7 @@ var _ = Describe("Transform: rule K keeps exactly what the overlay allowlists", 
 
 	It("plants a canary at every string-carrying attribute path in the artifact and finds it in the render if and only if the path is allowlisted", func() {
 		paths := canaryPaths(payload)
-		Expect(len(paths)).To(Equal(4779),
+		Expect(len(paths)).To(Equal(4840),
 			"the probe must cover every string-carrying attribute path the shipped artifact declares")
 
 		var leaked, missing, refused []string
@@ -242,8 +242,16 @@ var _ = Describe("Transform: rule K keeps exactly what the overlay allowlists", 
 		// client.keepalive.*, remote_write's sigv4.session_name, cloudflare's
 		// max_request_body_size) is dropped by the existing keep lists.
 		// 612 + 4167 = 4779.
+		// Alloy v1.21.2 (2026-10-26): 4840 paths (artifact 6785, up from 6705;
+		// -prometheus.exporter.catchpoint). None of the new ones reaches the
+		// sandbox: the 83 added paths (database_observability relabel blocks,
+		// loadbalancing routing, exporter sending_queue.batch.partition, beyla
+		// options, …) sit outside every keep list, and the 59 retyped by
+		// upstream #7499 (TLS tpm auth/owner_auth, resourcedetection's
+		// openshift token, cloudflare's secret, solace's bearer) are now
+		// secret, which rule K drops whatever the list says. 612 + 4228 = 4840.
 		Expect(present).To(Equal(612), "string-carrying paths that reach the sandbox")
-		Expect(absent).To(Equal(4167), "string-carrying paths that do not")
+		Expect(absent).To(Equal(4228), "string-carrying paths that do not")
 	})
 
 	// The three leaks finding 1 proved, named individually so a regression says

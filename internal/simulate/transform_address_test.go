@@ -159,7 +159,10 @@ var _ = Describe("Transform: no authored address reaches the sandbox", func() {
 				"if that is intended, update relabelDestinationPaths and docs/proofs/simulator-containment.md together")
 		// Stated so the sweep cannot pass by probing nothing: a filter bug or a
 		// schema payload that failed to load would otherwise look like success.
-		Expect(probed).To(Equal(675), "address-named attribute paths probed")
+		// 681 on Alloy v1.21.2 (675 on v1.20.1): six more address-named paths,
+		// and none of them reaches a render — the leak set above and the
+		// rendered count below are both unchanged.
+		Expect(probed).To(Equal(681), "address-named attribute paths probed")
 		// And most of them must actually REACH a render. A sweep whose probes
 		// all failed closed for some unrelated reason would report the same
 		// leak list while testing nothing about rule K.
