@@ -57,7 +57,7 @@ is an Alloy that forwards each tenant's data straight to your backends).
 | To | You need |
 |---|---|
 | Run Shepherd | A Kubernetes cluster (1.32+), Helm 3 or 4, and **PostgreSQL 16 or newer** it can reach — the test suites run 16, the dev and e2e stacks 18; older majors are untested. The chart needs no CRDs by default. |
-| Run collectors | [Grafana Alloy](https://grafana.com/docs/alloy/) **v1.20.1** — the version whose component schema this build validates against, pinned in `deploy/versions.env`. |
+| Run collectors | [Grafana Alloy](https://grafana.com/docs/alloy/) **v1.21.2** — the version whose component schema this build validates against, pinned in `deploy/versions.env`. |
 | Build from source | Go 1.27.3 (see `go.mod`), Node 26 with pnpm 12, Docker (tests start real PostgreSQL via testcontainers), and Helm. |
 
 Two optional integrations need their operators installed first:

@@ -83,7 +83,7 @@ not touch — so the claim is checkable by run id rather than by trusting this t
 
 Verified on the running stack and in the browser, not inferred:
 
-- **Agent protocol** — real Alloy v1.20.1 agents register, poll and apply served config; status,
+- **Agent protocol** — real Alloy v1.21.2 agents register, poll and apply served config; status,
   hash and not-modified round-trip. Collector-token auth is a Connect request gate (v0.5.0): a
   bad credential is refused before the body is read.
 - **Merge engine + validation gate** — served config carries both seeded pipelines, declare-wrapped,
@@ -492,7 +492,10 @@ Their order, releases (0.19.1: #389, #400; 0.20: #378, #362, #390, #375) and des
 
 In rough priority order; closed items stay in place, marked with the release that shipped them:
 
-- **Bump Alloy to v1.21.x when it is released** (code-scanning alerts 140–157, 2026-10-13 triage).
+- [x] **Bump Alloy to v1.21.x when it is released** — done on main for 0.19.1 (v1.21.2, unreleased):
+      `make image-scan` reports 0 CRITICAL/HIGH in `usr/local/bin/alloy` in both images, so alerts
+      140–157 and 159 should close on the first post-merge image scan. Original note
+      (code-scanning alerts 140–157, 2026-10-13 triage):
   The vendored Alloy v1.20.1 is built with Go 1.26.7 and x/net 0.58.0; 18 Trivy alerts (HTTP/2 and
   HTTP/1 server DoS, crypto/tls ECH, html/template, one Windows-only) are reported against
   `usr/local/bin/alloy` and are not reachable — Shepherd runs only `alloy validate`/`fmt` (no

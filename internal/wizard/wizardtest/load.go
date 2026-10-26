@@ -296,7 +296,7 @@ const runtimeSettleWindow = 12 * time.Second
 // every load test until this is bumped with it — after re-running the broken
 // configs those strings come from (see runtimeErrors) against the new image
 // and confirming each message still appears word for word.
-const runtimeErrorsCapturedOn = "alloy-v1.20.1"
+const runtimeErrorsCapturedOn = "alloy-v1.21.2"
 
 // checkRuntimeErrorsPin fails t when the Alloy pin has moved since
 // runtimeErrors was last confirmed.
@@ -328,7 +328,8 @@ func checkRuntimeErrorsPin(t *testing.T) {
 //     local.file_match.
 //
 // These are literal Alloy log strings, captured from grafana/alloy v1.20.1
-// (runtimeErrorsCapturedOn). A newer Alloy that rewords one would turn this
+// and re-confirmed verbatim on v1.21.2 (runtimeErrorsCapturedOn) by running
+// both broken configs against the image. A newer Alloy that rewords one would turn this
 // check into a silent pass, so AssertGoldensLoadInRealAlloyWith refuses
 // to run against any other pin until someone re-confirms them.
 var runtimeErrors = []string{

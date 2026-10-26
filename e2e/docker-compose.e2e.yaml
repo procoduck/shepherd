@@ -285,7 +285,7 @@ services:
     # version must be >= v1.12 for remote_config_status reporting; bump deliberately.
     # Default tracks ALLOY_IMAGE in deploy/versions.env — override via env var to
     # test a different Alloy build without editing this file.
-    image: ${ALLOY_IMAGE:-grafana/alloy:v1.20.1@sha256:2aa2099af76c0098d4af7a4d6e48f86cb66dc1a000222ad927a1c67c6542d13f}
+    image: ${ALLOY_IMAGE:-grafana/alloy:v1.21.2@sha256:89a5a320168387336b9ac3c850609c3ba7757eadd4ae5f1d819deb35e9854b18}
     depends_on:
       shepherd:
         condition: service_healthy

@@ -5,4 +5,4 @@ package version
 
 // AlloySchemaVersion is the pinned Alloy schema version this build serves.
 // Source of truth: ALLOY_VERSION in deploy/versions.env.
-const AlloySchemaVersion = "alloy-v1.20.1"
+const AlloySchemaVersion = "alloy-v1.21.2"

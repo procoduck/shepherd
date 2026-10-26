@@ -13,6 +13,18 @@ Categories used here:
 
 ## Unreleased
 
+### Changed
+
+- **Alloy v1.21.2.** Shipped. The bundled Alloy (Stage 2 validation, the receiver tier, the
+  sandbox) and the component schema the editor and visual builder use move from v1.20.1 to
+  v1.21.2; this clears the open code-scanning alerts against the bundled `alloy` binary. Removed
+  upstream: `prometheus.exporter.catchpoint`. TLS `tpm` `auth`/`owner_auth` and a few `otelcol`
+  credentials are now typed secret, and string literals still work. **Behaviour changes in your
+  pipelines** on v1.21 collectors: `loki.write` with `wal { enabled = true }` needs
+  `--stability.level=experimental`; `otelcol.connector.signaltometrics` `error_mode` defaults to
+  `ignore`; the Kafka receiver/exporter `metadata.retry.max_retries` defaults to 20. Collectors
+  keep running whatever Alloy version you deploy them with; no operator action.
+
 ### Fixed
 
 - **The visual builder's config preview is bounded.** Shipped. A large or hand-built graph could
