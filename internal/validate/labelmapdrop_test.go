@@ -43,6 +43,22 @@ func k8smon(name string) string {
 	return string(b)
 }
 
+// k8smonStrict is the k8s-monitoring fixture name, its logs fixture with a
+// loki.process dropping __tenant_id__ between its otelcol.exporter.loki and
+// its loki.write. The chart's output sends the exporter straight to the
+// writer, which strict tenant mode refuses: the exporter may turn OTLP
+// attributes into that label.
+func k8smonStrict(name string) string {
+	src := k8smon(name)
+	if name != "logs" {
+		return src
+	}
+	const exporter = "otelcol.exporter.loki \"loki\" {\n  forward_to = [loki.write.loki.receiver]\n}"
+	Expect(src).To(ContainSubstring(exporter))
+	return strings.Replace(src, exporter, "otelcol.exporter.loki \"loki\" {\n  forward_to = [loki.process.tenant_drop.receiver]\n}", 1) +
+		"\nloki.process \"tenant_drop\" {\n  forward_to = [loki.write.loki.receiver]\n  stage.label_drop {\n    values = [\"__tenant_id__\"]\n  }\n}\n"
+}
+
 func insertDrops(text string) string {
 	out, err := validate.InsertTenantDrops(text)
 	Expect(err).NotTo(HaveOccurred())
@@ -101,7 +117,19 @@ var _ = Describe("InsertTenantDrops (strict tenant mode's labelmap drop, #410)",
 
 		commented := "loki.relabel \"r\" {\n  forward_to = []\n  /* a */ rule /* b */ {\n    // c\n    action = /* d */ \"labelmap\"\n  }\n}\n"
 		out = insertDrops(commented)
-		Expect(out).To(ContainSubstring("  }\n          rule {\n"), "indented to the rule's column")
+		Expect(out).To(ContainSubstring("  }\n  rule {\n"), "indented as the rule's line is")
+		Expect(validate.TenantLint(out, ownsAll())).To(BeEmpty())
+
+		// The indent is the line's leading whitespace, byte for byte: tabs
+		// stay tabs, and a multi-byte character before the rule does not
+		// shift it.
+		tabs := "loki.relabel \"r\" {\n\tforward_to = []\n\trule {\n\t\taction = \"labelmap\"\n\t}\n}\n"
+		Expect(insertDrops(tabs)).To(Equal("loki.relabel \"r\" {\n\tforward_to = []\n\trule {\n\t\taction = \"labelmap\"\n\t}\n" +
+			"\trule {\n\t  action = \"labeldrop\"\n\t  regex  = \"__tenant_id__\"\n\t}\n}\n"))
+		multi := "loki.relabel \"r\" {\n  forward_to = []\n \t/* é ü */ rule { action = \"labelmap\" }\n}\n"
+		out = insertDrops(multi)
+		Expect(out).To(Equal("loki.relabel \"r\" {\n  forward_to = []\n \t/* é ü */ rule { action = \"labelmap\" }\n" +
+			" \trule {\n \t  action = \"labeldrop\"\n \t  regex  = \"__tenant_id__\"\n \t}\n}\n"))
 		Expect(validate.TenantLint(out, ownsAll())).To(BeEmpty())
 
 		crlf := strings.ReplaceAll(relabel(labelmapDefault, setOwned), "\n", "\r\n")
@@ -119,6 +147,21 @@ var _ = Describe("InsertTenantDrops (strict tenant mode's labelmap drop, #410)",
 
 		nested := "import.string \"o\" {\n  content = " + strconv.Quote(src) + "\n}\n"
 		Expect(insertDrops(nested)).To(ContainSubstring("labeldrop"))
+	})
+
+	It("takes only a block named rule as the next rule", func() {
+		// A block with the drop's body but another name is not the drop:
+		// the labelmap still gets one, and without it the lint refuses it.
+		for _, name := range []string{"stage.rule", "rules", "rule.x"} {
+			lookalike := "  " + name + " {\n    action = \"labeldrop\"\n    regex  = \"__tenant_id__\"\n  }"
+			src := relabel(labelmapDefault, lookalike)
+			Expect(errorsOf(validate.TenantLint(src, ownsAll()))).To(ContainElement(ContainSubstring("labelmap")), name)
+			Expect(insertDrops(src)).To(Equal(relabel(labelmapDefault, tenantDrop, lookalike)), name)
+		}
+		// A block of another name between the labelmap and the drop is
+		// skipped over: the drop is still the next rule.
+		between := "  other {\n    a = 1\n  }"
+		Expect(validate.TenantLint(relabel(labelmapDefault, between, tenantDrop), ownsAll())).To(BeEmpty())
 	})
 
 	It("leaves a computed labelmap action alone, so the lint refuses it", func() {
@@ -179,9 +222,17 @@ var _ = Describe("the tenant lint on a labelmap (#410)", func() {
 			To(ConsistOf(ContainSubstring(`"victim"`)))
 	})
 
+	It("refuses the chart's logs fixture verbatim for one finding only: its otelcol.exporter.loki path", func() {
+		Expect(errorsOf(validate.TenantLint(insertDrops(k8smon("logs")), ownsAll()))).To(ConsistOf(And(
+			ContainSubstring(`otelcol.exporter.loki "loki"`),
+			ContainSubstring(`to loki.write "loki" without overwriting or dropping it`),
+		)))
+		Expect(validate.TenantLint(insertDrops(k8smonStrict("logs")), ownsAll())).To(BeEmpty())
+	})
+
 	It("finds the chart's labelmaps in both k8s-monitoring fixtures, and none once the drops are in", func() {
 		for name, n := range map[string]int{"logs": 1, "metrics": 2} {
-			src := k8smon(name)
+			src := k8smonStrict(name)
 			Expect(errorsOf(validate.TenantLint(src, ownsAll()))).To(HaveLen(n), name)
 			served := insertDrops(src)
 			Expect(strings.Count(served, "action = \"labeldrop\"\n")).To(Equal(n+strings.Count(src, "action = \"labeldrop\"\n")), name)
@@ -201,14 +252,14 @@ var _ = Describe("ValidatePipeline in a strict org with a labelmap (#410)", func
 
 	It("saves the k8s-monitoring fixtures verbatim: the served form carries the drops", func() {
 		for _, name := range []string{"logs", "metrics"} {
-			r := v.ValidatePipeline(context.Background(), name, k8smon(name), withInline(drops))
+			r := v.ValidatePipeline(context.Background(), name, k8smonStrict(name), withInline(drops))
 			Expect(r.Valid).To(BeTrue(), "%s: %v", name, r.Diagnostics)
 		}
 	})
 
 	It("fails closed when the served form lacks the drop (insertion stubbed out)", func() {
 		identity := func(_ context.Context, c string) (string, error) { return c, nil }
-		for _, src := range []string{k8smon("logs"), relabel(labelmapDefault)} {
+		for _, src := range []string{k8smonStrict("logs"), relabel(labelmapDefault)} {
 			r := v.ValidatePipeline(context.Background(), "p", src, withInline(identity))
 			Expect(r.Valid).To(BeFalse())
 			Expect(errorsOf(r.Diagnostics)).To(ContainElement(And(ContainSubstring("as served"), ContainSubstring("labelmap"))))
@@ -225,11 +276,11 @@ var _ = Describe("ValidatePipeline in a strict org with a labelmap (#410)", func
 		}
 		real := validate.New(&config.ValidateConfig{AlloyBinary: bin, StabilityLevel: "experimental", Timeout: 2 * time.Minute})
 		for _, name := range []string{"logs", "metrics"} {
-			served := insertDrops(k8smon(name))
+			served := insertDrops(k8smonStrict(name))
 			r := real.Stages12(context.Background(), validate.WrapForValidation(name, served))
 			Expect(r.Valid).To(BeTrue(), "%s: %v", name, r.Diagnostics)
 			Expect(r.Skipped).To(BeEmpty(), name)
-			r = real.ValidatePipeline(context.Background(), name, k8smon(name), withInline(drops))
+			r = real.ValidatePipeline(context.Background(), name, k8smonStrict(name), withInline(drops))
 			Expect(r.Valid).To(BeTrue(), "%s: %v", name, r.Diagnostics)
 		}
 	})

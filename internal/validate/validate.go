@@ -278,9 +278,10 @@ func withServedForm(ctx context.Context, r Result, contents string, tenants Tena
 		rs = stages(served)
 	}
 	// The served form is linted with no module source at all: an import.git
-	// left anywhere in it is refused, never fetched.
+	// left anywhere in it is refused, never fetched. tenants is the caller's
+	// policy, never storedTextPolicy's, so a labelmap there needs its drop.
 	lintPolicy := tenants
-	lintPolicy.Inline, lintPolicy.Git, lintPolicy.servedDrops = nil, nil, false
+	lintPolicy.Inline, lintPolicy.Git = nil, nil
 	rs = withTenantLintOnly(ctx, rs, served, lintPolicy)
 	for _, d := range rs.Diagnostics {
 		d.Message = "as served (pinned modules inlined): " + d.Message

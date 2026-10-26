@@ -62,6 +62,27 @@ func RelabelRuleBlocks() (map[string]map[string]bool, error) {
 	return relabelRules, relabelRulesErr
 }
 
+var (
+	relabelAttrsOnce sync.Once
+	relabelAttrs     map[string]map[string]bool
+	relabelAttrsErr  error
+)
+
+// RelabelRuleAttributes is where Alloy takes relabel rules as an attribute
+// value rather than as rule blocks, read from every shipped component schema:
+// component name -> attribute name (loki.source.syslog -> relabel_rules). It
+// is every top-level capsule-typed attribute whose name ends in "rules" — the
+// schema's type for Alloy's relabel.Rules export (tenant_rules_attr_test.go
+// classifies every capsule attribute, so a new kind fails there). Strict
+// tenant mode takes such an attribute only as a reference to rules it lints
+// (rulesReference).
+func RelabelRuleAttributes() (map[string]map[string]bool, error) {
+	relabelAttrsOnce.Do(func() {
+		relabelAttrs, relabelAttrsErr = loadRelabelRuleAttributes(schema.Embedded)
+	})
+	return relabelAttrs, relabelAttrsErr
+}
+
 type schemaBlock struct {
 	Name       string        `json:"name"`
 	Attributes []schemaAttr  `json:"attributes"`
@@ -70,33 +91,64 @@ type schemaBlock struct {
 
 type schemaAttr struct {
 	Name string `json:"name"`
+	Type string `json:"type"`
 }
 
-func loadRelabelRuleBlocks(fsys fs.FS) (map[string]map[string]bool, error) {
+type schemaComponent struct {
+	Attributes []schemaAttr  `json:"attributes"`
+	Blocks     []schemaBlock `json:"blocks"`
+}
+
+// eachSchemaComponent calls fn for every component of every shipped schema.
+func eachSchemaComponent(fsys fs.FS, fn func(name string, c schemaComponent)) error {
 	files, err := fs.Glob(fsys, "artifacts/alloy-v*.json")
 	if err != nil {
-		return nil, fmt.Errorf("listing the component schemas: %w", err)
+		return fmt.Errorf("listing the component schemas: %w", err)
 	}
 	if len(files) == 0 {
-		return nil, errors.New("no component schema is shipped")
+		return errors.New("no component schema is shipped")
 	}
-	out := map[string]map[string]bool{}
 	for _, f := range files {
 		data, err := fs.ReadFile(fsys, f)
 		if err != nil {
-			return nil, fmt.Errorf("reading %s: %w", f, err)
+			return fmt.Errorf("reading %s: %w", f, err)
 		}
 		var art struct {
-			Components map[string]struct {
-				Blocks []schemaBlock `json:"blocks"`
-			} `json:"components"`
+			Components map[string]schemaComponent `json:"components"`
 		}
 		if err := json.Unmarshal(data, &art); err != nil {
-			return nil, fmt.Errorf("parsing %s: %w", f, err)
+			return fmt.Errorf("parsing %s: %w", f, err)
 		}
 		for name, c := range art.Components {
-			collectRelabelRules(name, "", c.Blocks, out)
+			fn(name, c)
 		}
+	}
+	return nil
+}
+
+func loadRelabelRuleBlocks(fsys fs.FS) (map[string]map[string]bool, error) {
+	out := map[string]map[string]bool{}
+	if err := eachSchemaComponent(fsys, func(name string, c schemaComponent) {
+		collectRelabelRules(name, "", c.Blocks, out)
+	}); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func loadRelabelRuleAttributes(fsys fs.FS) (map[string]map[string]bool, error) {
+	out := map[string]map[string]bool{}
+	if err := eachSchemaComponent(fsys, func(name string, c schemaComponent) {
+		for _, a := range c.Attributes {
+			if a.Type == "capsule" && strings.HasSuffix(a.Name, "rules") {
+				if out[name] == nil {
+					out[name] = map[string]bool{}
+				}
+				out[name][a.Name] = true
+			}
+		}
+	}); err != nil {
+		return nil, err
 	}
 	return out, nil
 }
@@ -235,15 +287,15 @@ func (d *dropper) body(stmts ast.Body, component, path string, nesting int) erro
 }
 
 // insertAfter splices tenantDropRule in right after b's closing brace, on
-// lines of its own at b's indentation.
+// lines of its own, indented with the leading whitespace (spaces and tabs,
+// byte for byte) of the line b starts on — never a column count, which a tab
+// or a multi-byte character before b would throw off.
 func (d *dropper) insertAfter(b *ast.BlockStmt) {
 	start := ast.StartPos(b).Position().Offset
 	end := ast.EndPos(b).Position().Offset + 1
 	lineStart := strings.LastIndexByte(d.text[:start], '\n') + 1
-	indent := d.text[lineStart:start]
-	if strings.TrimLeft(indent, " \t") != "" {
-		indent = strings.Repeat(" ", ast.StartPos(b).Position().Column-1)
-	}
+	line := d.text[lineStart:start]
+	indent := line[:len(line)-len(strings.TrimLeft(line, " \t"))]
 	var sb strings.Builder
 	for _, line := range tenantDropRule {
 		sb.WriteString(d.newline)

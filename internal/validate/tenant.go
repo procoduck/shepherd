@@ -145,18 +145,36 @@ var tenantFromData = map[string]map[string][]string{
 	"loki.process": {"stage.tenant": {"label", "source"}},
 }
 
-// pushSources are the Loki sources that turn a client's X-Scope-OrgID into
-// the __tenant_id__ label of what they forward (Alloy v1.20.1:
-// loki/source/api/routes.go, heroku/routes.go, aws_firehose/routes.go,
-// gcplog/internal/gcplogtarget/push_translation.go). A loki.write then sends
-// each entry under the CLIENT's tenant unless the label is overwritten or
-// dropped on the way (pushSourcePaths).
-var pushSources = map[string]bool{
-	"loki.source.api":         true,
-	"loki.source.heroku":      true,
-	"loki.source.awsfirehose": true,
-	"loki.source.gcplog":      true,
+// clientTenantHeader is how a push source below gets the client's tenant.
+const clientTenantHeader = "forwards the tenant a client sends (X-Scope-OrgID, as " + tenantLabel + ")"
+
+// pushSources are the components whose output may carry a __tenant_id__
+// label the client chose, with how. The Loki push sources turn a client's
+// X-Scope-OrgID into it (Alloy v1.20.1: loki/source/api/routes.go,
+// heroku/routes.go, aws_firehose/routes.go,
+// gcplog/internal/gcplogtarget/push_translation.go). otelcol.exporter.loki
+// turns the OTLP resource and log attributes the loki.resource.labels and
+// loki.attribute.labels hints name into labels, keeping a name such as
+// __tenant_id__ as it is (otel-collector-contrib pkg/translator/loki,
+// LogToLokiEntry; checked against Alloy v1.21.2, whose loki.echo shows the
+// label). A loki.write then sends each entry under the CLIENT's tenant unless
+// the label is overwritten or dropped on the way (pushSourcePaths).
+// otelcol.exporter.prometheus is not one: Mimir reads the tenant only from
+// the X-Scope-OrgID header, never a label.
+var pushSources = map[string]string{
+	"loki.source.api":         clientTenantHeader,
+	"loki.source.heroku":      clientTenantHeader,
+	"loki.source.awsfirehose": clientTenantHeader,
+	"loki.source.gcplog":      clientTenantHeader,
+	"otelcol.exporter.loki": "turns OTLP attributes a client sends into labels, which may include " + tenantLabel +
+		" (the loki.resource.labels and loki.attribute.labels hints), and forwards them",
 }
+
+// rulesExporters are the components whose `rules` export a relabel rules
+// attribute (RelabelRuleAttributes) may refer to in strict tenant mode: their
+// rule blocks are linted like any other, and the served form drops
+// __tenant_id__ after their labelmaps (InsertTenantDrops).
+var rulesExporters = map[string]bool{"loki.relabel": true, "discovery.relabel": true}
 
 // corsHeaderLists are attributes ending in "headers" that list header NAMES
 // a receiver allows (CORS), not headers sent: they carry no tenant.
@@ -272,6 +290,12 @@ func TenantLintChecked(ctx context.Context, content string, p TenantPolicy) ([]D
 // runLint is the lint with its fetch rounds (see TenantLintChecked): nil
 // for content that does not parse.
 func runLint(ctx context.Context, content string, p TenantPolicy) (*tenantLinter, error) {
+	// Read the component schemas (once per process) before the wall-clock
+	// guard starts: the first read parses every shipped schema, which is
+	// not the lint's work. Without them there is no verdict (fail closed).
+	if _, err := RelabelRuleAttributes(); err != nil {
+		return nil, fmt.Errorf("the tenant check cannot read the component schemas: %w", err)
+	}
 	git := &gitState{fetched: map[GitModule]gitFetch{}}
 	for round := 0; ; round++ {
 		git.needed, git.asked = nil, map[GitModule]bool{}
@@ -651,7 +675,7 @@ func (l *tenantLinter) collectComponents(stmts ast.Body, scopeKey string, nestin
 		if blk.Label != "" {
 			m[name+"."+blk.Label] = blk
 		}
-		if pushSources[name] {
+		if _, ok := pushSources[name]; ok {
 			l.pushes = append(l.pushes, pushSource{block: blk, scope: scopeKey})
 		}
 	}
@@ -671,6 +695,7 @@ func (l *tenantLinter) body(stmts ast.Body, sc scope) {
 				l.refuse(n, fmt.Sprintf("blocks nested more than %d deep cannot be verified — strict tenant mode refuses them", maxNesting))
 				continue
 			}
+			l.rulesAttributes(n, name, sc)
 			switch {
 			case name == "declare":
 				if !l.budget.charge(1 + (len(sc.declare)+len(n.Label))/64) {
@@ -713,6 +738,16 @@ func isTenantComponent(name string) bool {
 
 func (l *tenantLinter) attribute(a *ast.AttributeStmt, sc scope) {
 	name := a.Name.Name
+	// The block the attribute is directly in: the last block of the path, or
+	// the tenant component itself. A relabel rules attribute is checked with
+	// its block (rulesAttributes).
+	enclosing := sc.last()
+	if sc.path == nil {
+		enclosing = sc.component
+	}
+	if isRulesAttribute(enclosing, name) {
+		return
+	}
 	if isHeadersMapAttr(name) {
 		l.headers(a.Value, sc)
 		return
@@ -729,6 +764,51 @@ func (l *tenantLinter) attribute(a *ast.AttributeStmt, sc scope) {
 		if dyn == name {
 			l.refuse(a.Value, sc.where(name)+" picks the tenant from the data at run time, which a client can set — "+
 				"strict tenant mode refuses it")
+		}
+	}
+}
+
+// isRulesAttribute reports whether attribute attr of a block named block is
+// a relabel rules attribute (RelabelRuleAttributes). runLint has read the
+// schemas before any lint runs; were they unreadable, every attribute whose
+// name ends in "rules" would be taken for one.
+func isRulesAttribute(block, attr string) bool {
+	rules, err := RelabelRuleAttributes()
+	if err != nil {
+		return strings.HasSuffix(attr, "rules")
+	}
+	return rules[block][attr]
+}
+
+// rulesAttributes checks every relabel rules attribute of block b (named
+// name): in strict tenant mode it must be a plain reference to the `rules`
+// export of a loki.relabel or discovery.relabel (rulesExporters) in the same
+// scope — the pipeline's top level or the same declare — whose rule blocks
+// the lint checks and the served form drops __tenant_id__ after. Rules
+// written in place (a list or object literal, a function call, a
+// concatenation, a declare argument), another component's export, and a
+// component it cannot find there are refused: the lint cannot check them.
+func (l *tenantLinter) rulesAttributes(b *ast.BlockStmt, name string, sc scope) {
+	for _, st := range b.Body {
+		a, ok := st.(*ast.AttributeStmt)
+		if !ok || !isRulesAttribute(name, a.Name.Name) {
+			continue
+		}
+		if !l.budget.take() {
+			return
+		}
+		where := fmt.Sprintf("%s %q %s", name, b.Label, a.Name.Name)
+		parts, ok := accessChain(a.Value)
+		if !ok || len(parts) != 4 || parts[3] != "rules" || !rulesExporters[parts[0]+"."+parts[1]] {
+			l.refuse(a.Value, where+" is not a reference to a loki.relabel component's rules, so strict tenant mode "+
+				"cannot check the rules and refuses it; move the rules into a loki.relabel component's rule blocks "+
+				"and set "+a.Name.Name+" = loki.relabel.<label>.rules")
+			continue
+		}
+		if _, ok := l.components[sc.declare][strings.Join(parts[:3], ".")]; !ok {
+			l.refuse(a.Value, fmt.Sprintf("%s refers to %s, which is not in the same pipeline or declare, so strict "+
+				"tenant mode cannot check its rules and refuses it; move the rules into a loki.relabel component's "+
+				"rule blocks beside it", where, strings.Join(parts[:3], ".")))
 		}
 	}
 }
@@ -1208,9 +1288,8 @@ func (l *tenantLinter) pushSourcePaths() {
 		name := strings.Join(ps.block.Name, ".")
 		where := fmt.Sprintf("%s %q", name, ps.block.Label)
 		if problem := l.followClientTenant(ps.block, ps.scope, map[*ast.BlockStmt]bool{}, 0); problem != "" {
-			l.refuse(ps.block, where+" forwards the tenant a client sends (X-Scope-OrgID, as "+tenantLabel+") "+
-				problem+" — strict tenant mode refuses it; overwrite it (stage.static_labels) or drop it "+
-				"(stage.label_drop) on every path to the writer")
+			l.refuse(ps.block, where+" "+pushSources[name]+" "+problem+" — strict tenant mode refuses it; "+
+				"overwrite "+tenantLabel+" (stage.static_labels) or drop it (stage.label_drop) on every path to the writer")
 		}
 	}
 }

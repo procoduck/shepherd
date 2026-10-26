@@ -84,7 +84,19 @@
           on the tenant the sending client names &mdash; unless every path from it to a
           <code>loki.write</code> first overwrites <code>__tenant_id__</code>
           (<code>stage.static_labels</code>, outside <code>stage.match</code>) or drops it
-          (<code>stage.label_drop</code>);</li>
+          (<code>stage.label_drop</code>). The same goes for <code>otelcol.exporter.loki</code>,
+          which turns OpenTelemetry attributes named by the <code>loki.resource.labels</code> and
+          <code>loki.attribute.labels</code> hints into Loki labels, <code>__tenant_id__</code>
+          included;</li>
+        <li>a <code>relabel_rules</code> attribute (on <code>loki.source.syslog</code>,
+          <code>loki.source.journal</code>, <code>loki.source.kafka</code> and the other Loki
+          sources that take one) that is not a plain reference such as
+          <code>loki.relabel.&lt;label&gt;.rules</code> or
+          <code>discovery.relabel.&lt;label&gt;.rules</code> to a component in the same pipeline
+          or <code>declare</code>. Write the rules as <code>rule</code> blocks in a
+          <code>loki.relabel</code> component and refer to its <code>rules</code>: those are
+          checked, and rules written in place (a list or object, a function call, a
+          concatenation) are refused;</li>
         <li><code>import.file</code> and <code>import.http</code> modules, and an
           <code>import.git</code> module unless it is pinned to a commit of an allowed repository
           (<a href="#pinned-imports">below</a>) &mdash; otherwise inline the module as a

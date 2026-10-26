@@ -92,6 +92,23 @@ Categories used here:
 
 ### Fixed
 
+- **Strict tenant mode also checks relabel rule attributes and the labels
+  `otelcol.exporter.loki` makes.** Shipped. In a strict org, a `relabel_rules` attribute (on
+  `loki.source.syslog`, `.journal`, `.kafka` and the other Loki sources that take one, read from
+  the component schemas) must now be a plain reference to a `loki.relabel` or
+  `discovery.relabel` component's `rules` in the same pipeline or declare, whose `rule` blocks
+  the tenant check reads and the served form drops `__tenant_id__` after. Rules written in place
+  (a list or object, a function call, a concatenation), another export, and a component outside
+  that scope are refused, with a message to move the rules into a `loki.relabel` component.
+  `otelcol.exporter.loki`, which turns the OpenTelemetry attributes its `loki.resource.labels` /
+  `loki.attribute.labels` hints name into Loki labels (`__tenant_id__` included), is now checked
+  like `loki.source.api`: every path from it to a `loki.write` must overwrite or drop
+  `__tenant_id__` first. The grafana/k8s-monitoring chart's logs output sends its
+  `otelcol.exporter.loki` straight to `loki.write`, so a strict org saves it only with a
+  `loki.process` dropping `__tenant_id__` on that path. At boot, an org whose pipeline gets a
+  `__tenant_id__` drop in the strict served form is also recomputed, in case
+  `tenants.require_owned` changed since the last boot. The inserted drop takes the labelmap
+  line's own leading whitespace (tabs included). The served config format is unchanged.
 - **Strict tenant mode also checks import blocks nested in other blocks.** Shipped. Alloy loads
   an `import.*` block inside a `foreach` template too. Strict tenant mode follows imports at the
   top level and directly in a `declare`, and now refuses an import block anywhere else (a
