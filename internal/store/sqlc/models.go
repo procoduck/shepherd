@@ -69,14 +69,21 @@ type Cluster struct {
 }
 
 type Collector struct {
-	ID                pgtype.UUID        `json:"id"`
-	ClusterID         pgtype.UUID        `json:"cluster_id"`
-	Role              string             `json:"role"`
-	CreatedAt         pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
-	Labels            json.RawMessage    `json:"labels"`
-	LastRefusedAt     pgtype.Timestamptz `json:"last_refused_at"`
-	LastRefusedReason pgtype.Text        `json:"last_refused_reason"`
+	ID                     pgtype.UUID        `json:"id"`
+	ClusterID              pgtype.UUID        `json:"cluster_id"`
+	Role                   string             `json:"role"`
+	CreatedAt              pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt              pgtype.Timestamptz `json:"updated_at"`
+	Labels                 json.RawMessage    `json:"labels"`
+	LastRefusedAt          pgtype.Timestamptz `json:"last_refused_at"`
+	LastRefusedReason      pgtype.Text        `json:"last_refused_reason"`
+	VersionWarning         pgtype.Text        `json:"version_warning"`
+	VersionWarningAt       pgtype.Timestamptz `json:"version_warning_at"`
+	VersionMismatch        bool               `json:"version_mismatch"`
+	VersionCheckedHash     pgtype.Text        `json:"version_checked_hash"`
+	VersionCheckedVersions []string           `json:"version_checked_versions"`
+	VersionCheckedAt       pgtype.Timestamptz `json:"version_checked_at"`
+	VersionCheckedUntil    pgtype.Timestamptz `json:"version_checked_until"`
 }
 
 type CollectorInstance struct {

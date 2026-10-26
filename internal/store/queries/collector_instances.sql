@@ -218,3 +218,65 @@ WHERE unregistered_at IS NULL
   AND (sqlc.narg(inactive_before)::timestamptz IS NULL
        OR last_seen IS NULL
        OR last_seen >= sqlc.narg(inactive_before)::timestamptz);
+
+-- name: ListActiveInstanceVersions :many
+-- The distinct Alloy versions a collector's ACTIVE instances report (#375):
+-- registered and, when inactive_before is set (now minus
+-- agent.inactive_after), seen since — CountActiveInstances' rule. An
+-- instance that reported no collector.version reads as ''. newest_seen is
+-- the latest last_seen among the instances reporting that version: the
+-- version drops out of the set once newest_seen + agent.inactive_after
+-- passes.
+SELECT COALESCE(alloy_version, '')::text AS alloy_version,
+       max(last_seen)::timestamptz AS newest_seen
+FROM collector_instances
+WHERE collector_id = sqlc.arg(collector_id)
+  AND unregistered_at IS NULL
+  AND (sqlc.narg(inactive_before)::timestamptz IS NULL
+       OR last_seen IS NULL
+       OR last_seen >= sqlc.narg(inactive_before)::timestamptz)
+GROUP BY 1
+ORDER BY 1;
+
+-- name: ListActiveInstanceVersionsByOrg :many
+-- ListActiveInstanceVersions for every collector of an org in one round trip
+-- (Stage 3, internal/mgmtapi stage3CheckSet). Versions and instance names
+-- are agent-chosen, so the bounds are PER COLLECTOR — an org-wide cut would
+-- leave whole collectors with no versions (#409 re-review): at most
+-- per_collector versions each, release versions oldest first, then the
+-- rest; versions_total says how many there were. Each row names at most
+-- the 3 most recently seen instances reporting it, with instance_count.
+WITH active AS (
+    SELECT ci.collector_id, COALESCE(ci.alloy_version, '') AS alloy_version, ci.name, ci.last_seen
+    FROM collector_instances ci
+    JOIN collectors c ON c.id = ci.collector_id
+    JOIN clusters cl ON cl.id = c.cluster_id
+    WHERE cl.org_id = sqlc.arg(org_id)
+      AND ci.unregistered_at IS NULL
+      AND (sqlc.narg(inactive_before)::timestamptz IS NULL
+           OR ci.last_seen IS NULL
+           OR ci.last_seen >= sqlc.narg(inactive_before)::timestamptz)
+),
+versions AS (
+    SELECT collector_id, alloy_version, count(*)::bigint AS instance_count,
+           alloy_version ~ '^v?[0-9]{1,6}\.[0-9]{1,6}\.[0-9]{1,6}$' AS is_release
+    FROM active
+    GROUP BY 1, 2
+),
+ranked AS (
+    SELECT v.*,
+           row_number() OVER (PARTITION BY collector_id ORDER BY
+               is_release DESC,
+               CASE WHEN is_release THEN string_to_array(ltrim(alloy_version, 'v'), '.')::int[] END ASC NULLS LAST,
+               alloy_version) AS rn,
+           count(*) OVER (PARTITION BY collector_id) AS versions_total
+    FROM versions v
+)
+SELECT r.collector_id, r.alloy_version::text AS alloy_version, r.instance_count, r.versions_total::bigint AS versions_total,
+       COALESCE((SELECT array_agg(n.name ORDER BY n.last_seen DESC NULLS LAST)
+                 FROM (SELECT a.name, a.last_seen FROM active a
+                       WHERE a.collector_id = r.collector_id AND a.alloy_version = r.alloy_version
+                       ORDER BY a.last_seen DESC NULLS LAST LIMIT 3) n), '{}')::text[] AS instances
+FROM ranked r
+WHERE r.rn <= sqlc.arg(per_collector)::bigint
+ORDER BY r.collector_id, r.rn;

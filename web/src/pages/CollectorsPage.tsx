@@ -3,6 +3,7 @@ import { Link, useNavigate } from '@tanstack/react-router';
 import { useMemo, useState } from 'react';
 import { clients } from '@/api/transport';
 import { RefusedBadge } from '@/components/CollectorRefusal';
+import { VersionWarningBadge } from '@/components/CollectorVersionWarning';
 import { ConnectClusterDialog } from '@/components/ConnectClusterDialog';
 import { QueryError } from '@/components/QueryError';
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
@@ -66,7 +67,12 @@ const collectorColumns: DataTableColumn<Collector>[] = [
     header: 'Version',
     width: '11%',
     cellClassName: 'px-4 py-2.5 text-muted break-words',
-    render: (c) => c.alloyVersion || '—',
+    render: (c) => (
+      <>
+        {c.alloyVersion || '—'}
+        <VersionWarningBadge collector={c} />
+      </>
+    ),
   },
   {
     key: 'labels',

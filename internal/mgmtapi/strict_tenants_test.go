@@ -697,6 +697,29 @@ var _ = Describe("Strict tenant mode", Label("integration"), func() {
 			Expect(v).To(HaveKeyWithValue("signalsProven", true))
 		})
 
+		// #375 on the served form: the version check sees the inlined
+		// module, so a component only the module uses is checked too.
+		It("refuses a pinned module using a component a v1.18.1 instance lacks", func() {
+			collector := newCollector()
+			_, err := st.Queries.UpsertCollectorInstance(ctx, sqlc.UpsertCollectorInstanceParams{
+				ID: "old-pod", CollectorID: collector, Name: "old-pod", LocalAttributes: json.RawMessage(`{}`),
+				AlloyVersion: pgtype.Text{String: "v1.18.1", Valid: true},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			ok(allow(repo))
+			cache("redact.alloy", "declare \"out\" {\n  otelcol.processor.redaction \"r\" {\n    output {}\n  }\n}\n")
+			src := importing(sha, "redact.alloy") + "m.out \"x\" { }\n"
+
+			v := ok(call(adminA, "PipelineService/ValidatePipeline", map[string]any{"orgId": orgA.String(), "name": "p", "contents": src}))
+			Expect(fmt.Sprint(v["diagnostics"])).To(ContainSubstring("otelcol.processor.redaction is not available in Alloy v1.18.1"))
+
+			p := matched("p", src)
+			code, out := call(adminA, "PipelineService/EnablePipeline", map[string]any{"orgId": orgA.String(), "id": p["id"]})
+			Expect(code).To(Equal(http.StatusBadRequest), "%v", out)
+			Expect(out["message"]).To(ContainSubstring("component otelcol.processor.redaction is not available in Alloy v1.18.1"))
+			Expect(out["message"]).To(ContainSubstring("old-pod"))
+		})
+
 		It("keeps the last good config, and records the failure, when a module cannot be inlined at serve time", func() {
 			collector := newCollector()
 			ok(allow(repo))

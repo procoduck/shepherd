@@ -75,6 +75,21 @@ type Service struct {
 	// identities remembers OIDC callers' agent_identities bindings for the
 	// last-served key (WithOutageCache); nil = disabled.
 	identities *identityCache
+	// inactiveAfter is agent.inactive_after: an instance not seen within it
+	// is not active, and its Alloy version is not checked (#375). Zero
+	// counts every registered instance (WithInactiveAfter).
+	inactiveAfter time.Duration
+	// versionRecheck is how long a recorded version mismatch stands before a
+	// poll re-checks it, and versionNewWindow how often a newly reported
+	// version may trigger one (versions.go).
+	versionRecheck   time.Duration
+	versionNewWindow time.Duration
+}
+
+// WithInactiveAfter sets agent.inactive_after for the served config's
+// version check (#375): only instances seen within it count.
+func WithInactiveAfter(d time.Duration) ServiceOption {
+	return func(s *Service) { s.inactiveAfter = d }
 }
 
 // ServiceOption configures optional Service behavior not required by every
@@ -132,6 +147,7 @@ func New(st *store.Store, v *validate.Validator, logger *slog.Logger, reg *schem
 	s := &Service{
 		store: st, validator: v, logger: logger.With("component", "agentapi"), schema: reg,
 		refusals: newRefusalLog(refusalLogWindow, refusalLogMax), refusalWriteWindow: refusalLogWindow,
+		versionRecheck: versionRecheckWindow, versionNewWindow: versionNewWindow,
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -445,6 +461,10 @@ func (s *Service) resolveServed(
 
 	// A poll with no fresh status but the hash we served: see applySilentPoll.
 	s.applySilentPoll(ctx, coll.ID, msg, cache.Hash)
+
+	// #375: flag (never block) a served config an active instance's Alloy
+	// version may not load.
+	s.checkServedVersions(ctx, orgID, coll, attrs["collector.version"], cache.Content, cache.Hash)
 
 	return servedConfig{content: cache.Content, hash: cache.Hash}, nil
 }

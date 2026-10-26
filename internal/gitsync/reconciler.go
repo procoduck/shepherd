@@ -54,8 +54,11 @@ type Reconciler struct {
 	// requireOwned is the server-wide tenants.require_owned setting: strict
 	// tenant mode's pipeline lint for every org.
 	requireOwned bool
-	limits       gitrepo.Limits
-	tokenCache   *gitrepo.TokenCache
+	// inactiveAfter is agent.inactive_after: the dry run's version check
+	// (#375) covers the Alloy versions of instances seen within it.
+	inactiveAfter time.Duration
+	limits        gitrepo.Limits
+	tokenCache    *gitrepo.TokenCache
 	// imports fetches strict mode's pinned import.git modules for the
 	// per-file validation (internal/pinnedimport).
 	imports *pinnedimport.Resolver
@@ -112,6 +115,7 @@ func New(st *store.Store, enc *crypto.Encryptor, v *validate.Validator, reg *sch
 		beaconBaseline: serve.BeaconBaseline(cfg),
 		cfg:            &cfg.GitSync,
 		requireOwned:   cfg.Tenants.RequireOwned,
+		inactiveAfter:  cfg.Agent.InactiveAfter,
 		limits: gitrepo.Limits{
 			MaxRepoBytes: cfg.GitSync.MaxRepoBytes,
 			MaxFileBytes: cfg.GitSync.MaxFileBytes,
@@ -1093,14 +1097,33 @@ func (r *Reconciler) stage3DryRun(ctx context.Context, link sqlc.RepoLink, plans
 		return dryRunResult{refusals: refusals}, nil
 	}
 
+	// #375: the Alloy versions the collector's active instances report. An
+	// item missing from one of them is a diagnostic like any other, so the
+	// same rule applies: the commit is refused for what it brings, and a
+	// mismatch already in the served config is pre-existing.
+	versionRows, err := r.store.Queries.ListActiveInstanceVersions(ctx, sqlc.ListActiveInstanceVersionsParams{
+		CollectorID:    link.CollectorID,
+		InactiveBefore: activeCutoff(r.inactiveAfter, time.Now()),
+	})
+	versions := make([]string, 0, len(versionRows))
+	for _, vr := range versionRows {
+		versions = append(versions, vr.AlloyVersion)
+	}
+	if err != nil {
+		return dryRunResult{}, fmt.Errorf("loading collector instance versions: %w", err)
+	}
+
 	result := r.validator.Stages12(ctx, served.Content)
-	if result.Valid {
+	versionErrs := validate.AlloyVersionErrors(served.Content, versions)
+	if result.Valid && len(versionErrs) == 0 {
 		return dryRunResult{}, nil
 	}
-	if err := inconclusive(ctx, result); err != nil {
-		return dryRunResult{}, err
+	if !result.Valid {
+		if err := inconclusive(ctx, result); err != nil {
+			return dryRunResult{}, err
+		}
 	}
-	after := locateDiagnostics(served.Content, result.Diagnostics)
+	after := locateDiagnostics(served.Content, append(result.Diagnostics, versionErrs...))
 
 	// The baseline: the collector's merged config without the commit. If it
 	// cannot be assembled, nothing counts as pre-existing. If its validation
@@ -1109,14 +1132,26 @@ func (r *Reconciler) stage3DryRun(ctx context.Context, link sqlc.RepoLink, plans
 	var before []locatedDiag
 	if baseServed, baseErr := assemble(current); baseErr == nil {
 		base := r.validator.Stages12(ctx, baseServed.Content)
+		baseVersionErrs := validate.AlloyVersionErrors(baseServed.Content, versions)
 		if !base.Valid {
 			if err := inconclusive(ctx, base); err != nil {
 				return dryRunResult{}, err
 			}
-			before = locateDiagnostics(baseServed.Content, base.Diagnostics)
+		}
+		if !base.Valid || len(baseVersionErrs) > 0 {
+			before = locateDiagnostics(baseServed.Content, append(base.Diagnostics, baseVersionErrs...))
 		}
 	}
 	return judge(after, before, changed, paths, collectorKey), nil
+}
+
+// activeCutoff is now minus agent.inactive_after, or NULL (every registered
+// instance) when it is unset.
+func activeCutoff(inactiveAfter time.Duration, now time.Time) pgtype.Timestamptz {
+	if inactiveAfter <= 0 {
+		return pgtype.Timestamptz{}
+	}
+	return pgtype.Timestamptz{Time: now.Add(-inactiveAfter), Valid: true}
 }
 
 // inconclusive reports a Stages 1-2 run that gave no verdict on the content

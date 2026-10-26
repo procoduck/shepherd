@@ -207,6 +207,42 @@
             sees it.</li>
       </ol>
 
+      <h3 id="alloy-versions">Your collectors&rsquo; Alloy versions</h3>
+      <p>
+        <code>alloy validate</code> runs one pinned Alloy release, but your collectors may run older
+        ones, and an Alloy that cannot load a config keeps its last one. The merge dry-run therefore
+        also checks each affected collector&rsquo;s merged config against the component schema of every
+        Alloy version its active instances report (instances seen within
+        <code>agent.inactive_after</code>). A component, block or attribute that version does not
+        have refuses the save, naming the collector, the version and the item &mdash; for example
+        <code>otelcol.processor.redaction</code> on a v1.18.1 collector, or
+        <code>scrape_classic_histograms</code> in a <code>prometheus.operator.*</code> scrape block.
+        <strong>So a save can be refused because of the fleet</strong>: upgrade the older collectors,
+        or change the pipeline so every active version can load it.
+      </p>
+      <p>
+        Shepherd ships schemas for v1.18.1, v1.19.2, v1.20.1 and the pinned release. A release
+        without its own schema is checked against the nearest older one &mdash; the newest of the
+        same minor that is not newer, else the newest older one (v1.20.0 against v1.19.2, v1.21.0
+        against v1.20.1) &mdash; with a warning that the check is an approximation. A version newer
+        than every shipped schema, a pre-release or none reported is checked against the pinned
+        schema only, with a warning. A refusal names the instances reporting the version, so a
+        stale or misreporting agent can be found. A component that is experimental or public
+        preview in a collector&rsquo;s version also gets a warning naming the
+        <code>--stability.level</code> flag that collector must run with. Warnings never refuse.
+        The editor shows the same findings, as warnings, for every version active in the org.
+      </p>
+      <p>
+        A mismatch a collector is <em>already</em> served never blocks an unrelated change:
+        disabling a pipeline, editing another one, or a destination change re-rendering wizard
+        pipelines goes through. Only a change that brings a missing item &mdash; or keeps one in the
+        pipeline it edits &mdash; is refused.
+      </p>
+      <p>
+        If an older pod joins after the save, Shepherd keeps serving the validated config and flags
+        the collector instead: see <a href="collectors.html#version-warnings">Version warnings</a>.
+      </p>
+
       <p>
         The gate proves a config is well formed and fits with the rest; it cannot run it. Alloy can
         still reject a config at load time for reasons only the running agent knows &mdash; a
@@ -233,6 +269,7 @@
         <li><a href="#roles">A collector&rsquo;s role limits what it runs</a></li>
         <li><a href="#matching-on-labels">Matching on labels and agent attributes</a></li>
         <li><a href="#the-validation-gate">The validation gate</a></li>
+        <li class="sub"><a href="#alloy-versions">Your collectors&rsquo; Alloy versions</a></li>
       </ul>
     </aside>
   </div>

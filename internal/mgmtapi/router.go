@@ -170,7 +170,8 @@ func MountRPC(r chi.Router, st *store.Store, cfg *config.Config, enc *crypto.Enc
 	// sync's limits, cached in the database (internal/pinnedimport).
 	imports := pinnedimport.New(cfg, enc, logger)
 	pipelineSvc := NewPipelineService(st, v, schemaReg, logger, WithBeaconBaseline(serve.BeaconBaseline(cfg)),
-		WithRequireOwnedTenants(requireOwned), WithPinnedImports(imports))
+		WithRequireOwnedTenants(requireOwned), WithPinnedImports(imports),
+		WithPipelineInactiveAfter(cfg.Agent.InactiveAfter))
 
 	mounts := []func() (string, http.Handler){
 		func() (string, http.Handler) {

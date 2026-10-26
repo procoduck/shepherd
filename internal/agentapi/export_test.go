@@ -84,3 +84,11 @@ func SetDBWorkFloor(d time.Duration) (restore func()) {
 // SetCollectorRefusalWindow replaces how long a recorded collector refusal
 // suppresses rewriting the row for the same reason. Test-only.
 func SetCollectorRefusalWindow(s *Service, d time.Duration) { s.refusalWriteWindow = d }
+
+// SetVersionRecheck replaces how long a recorded version warning stands
+// before a poll re-checks it (#375). Test-only.
+func SetVersionRecheck(s *Service, d time.Duration) { s.versionRecheck = d }
+
+// SetVersionNewWindow replaces how often a newly reported version may
+// trigger a re-check (#375). Test-only.
+func SetVersionNewWindow(s *Service, d time.Duration) { s.versionNewWindow = d }

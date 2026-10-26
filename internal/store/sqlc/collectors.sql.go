@@ -43,7 +43,7 @@ func (q *Queries) DeleteCollectorLabel(ctx context.Context, arg DeleteCollectorL
 }
 
 const getCollectorByClusterAndRole = `-- name: GetCollectorByClusterAndRole :one
-SELECT c.id, c.cluster_id, c.role, c.created_at, c.updated_at, c.labels, c.last_refused_at, c.last_refused_reason FROM collectors c
+SELECT c.id, c.cluster_id, c.role, c.created_at, c.updated_at, c.labels, c.last_refused_at, c.last_refused_reason, c.version_warning, c.version_warning_at, c.version_mismatch, c.version_checked_hash, c.version_checked_versions, c.version_checked_at, c.version_checked_until FROM collectors c
 JOIN clusters cl ON c.cluster_id = cl.id
 WHERE cl.name = $1 AND c.role = $2
 `
@@ -65,12 +65,19 @@ func (q *Queries) GetCollectorByClusterAndRole(ctx context.Context, arg GetColle
 		&i.Labels,
 		&i.LastRefusedAt,
 		&i.LastRefusedReason,
+		&i.VersionWarning,
+		&i.VersionWarningAt,
+		&i.VersionMismatch,
+		&i.VersionCheckedHash,
+		&i.VersionCheckedVersions,
+		&i.VersionCheckedAt,
+		&i.VersionCheckedUntil,
 	)
 	return i, err
 }
 
 const getCollectorByID = `-- name: GetCollectorByID :one
-SELECT id, cluster_id, role, created_at, updated_at, labels, last_refused_at, last_refused_reason FROM collectors WHERE id = $1
+SELECT id, cluster_id, role, created_at, updated_at, labels, last_refused_at, last_refused_reason, version_warning, version_warning_at, version_mismatch, version_checked_hash, version_checked_versions, version_checked_at, version_checked_until FROM collectors WHERE id = $1
 `
 
 func (q *Queries) GetCollectorByID(ctx context.Context, id pgtype.UUID) (Collector, error) {
@@ -85,6 +92,13 @@ func (q *Queries) GetCollectorByID(ctx context.Context, id pgtype.UUID) (Collect
 		&i.Labels,
 		&i.LastRefusedAt,
 		&i.LastRefusedReason,
+		&i.VersionWarning,
+		&i.VersionWarningAt,
+		&i.VersionMismatch,
+		&i.VersionCheckedHash,
+		&i.VersionCheckedVersions,
+		&i.VersionCheckedAt,
+		&i.VersionCheckedUntil,
 	)
 	return i, err
 }
@@ -124,7 +138,7 @@ func (q *Queries) GetCollectorOwner(ctx context.Context, id pgtype.UUID) (GetCol
 }
 
 const listCollectorsByOrg = `-- name: ListCollectorsByOrg :many
-SELECT c.id, c.cluster_id, c.role, c.created_at, c.updated_at, c.labels, c.last_refused_at, c.last_refused_reason FROM collectors c
+SELECT c.id, c.cluster_id, c.role, c.created_at, c.updated_at, c.labels, c.last_refused_at, c.last_refused_reason, c.version_warning, c.version_warning_at, c.version_mismatch, c.version_checked_hash, c.version_checked_versions, c.version_checked_at, c.version_checked_until FROM collectors c
 JOIN clusters cl ON c.cluster_id = cl.id
 WHERE cl.org_id = $1
 ORDER BY cl.name, c.role
@@ -148,6 +162,13 @@ func (q *Queries) ListCollectorsByOrg(ctx context.Context, orgID pgtype.UUID) ([
 			&i.Labels,
 			&i.LastRefusedAt,
 			&i.LastRefusedReason,
+			&i.VersionWarning,
+			&i.VersionWarningAt,
+			&i.VersionMismatch,
+			&i.VersionCheckedHash,
+			&i.VersionCheckedVersions,
+			&i.VersionCheckedAt,
+			&i.VersionCheckedUntil,
 		); err != nil {
 			return nil, err
 		}
@@ -223,6 +244,47 @@ func (q *Queries) RecordCollectorRefusal(ctx context.Context, arg RecordCollecto
 	return err
 }
 
+const recordCollectorVersionCheck = `-- name: RecordCollectorVersionCheck :exec
+UPDATE collectors
+SET version_checked_hash     = $1::text,
+    version_checked_versions = $2::text[],
+    version_checked_until    = $3::timestamptz,
+    version_checked_at       = now()
+WHERE id = $4
+  AND (version_checked_hash IS DISTINCT FROM $1::text
+       OR version_checked_versions IS DISTINCT FROM $2::text[]
+       -- until moves with every poll of a live instance; it only needs
+       -- rewriting when it appears, disappears or has passed.
+       OR (version_checked_until IS NULL) <> ($3::timestamptz IS NULL)
+       OR version_checked_until < now()
+       OR version_checked_at IS NULL
+       OR version_checked_at < now() - make_interval(secs => $5::float8))
+`
+
+type RecordCollectorVersionCheckParams struct {
+	Hash           string             `json:"hash"`
+	Versions       []string           `json:"versions"`
+	Until          pgtype.Timestamptz `json:"until"`
+	ID             pgtype.UUID        `json:"id"`
+	StaleAfterSecs float64            `json:"stale_after_secs"`
+}
+
+// The fingerprint of the version check just run (0044): what lets the next
+// poll skip it. Writes only when the fingerprint changed or the stored one
+// is older than stale_after (which refreshes version_checked_at for the
+// agent API's re-check windows), so a check that found what the last one
+// did costs no UPDATE.
+func (q *Queries) RecordCollectorVersionCheck(ctx context.Context, arg RecordCollectorVersionCheckParams) error {
+	_, err := q.db.Exec(ctx, recordCollectorVersionCheck,
+		arg.Hash,
+		arg.Versions,
+		arg.Until,
+		arg.ID,
+		arg.StaleAfterSecs,
+	)
+	return err
+}
+
 const setCollectorLabel = `-- name: SetCollectorLabel :one
 UPDATE collectors
 SET labels = labels || jsonb_build_object($1::text, $2::text),
@@ -245,11 +307,37 @@ func (q *Queries) SetCollectorLabel(ctx context.Context, arg SetCollectorLabelPa
 	return labels, err
 }
 
+const setCollectorVersionWarning = `-- name: SetCollectorVersionWarning :one
+UPDATE collectors
+SET version_warning    = $1::text,
+    version_warning_at = CASE WHEN $1::text IS NULL THEN NULL ELSE now() END,
+    version_mismatch   = $2::bool
+WHERE id = $3
+  AND version_warning IS DISTINCT FROM $1::text
+RETURNING id
+`
+
+type SetCollectorVersionWarningParams struct {
+	Warning  pgtype.Text `json:"warning"`
+	Mismatch bool        `json:"mismatch"`
+	ID       pgtype.UUID `json:"id"`
+}
+
+// #375 (0044): a compare-and-swap on version_warning, so concurrent polls
+// that reach the same finding write — and audit — it once. No row means the
+// stored warning already says this.
+func (q *Queries) SetCollectorVersionWarning(ctx context.Context, arg SetCollectorVersionWarningParams) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, setCollectorVersionWarning, arg.Warning, arg.Mismatch, arg.ID)
+	var id pgtype.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
 const upsertCollector = `-- name: UpsertCollector :one
 INSERT INTO collectors (cluster_id, role)
 VALUES ($1, $2)
 ON CONFLICT (cluster_id, role) DO UPDATE SET updated_at = now()
-RETURNING id, cluster_id, role, created_at, updated_at, labels, last_refused_at, last_refused_reason
+RETURNING id, cluster_id, role, created_at, updated_at, labels, last_refused_at, last_refused_reason, version_warning, version_warning_at, version_mismatch, version_checked_hash, version_checked_versions, version_checked_at, version_checked_until
 `
 
 type UpsertCollectorParams struct {
@@ -269,6 +357,13 @@ func (q *Queries) UpsertCollector(ctx context.Context, arg UpsertCollectorParams
 		&i.Labels,
 		&i.LastRefusedAt,
 		&i.LastRefusedReason,
+		&i.VersionWarning,
+		&i.VersionWarningAt,
+		&i.VersionMismatch,
+		&i.VersionCheckedHash,
+		&i.VersionCheckedVersions,
+		&i.VersionCheckedAt,
+		&i.VersionCheckedUntil,
 	)
 	return i, err
 }

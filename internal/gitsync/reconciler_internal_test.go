@@ -692,6 +692,30 @@ prometheus.remote_write "demo" {
 				expectNothingApplied("logs")
 			})
 
+			// #375: the dry run checks the merged config against the Alloy
+			// version of each of the collector's active instances, the same
+			// version check the API's Stage 3 runs.
+			It("refuses a file using an attribute the collector's Alloy version lacks, naming the file", func() {
+				_, err := st.Queries.UpsertCollectorInstance(ctx, sqlc.UpsertCollectorInstanceParams{
+					ID: "old-pod", CollectorID: collectorID, Name: "old-pod", LocalAttributes: []byte(`{}`),
+					AlloyVersion: pgtype.Text{String: "v1.18.1", Valid: true},
+				})
+				Expect(err).NotTo(HaveOccurred())
+				pods := filePlan{name: "pods", path: "pods.alloy", contents: `prometheus.operator.podmonitors "pods" {
+  forward_to = []
+  scrape {
+    scrape_classic_histograms = true
+  }
+}
+`}
+				verdict, err := r.stage3DryRun(ctx, link, []filePlan{pods}, nil, nil)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(verdict.refusals).To(HaveLen(1))
+				Expect(verdict.refusals[0].Error()).To(ContainSubstring("pods.alloy"))
+				Expect(verdict.refusals[0].Error()).To(ContainSubstring("scrape_classic_histograms"))
+				Expect(verdict.refusals[0].Error()).To(ContainSubstring("v1.18.1"))
+			})
+
 			// The dry run models the collector after the WHOLE commit. In a
 			// declare-wrapped merge the pipelines meet at their block names,
 			// so that is where checking files one at a time goes wrong in

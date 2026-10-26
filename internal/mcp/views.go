@@ -39,6 +39,10 @@ type CollectorView struct {
 	AlloyVersion       string                  `json:"alloy_version,omitempty"`
 	LocalAttributes    map[string]any          `json:"local_attributes,omitempty"`
 	Instances          []CollectorInstanceView `json:"instances,omitempty"`
+	// VersionWarnings and VersionMismatch are Collector.version_warning
+	// (#375): what the version check of the served config found.
+	VersionWarnings []string `json:"version_warnings,omitempty"`
+	VersionMismatch bool     `json:"version_mismatch,omitempty"`
 }
 
 // CollectorInstanceView mirrors mgmtv1.CollectorInstance.
@@ -62,6 +66,9 @@ func toCollectorView(c *mgmtv1.Collector) CollectorView {
 	}
 	if la := c.GetLocalAttributes(); la != nil {
 		v.LocalAttributes = la.AsMap()
+	}
+	if vw := c.GetVersionWarning(); vw != nil {
+		v.VersionWarnings, v.VersionMismatch = vw.GetFindings(), vw.GetMismatch()
 	}
 	for _, ci := range c.GetInstances() {
 		v.Instances = append(v.Instances, CollectorInstanceView{

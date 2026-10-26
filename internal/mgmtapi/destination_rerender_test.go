@@ -235,6 +235,39 @@ var _ = Describe("Destination changes reach wizard pipelines (#262)", Label("int
 		Expect(auditRows(other, "pipeline.rerender")).To(BeEmpty())
 	})
 
+	// #375 review: a mismatch the collector is already served — another
+	// pipeline using an attribute an active instance's Alloy lacks, or an
+	// agent reporting an old collector.version — must not refuse every
+	// re-render of an unrelated wizard pipeline.
+	It("re-renders under an Alloy-version mismatch the collector is already served", func() {
+		mimir := createDest(org, "mimir", "prometheus", oldURL)
+		used := commitSelfMonitoring(org, "self-mon", "mimir")
+		cluster, err := st.Queries.UpsertCluster(ctx, "rerender-cluster")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(st.Queries.ClaimCluster(ctx, sqlc.ClaimClusterParams{ID: cluster.ID, OrgID: org})).To(Succeed())
+		collector, err := st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: cluster.ID, Role: "singleton"})
+		Expect(err).NotTo(HaveOccurred())
+		code, out := call("PipelineService/EnablePipeline", map[string]any{"orgId": org.String(), "id": used.ID.String()})
+		Expect(code).To(Equal(http.StatusOK), "%v", out)
+
+		// Already served: a pipeline written before the old pod joined.
+		_, err = st.Queries.CreatePipeline(ctx, sqlc.CreatePipelineParams{
+			OrgID: org, Name: "pods", Matchers: json.RawMessage(`["role=\"singleton\""]`), Enabled: true, Source: "ui",
+			Contents:    "prometheus.operator.podmonitors \"pods\" {\n  forward_to = []\n  scrape {\n    scrape_classic_histograms = true\n  }\n}\n",
+			WizardState: json.RawMessage(`{}`), CreatedBy: "test", UpdatedBy: "test",
+		})
+		Expect(err).NotTo(HaveOccurred())
+		_, err = st.Queries.UpsertCollectorInstance(ctx, sqlc.UpsertCollectorInstanceParams{
+			ID: "old-pod", CollectorID: collector.ID, Name: "old-pod", LocalAttributes: json.RawMessage(`{}`),
+			AlloyVersion: pgtype.Text{String: "v1.18.1", Valid: true},
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		code, out = updateDest(mimir, map[string]any{"url": newURL})
+		Expect(code).To(Equal(http.StatusOK), "%v", out)
+		Expect(pipeline(used.ID).Contents).To(ContainSubstring(newURL))
+	})
+
 	It("writes no revision when the update does not change what the wizard renders", func() {
 		mimir := createDest(org, "mimir", "prometheus", oldURL)
 		used := commitSelfMonitoring(org, "self-mon", "mimir")

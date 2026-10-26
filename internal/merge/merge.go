@@ -97,6 +97,11 @@ func BuildCollectorLabels(collectorID, cluster, role string, adminLabels, localA
 // sanitizeRe matches characters outside [a-z0-9_].
 var sanitizeRe = regexp.MustCompile(`[^a-z0-9_]`)
 
+// DeclareLabel is the declare block label Assemble wraps a pipeline in,
+// "pipe_" + SanitizeName(name) — what Spans and Locate report as BlockName,
+// and unique within one merged config (Assemble refuses a collision).
+func DeclareLabel(name string) string { return "pipe_" + SanitizeName(name) }
+
 // SanitizeName converts a pipeline name to a valid Alloy identifier.
 // Result is lowercase, replaces non-[a-z0-9_] with underscores, and
 // prepends "p" if the first character would be a digit.
@@ -229,7 +234,7 @@ func Assemble(collectorID, collectorDisplayName string, cl CollectorLabels, pipe
 	// Check for sanitized-name collisions before assembling.
 	seen := make(map[string]string, len(selected)) // blockName → pipeline name
 	for _, p := range selected {
-		blockName := "pipe_" + SanitizeName(p.Name)
+		blockName := DeclareLabel(p.Name)
 		if existing, ok := seen[blockName]; ok {
 			return AssembleResult{}, fmt.Errorf(
 				"declare-name collision: pipelines %q and %q both sanitize to block name %q",
@@ -249,7 +254,7 @@ func Assemble(collectorID, collectorDisplayName string, cl CollectorLabels, pipe
 			sb.WriteString("\n")
 			linesWritten++
 		}
-		blockName := "pipe_" + SanitizeName(p.Name)
+		blockName := DeclareLabel(p.Name)
 		fmt.Fprintf(&sb, "declare %q {\n", blockName)
 		declareLine := linesWritten + 1
 		// Indent pipeline contents by one level. The text's own final newline
