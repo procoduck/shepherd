@@ -266,7 +266,7 @@ var _ = Describe("Stage 3 version-aware validation (#375)", Label("integration")
 
 		status, msg := enable(id)
 		Expect(status).To(Equal(http.StatusBadRequest), msg)
-		Expect(msg).To(ContainSubstring("not available in Alloy v1.18.1"),
+		Expect(msg).To(ContainSubstring("not available in Alloy v1.18.0"),
 			"truncated version data never falls back to the pin")
 	})
 

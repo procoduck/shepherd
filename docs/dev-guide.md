@@ -274,7 +274,7 @@ Full list (`make help` prints the same, plus the `E2E_*` env knobs each test tar
 | `make e2e-egress` | Sandbox egress containment probes only (fast local check) |
 | `make e2e-k8s` | Kubernetes e2e suite on a fresh kind cluster (~14 min for the `make` step in CI including both image builds, run 34973037471 on 2026-09-15; 45m timeout budget) |
 | `make e2e-k8s-clean` | Delete kind clusters a SIGKILLed `e2e-k8s` run left behind |
-| `make schema-verify` | Verify the committed Alloy schema artifact matches the pinned version |
+| `make schema-verify` | Verify the committed Alloy schema artifact matches the pinned version (`SCHEMA_ALLOY_VERSION=vX.Y.Z` for an older shipped one) |
 | `make helm-lint` | Lint + template the Helm chart against every `ci/` value file and `dev/kind/values.yaml` |
 | `make chart-verify` | Verify the vendored chart schema matches upstream (network; occasional) |
 
@@ -292,7 +292,7 @@ Full list (`make help` prints the same, plus the `E2E_*` env knobs each test tar
 | `make generate` | Regenerate buf + sqlc code (and the Alloy version constant) |
 | `make gen-alloy-version` | Regenerate only `internal/version/alloy_gen.go` from `versions.env` |
 | `make generate-corpus` | Regenerate visual-builder goldens |
-| `make schema` | Regenerate the Alloy schema artifact (network + docker; occasional) |
+| `make schema` | Regenerate the Alloy schema artifact (network + docker; occasional; `SCHEMA_ALLOY_VERSION=vX.Y.Z` adds an older release's) |
 | `make docs` | Regenerate `site/docs/` from `scripts/docs-content/` |
 | `make tools` | Install the Go-installable CLIs the targets here shell out to |
 

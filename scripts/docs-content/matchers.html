@@ -127,10 +127,11 @@
         or change the pipeline so every active version can load it.
       </p>
       <p>
-        Shepherd ships schemas for v1.18.1, v1.19.2, v1.20.1 and the pinned release. A release
-        without its own schema is checked against the nearest older one &mdash; the newest of the
-        same minor that is not newer, else the newest older one (v1.20.0 against v1.19.2, v1.21.0
-        against v1.20.1) &mdash; with a warning that the check is an approximation. A version newer
+        Shepherd ships a schema for every released Alloy patch from v1.18.0 to the pinned
+        release: v1.18.0, v1.18.1, v1.19.0, v1.19.1, v1.19.2, v1.20.0, v1.20.1, v1.21.0, v1.21.1
+        and v1.21.2. A release without its own schema is checked against the
+        nearest older one &mdash; the newest of the same minor that is not newer, else the newest
+        older one (a v1.20.5 against v1.20.1) &mdash; with a warning that the check is an approximation. A version newer
         than every shipped schema, a pre-release or none reported is checked against the pinned
         schema only, with a warning. A refusal names the instances reporting the version, so a
         stale or misreporting agent can be found. A component that is experimental or public

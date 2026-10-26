@@ -651,7 +651,12 @@ gen-alloy-version: ## Regenerate internal/version/alloy_gen.go from versions.env
 # log strings in internal/wizard/wizardtest/load.go (runtimeErrors) against the
 # new image and update runtimeErrorsCapturedOn (the wizard load tests fail until
 # you do) -> commit.
-schema: gen-alloy-version preflight-docker ## Regenerate the Alloy schema artifact (network + docker; occasional)
+# SCHEMA_ALLOY_VERSION=vX.Y.Z generates an ADDITIONAL artifact for another
+# release instead (the older schemas version-aware validation resolves a
+# collector's reported version to, internal/validate/versions.go) and never
+# touches overlay.json, which is tied to the pin. The bump keeps the previous
+# pin's artifact: every released patch from the oldest shipped minor up ships.
+schema: gen-alloy-version preflight-docker ## Regenerate the Alloy schema artifact (network + docker; occasional; SCHEMA_ALLOY_VERSION=vX.Y.Z for an older one)
 	./tools/alloy-schema-gen/run.sh
 
 # Verify the committed artifact still matches what the pinned Alloy produces, AND
@@ -667,21 +672,24 @@ schema: gen-alloy-version preflight-docker ## Regenerate the Alloy schema artifa
 # Prerequisites: network access, git, go, jq. CI wiring:
 # .github/workflows/schema-verify.yml runs this weekly, on manual dispatch, and
 # on PRs touching deploy/versions.env.
-schema-verify: gen-alloy-version preflight-docker ## Verify the committed schema artifact matches the pinned Alloy
+# SCHEMA_ALLOY_VERSION=vX.Y.Z verifies that one additional (older) artifact
+# instead of the pin's; the overlay guards below always run against the pin.
+SCHEMA_VERIFY_VERSION = $(or $(SCHEMA_ALLOY_VERSION),$(ALLOY_VERSION))
+schema-verify: gen-alloy-version preflight-docker ## Verify the committed schema artifact matches the pinned Alloy (SCHEMA_ALLOY_VERSION=vX.Y.Z for an older one)
 	@set -eu; \
 	tmp=$$(mktemp -d); \
 	trap 'rm -rf "$$tmp"' EXIT; \
-	SCHEMA_OUT_DIR="$$tmp" SKIP_RECONCILE=1 ./tools/alloy-schema-gen/run.sh >/dev/null; \
-	committed=internal/schema/artifacts/alloy-$(ALLOY_VERSION).json; \
+	SCHEMA_ALLOY_VERSION="$(SCHEMA_VERIFY_VERSION)" SCHEMA_OUT_DIR="$$tmp" SKIP_RECONCILE=1 ./tools/alloy-schema-gen/run.sh >/dev/null; \
+	committed=internal/schema/artifacts/alloy-$(SCHEMA_VERIFY_VERSION).json; \
 	if [ ! -f "$$committed" ]; then \
-	  echo "schema-verify: FAIL — no committed artifact for the pin ($$committed)"; exit 1; \
+	  echo "schema-verify: FAIL — no committed artifact for $(SCHEMA_VERIFY_VERSION) ($$committed)"; exit 1; \
 	fi; \
 	jq -S 'del(._meta.generated_at)' "$$committed" > "$$tmp/committed.norm.json"; \
-	jq -S 'del(._meta.generated_at)' "$$tmp/alloy-$(ALLOY_VERSION).json" > "$$tmp/fresh.norm.json"; \
+	jq -S 'del(._meta.generated_at)' "$$tmp/alloy-$(SCHEMA_VERIFY_VERSION).json" > "$$tmp/fresh.norm.json"; \
 	if diff -u "$$tmp/committed.norm.json" "$$tmp/fresh.norm.json"; then \
-	  echo "schema-verify: OK ($$committed matches grafana/alloy@$(ALLOY_VERSION))"; \
+	  echo "schema-verify: OK ($$committed matches grafana/alloy@$(SCHEMA_VERIFY_VERSION))"; \
 	else \
-	  echo "schema-verify: FAIL — the committed artifact does not match grafana/alloy@$(ALLOY_VERSION); run 'make schema' and commit the result."; \
+	  echo "schema-verify: FAIL — the committed artifact does not match grafana/alloy@$(SCHEMA_VERIFY_VERSION); run 'make schema' (SCHEMA_ALLOY_VERSION=$(SCHEMA_VERIFY_VERSION) for an older one) and commit the result."; \
 	  exit 1; \
 	fi
 	@echo "==> Overlay guards (S3 dispositions, keep lists, endpoint paths)..."
