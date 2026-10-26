@@ -55,7 +55,7 @@
 **v0.19.1:** the baseline commit is `cf235a6` (#404, the last merge before the v0.19.1 release
 PR). Its push runs are CI 40309974049, CodeQL 40309974071, security-scan 40309973911 and E2E
 40309973888, all green. The Kubernetes e2e last ran on #404's head `20ed8ab` (run 40308794316,
-still running when the release PR was opened) and on #402's head `f5aaed3` (run 40297155063, green). #402 adds the beacon scope and collector-id specs
+green) and on #402's head `f5aaed3` (run 40297155063, green). #402 adds the beacon scope and collector-id specs
 and #403 the renderTS caps (Vitest). The table below is the v0.19.0 evidence and stays valid for
 every surface the three PRs did not touch.
 
