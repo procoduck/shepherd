@@ -114,7 +114,7 @@ func makeServiceAccount(t *testing.T, st *store.Store, orgID pgtype.UUID, name, 
 	secret = "w11-secret-" + name
 	hash := sha256.Sum256([]byte(secret))
 	sa, err := st.Queries.CreateServiceAccount(context.Background(), sqlc.CreateServiceAccountParams{
-		OrgID: orgID, Name: name, Capability: capability, Role: "editor", TokenHash: hash[:], CreatedBy: delegatedHuman,
+		OrgID: orgID, Name: name, Capability: pgtype.Text{String: capability, Valid: true}, Role: "editor", TokenHash: hash[:], CreatedBy: delegatedHuman,
 	})
 	if err != nil {
 		t.Fatalf("CreateServiceAccount: %v", err)

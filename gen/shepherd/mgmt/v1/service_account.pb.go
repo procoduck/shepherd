@@ -30,13 +30,16 @@ type ServiceAccount struct {
 	Id    string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	OrgId string                 `protobuf:"bytes,2,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
 	Name  string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
-	// capability is "propose" or "apply" (G12).
+	// capability is "propose" or "apply" (G12) for ROLE_EDITOR and
+	// ROLE_ADMIN, and empty for ROLE_VIEWER: a viewer never writes, so it
+	// carries no capability (#362, 0042_service_account_viewer).
 	Capability string `protobuf:"bytes,4,opt,name=capability,proto3" json:"capability,omitempty"`
 	CreatedBy  string `protobuf:"bytes,5,opt,name=created_by,json=createdBy,proto3" json:"created_by,omitempty"`
 	// status is "active" or "revoked", mirroring AgentToken's shape.
 	Status    string                 `protobuf:"bytes,6,opt,name=status,proto3" json:"status,omitempty"`
 	CreatedAt *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	// role is ROLE_EDITOR or ROLE_ADMIN (W3-1, 0018_service_account_role): the
+	// role is ROLE_VIEWER, ROLE_EDITOR or ROLE_ADMIN (W3-1
+	// 0018_service_account_role, #362 0042_service_account_viewer): the
 	// tier this credential is checked against, the same way a human
 	// session's org role is — see
 	// authorizeServiceAccountProcedure (rpc_interceptor.go). Orthogonal to
@@ -234,11 +237,14 @@ type CreateServiceAccountRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	OrgId string                 `protobuf:"bytes,1,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
 	Name  string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	// capability is "propose" or "apply", required.
+	// capability is "propose" or "apply", required for ROLE_EDITOR and
+	// ROLE_ADMIN. It must be empty for ROLE_VIEWER: a viewer carries no
+	// capability, and one sent with it is refused with InvalidArgument.
 	Capability string `protobuf:"bytes,3,opt,name=capability,proto3" json:"capability,omitempty"`
-	// role is ROLE_EDITOR or ROLE_ADMIN (W3-1), required: ROLE_UNSPECIFIED
-	// and ROLE_VIEWER are refused with InvalidArgument. Nothing about the
-	// request ever implies ROLE_ADMIN (D3).
+	// role is ROLE_VIEWER, ROLE_EDITOR or ROLE_ADMIN (W3-1, #362), required:
+	// ROLE_UNSPECIFIED is refused with InvalidArgument. A ROLE_VIEWER account
+	// reaches exactly what an org viewer reaches and never writes. Nothing
+	// about the request ever implies ROLE_ADMIN (D3).
 	Role          Role `protobuf:"varint,5,opt,name=role,proto3,enum=shepherd.mgmt.v1.Role" json:"role,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

@@ -1,8 +1,10 @@
 -- name: CreateServiceAccount :one
--- role is "editor" or "admin" (W3-1, 0018_service_account_role): the tier
+-- role is "viewer", "editor" or "admin" (W3-1 0018, #362 0042): the tier
 -- checked against a procedure's requirement in
 -- internal/mgmtapi.authorizeServiceAccountProcedure, orthogonal to
--- capability (propose vs apply, "may this write at all").
+-- capability (propose vs apply, "may this write at all"). capability is
+-- NULL for a viewer and required for editor and admin
+-- (service_accounts_role_capability).
 INSERT INTO service_accounts (org_id, name, capability, role, token_hash, created_by)
 VALUES ($1, $2, $3, $4, $5, $6)
 RETURNING *;

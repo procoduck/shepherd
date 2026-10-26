@@ -65,6 +65,12 @@
             <td>Apply anything.</td>
           </tr>
           <tr>
+            <td><strong>Service account (viewer)</strong></td>
+            <td>Exactly what a viewer can: read the org&rsquo;s collectors, pipelines and served
+                config. It carries no capability.</td>
+            <td>Write anything, simulate, or reach any admin procedure.</td>
+          </tr>
+          <tr>
             <td><strong>Collector (agent token)</strong></td>
             <td>Fetch its own merged config and report status, over HTTP Basic auth with an agent
                 token bound to its organisation, or with an
@@ -94,9 +100,10 @@
         sign-on</strong> when it is set up in the UI.
       </p>
       <p>
-        A service account also has a role tier, editor or admin, which caps what it can call. An
-        <code>apply</code> account can write any pipeline in its org whatever team owns it, so issue
-        it as an org-level credential.
+        A service account also has a role tier, viewer, editor or admin, which caps what it can
+        call. A viewer-tier account is read-only and has no capability; an editor or admin account
+        is <code>propose</code> or <code>apply</code>. An <code>apply</code> account can write any
+        pipeline in its org whatever team owns it, so issue it as an org-level credential.
       </p>
       <p>
         <strong>From a local account.</strong> An app admin creates the account at

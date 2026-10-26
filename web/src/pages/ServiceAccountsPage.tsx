@@ -12,6 +12,7 @@ import type { ServiceAccount } from '@/gen/shepherd/mgmt/v1/service_account_pb';
 import { useCanAdminister, useOrgId } from '@/hooks/useOrg';
 import { formError } from '@/lib/formError';
 import { Role, roleFromValue, roleLabel, roleValue } from '@/lib/roles';
+import { requestCapability, SERVICE_ACCOUNT_TIERS, tierHasCapability } from '@/lib/serviceAccounts';
 
 async function copyText(text: string) {
   try {
@@ -21,17 +22,16 @@ async function copyText(text: string) {
   }
 }
 
-// A capability/role pair rendered as two small chips: capability decides
-// whether the credential may write once it reaches a procedure; role decides
-// which procedures it may reach at all. They are orthogonal (see the proto).
-// The tiers a service account can hold (0018_service_account_role): editor and
-// admin. Viewer is not one yet.
-const SERVICE_ACCOUNT_TIERS: readonly Role[] = [Role.EDITOR, Role.ADMIN];
-
+// A capability/role pair rendered as small chips: capability decides whether
+// the credential may write once it reaches a procedure; role decides which
+// procedures it may reach at all. They are orthogonal (see the proto). A
+// viewer carries no capability (#362), so it shows its role alone.
 function GrantCell({ account }: { account: ServiceAccount }) {
   return (
-    <span className='flex flex-wrap gap-1'>
-      <code className='rounded bg-border px-1.5 py-0.5 text-xs'>{account.capability}</code>
+    <span className='flex flex-wrap gap-1' data-testid={`sa-grant-${account.name}`}>
+      {account.capability && (
+        <code className='rounded bg-border px-1.5 py-0.5 text-xs'>{account.capability}</code>
+      )}
       <code className='rounded bg-border px-1.5 py-0.5 text-xs'>{roleLabel(account.role)}</code>
     </span>
   );
@@ -108,7 +108,8 @@ const EMPTY_CREATE = { name: '', capability: 'propose', role: Role.EDITOR };
  * Service accounts (/service-accounts, org-scoped).
  *
  * Machine-caller identities for the management API: org-scoped Basic-auth
- * credentials, capability-scoped propose vs apply, at an editor or admin tier.
+ * credentials at a viewer, editor or admin tier; editor and admin are also
+ * capability-scoped (propose vs apply), and a viewer never writes.
  * A service account never spans orgs and is never app-admin. Managing them
  * (list/create/revoke) is org-admin throughout (ServiceAccountService), so the
  * whole page is org-admin — there is no read-only view for a viewer.
@@ -145,7 +146,7 @@ export function ServiceAccountsPage() {
       clients.serviceAccount.createServiceAccount({
         orgId,
         name: form.name.trim(),
-        capability: form.capability,
+        capability: requestCapability(form.role, form.capability),
         role: form.role,
       }),
     onSuccess: (resp) => {
@@ -245,19 +246,13 @@ export function ServiceAccountsPage() {
               />
             </Field>
             <Field
-              label='Capability'
-              hint='Whether the credential may write once it reaches a procedure.'
+              label='Role'
+              hint={
+                form.role === Role.VIEWER
+                  ? 'Read-only: reaches what an org viewer reaches and never writes.'
+                  : 'Which procedures the credential may reach at all.'
+              }
             >
-              <Select
-                value={form.capability}
-                onChange={(e) => setForm((f) => ({ ...f, capability: e.target.value }))}
-                data-testid='sa-capability'
-              >
-                <option value='propose'>Propose (read + propose changes)</option>
-                <option value='apply'>Apply (write directly)</option>
-              </Select>
-            </Field>
-            <Field label='Role' hint='Which procedures the credential may reach at all.'>
               <Select
                 value={roleValue(form.role)}
                 onChange={(e) => setForm((f) => ({ ...f, role: roleFromValue(e.target.value) }))}
@@ -270,6 +265,21 @@ export function ServiceAccountsPage() {
                 ))}
               </Select>
             </Field>
+            {tierHasCapability(form.role) && (
+              <Field
+                label='Capability'
+                hint='Whether the credential may write once it reaches a procedure.'
+              >
+                <Select
+                  value={form.capability}
+                  onChange={(e) => setForm((f) => ({ ...f, capability: e.target.value }))}
+                  data-testid='sa-capability'
+                >
+                  <option value='propose'>Propose (read + propose changes)</option>
+                  <option value='apply'>Apply (write directly)</option>
+                </Select>
+              </Field>
+            )}
             <AdminModalActions
               onCancel={closeCreate}
               error={formError(createMut.error, 'Failed to create service account')}
@@ -294,7 +304,13 @@ export function ServiceAccountsPage() {
               This is the only time{' '}
               <span className='font-medium text-zinc-200'>{newSecret.name}</span>&rsquo;s secret
               will be shown. Copy it now — it cannot be retrieved again. Grant:{' '}
-              <code className='rounded bg-border px-1 py-0.5 text-xs'>{newSecret.capability}</code>{' '}
+              {newSecret.capability && (
+                <>
+                  <code className='rounded bg-border px-1 py-0.5 text-xs'>
+                    {newSecret.capability}
+                  </code>{' '}
+                </>
+              )}
               <code className='rounded bg-border px-1 py-0.5 text-xs'>
                 {roleLabel(newSecret.role)}
               </code>

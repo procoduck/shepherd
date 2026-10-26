@@ -217,7 +217,7 @@ var _ = Describe("AdminService agent tokens", Label("integration"), func() {
 		secret := "tokens-sa-secret"
 		hash := sha256.Sum256([]byte(secret))
 		sa, err := st.Queries.CreateServiceAccount(ctx, sqlc.CreateServiceAccountParams{
-			OrgID: orgA.ID, Name: "ci", Capability: "apply", Role: "admin", TokenHash: hash[:], CreatedBy: "admin@example.com",
+			OrgID: orgA.ID, Name: "ci", Capability: pgtype.Text{String: "apply", Valid: true}, Role: "admin", TokenHash: hash[:], CreatedBy: "admin@example.com",
 		})
 		Expect(err).NotTo(HaveOccurred())
 		saCall := func(method string, body map[string]any) (int, map[string]any) {

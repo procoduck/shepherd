@@ -11,6 +11,18 @@ Categories used here:
 - **RPC only** — the API exists and is callable; there is no UI.
 - **Built, not wired** — the code and tests exist, nothing calls them in production yet.
 
+## Unreleased
+
+### Added
+
+- **Viewer-tier service accounts.** Shipped. A service account can now hold the viewer tier
+  (`ROLE_VIEWER`), and reaches exactly what an org viewer does: reads, never a write, simulate or
+  admin procedure. A viewer carries no capability. `CreateServiceAccount` refuses a viewer that
+  names one, and editor and admin still require `propose` or `apply`. Access → Service accounts
+  offers Viewer and hides the capability picker for it. Migration 0042 admits the tier and makes
+  `service_accounts.capability` nullable; existing accounts are unchanged. Rolling back past 0042
+  deletes viewer accounts rather than widening them. (#362)
+
 ## v0.19.1
 
 Chart 0.23.1, released 2026-10-26. A patch release: **beacon ingest hardening**, a **bounded

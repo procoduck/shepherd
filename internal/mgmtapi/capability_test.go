@@ -147,7 +147,7 @@ func g12MakeServiceAccount(ctx context.Context, st *store.Store, orgID pgtype.UU
 	secret = "g12-secret-" + name
 	hash := sha256.Sum256([]byte(secret))
 	sa, err := st.Queries.CreateServiceAccount(ctx, sqlc.CreateServiceAccountParams{
-		OrgID: orgID, Name: name, Capability: capability, Role: "editor", TokenHash: hash[:], CreatedBy: g12DelegatedPrincipal,
+		OrgID: orgID, Name: name, Capability: pgtype.Text{String: capability, Valid: true}, Role: "editor", TokenHash: hash[:], CreatedBy: g12DelegatedPrincipal,
 	})
 	Expect(err).NotTo(HaveOccurred())
 	return secret, sa.ID.String()
