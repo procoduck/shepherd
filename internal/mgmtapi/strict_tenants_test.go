@@ -19,6 +19,7 @@ import (
 	"shepherd/internal/auth"
 	"shepherd/internal/config"
 	"shepherd/internal/mgmtapi"
+	"shepherd/internal/pinnedimport"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
 	"shepherd/internal/validate"
@@ -534,6 +535,124 @@ var _ = Describe("Strict tenant mode", Label("integration"), func() {
 			out := ok(call(appAdmin, "AdminService/TenantPreflight", map[string]any{}))
 			Expect(out["violations"]).To(ConsistOf(And(HaveKeyWithValue("orgName", "strict-c"),
 				HaveKeyWithValue("kind", "destination"), HaveKeyWithValue("name", "legacy"))))
+		})
+	})
+
+	// #390: a strict org may import.git a module pinned to a full commit SHA
+	// of a repository an app admin allowlisted; the module is fetched and
+	// linted. Port 1 on loopback refuses every connection, so the source is
+	// "unreachable" and only what is cached can be verified.
+	Describe("pinned import.git", func() {
+		const (
+			repo = "http://127.0.0.1:1/team/modules.git"
+			sha  = "0123456789abcdef0123456789abcdef01234567"
+		)
+		importing := func(rev, path string) string {
+			return "import.git \"m\" {\n  repository = \"" + repo + "\"\n  revision   = \"" + rev + "\"\n  path       = \"" + path + "\"\n}\n"
+		}
+		module := func(tenant string) string {
+			return "declare \"out\" {\n" + remoteWriteTo(`"`+tenant+`"`) + "}\n"
+		}
+		cache := func(path, content string) {
+			GinkgoHelper()
+			key, err := pinnedimport.NormalizeRepository(repo)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(st.Queries.PutPinnedImportModule(ctx, sqlc.PutPinnedImportModuleParams{
+				OrgID: orgA, RepositoryKey: key, Revision: sha, Path: path, Content: content,
+			})).To(Succeed())
+		}
+		allow := func(repository string) (int, map[string]any) {
+			return call(appAdmin, "AdminService/AddOrgImportRepository", map[string]any{"orgId": orgA.String(), "repository": repository})
+		}
+
+		BeforeEach(func() {
+			makeStrict(orgA)
+			start()
+		})
+
+		It("lets only an app admin keep the allowlist, normalised, audited and refusing ambiguous spellings", func() {
+			code, out := call(adminA, "AdminService/AddOrgImportRepository", map[string]any{"orgId": orgA.String(), "repository": repo})
+			Expect(code).To(Equal(http.StatusForbidden), "%v", out)
+
+			added := ok(allow(repo))
+			Expect(added).To(And(HaveKeyWithValue("repository", repo), HaveKeyWithValue("normalized", "http://127.0.0.1:1/team/modules")))
+			code, out = allow("HTTP://127.0.0.1:1/team/modules/")
+			Expect(code).To(Equal(http.StatusConflict), "%v", out)
+			Expect(out["code"]).To(Equal("already_exists"))
+			for _, bad := range []string{"http://127.0.0.1:1/team/mod%75les", "file:///srv/modules.git", "https://u:p@h.example/x/y"} {
+				code, out = allow(bad)
+				Expect(code).To(Equal(http.StatusBadRequest), "%s: %v", bad, out)
+			}
+			other, err := st.Queries.CreateGitCredential(ctx, sqlc.CreateGitCredentialParams{
+				OrgID: orgB, Name: "b-cred", Kind: "none", ClientSecretEnc: []byte("-"), ProviderConfig: []byte(`{}`),
+			})
+			Expect(err).NotTo(HaveOccurred())
+			code, out = call(appAdmin, "AdminService/AddOrgImportRepository", map[string]any{
+				"orgId": orgA.String(), "repository": "https://git.example.com/x/y.git", "credentialId": other.ID.String(),
+			})
+			Expect(code).To(Equal(http.StatusBadRequest), "another org's credential: %v", out)
+
+			list := ok(call(appAdmin, "AdminService/ListOrgImportRepositories", map[string]any{"orgId": orgA.String()}))
+			Expect(list["items"]).To(HaveLen(1))
+			ok(call(appAdmin, "AdminService/RemoveOrgImportRepository", map[string]any{"orgId": orgA.String(), "id": added["id"]}))
+
+			rows, err := st.Queries.ListAuditLog(ctx, sqlc.ListAuditLogParams{Column1: orgA, Limit: 50})
+			Expect(err).NotTo(HaveOccurred())
+			var actions []string
+			for _, r := range rows {
+				actions = append(actions, r.Action)
+			}
+			Expect(actions).To(ContainElements("org.import_repository.add", "org.import_repository.remove"))
+		})
+
+		It("saves a pinned import whose module uses owned tenants, warning that its source is unreachable", func() {
+			ok(allow(repo))
+			cache("owned.alloy", module("acme"))
+			src := importing(sha, "owned.alloy")
+
+			v := ok(call(adminA, "PipelineService/ValidatePipeline", map[string]any{"orgId": orgA.String(), "name": "p", "contents": src}))
+			Expect(v).To(HaveKeyWithValue("valid", true))
+			Expect(v["diagnostics"]).To(ContainElement(And(HaveKeyWithValue("warning", true),
+				HaveKeyWithValue("message", ContainSubstring("collectors may fail to fetch")))))
+			p := ok(createPipeline(adminA, orgA, "p", src))
+			ok(call(adminA, "PipelineService/EnablePipeline", map[string]any{"orgId": orgA.String(), "id": p["id"]}))
+
+			// Every other place strict mode is evaluated agrees with the save.
+			pre := ok(call(appAdmin, "AdminService/TenantPreflight", map[string]any{"orgId": orgA.String()}))
+			Expect(pre).NotTo(HaveKey("violations"))
+			ok(setStrict(orgA, false))
+			ok(setStrict(orgA, true))
+		})
+
+		It("refuses a module writing to a foreign tenant, a branch revision, a repository off the allowlist and an unfetchable module", func() {
+			ok(allow(repo))
+			cache("foreign.alloy", module("victim"))
+			for name, src := range map[string]string{
+				"foreign":   importing(sha, "foreign.alloy"),
+				"branch":    importing("main", "foreign.alloy"),
+				"short":     importing(sha[:12], "foreign.alloy"),
+				"elsewhere": strings.Replace(importing(sha, "foreign.alloy"), "team/modules", "evil/modules", 1),
+				"variant":   strings.Replace(importing(sha, "foreign.alloy"), "team/modules", "Team/modules", 1),
+				"uncached":  importing(sha, "none.alloy"),
+			} {
+				code, out := createPipeline(adminA, orgA, name, src)
+				Expect(code).To(Equal(http.StatusBadRequest), "%s: %v", name, out)
+				Expect(out["code"]).To(Equal("failed_precondition"), name)
+			}
+		})
+
+		It("keeps an entry on the allowlist while an enabled pipeline imports from it", func() {
+			added := ok(allow(repo))
+			cache("owned.alloy", module("acme"))
+			p := ok(createPipeline(adminA, orgA, "p", importing(sha, "owned.alloy")))
+			ok(call(adminA, "PipelineService/EnablePipeline", map[string]any{"orgId": orgA.String(), "id": p["id"]}))
+			code, out := call(appAdmin, "AdminService/RemoveOrgImportRepository", map[string]any{"orgId": orgA.String(), "id": added["id"]})
+			Expect(code).To(Equal(http.StatusBadRequest), "%v", out)
+			Expect(out["code"]).To(Equal("failed_precondition"))
+			Expect(out["message"]).To(ContainSubstring(`pipeline "p"`))
+
+			ok(call(adminA, "PipelineService/DisablePipeline", map[string]any{"orgId": orgA.String(), "id": p["id"]}))
+			ok(call(appAdmin, "AdminService/RemoveOrgImportRepository", map[string]any{"orgId": orgA.String(), "id": added["id"]}))
 		})
 	})
 })

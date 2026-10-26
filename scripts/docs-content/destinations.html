@@ -80,9 +80,11 @@
           <code>loki.write</code> first overwrites <code>__tenant_id__</code>
           (<code>stage.static_labels</code>, outside <code>stage.match</code>) or drops it
           (<code>stage.label_drop</code>);</li>
-        <li><code>import.file</code>, <code>import.git</code> and <code>import.http</code>
-          modules &mdash; inline the module as a <code>declare</code> or an
-          <code>import.string</code> with literal content, which is checked the same way;</li>
+        <li><code>import.file</code> and <code>import.http</code> modules, and an
+          <code>import.git</code> module unless it is pinned to a commit of an allowed repository
+          (<a href="#pinned-imports">below</a>) &mdash; otherwise inline the module as a
+          <code>declare</code> or an <code>import.string</code> with literal content, which is
+          checked the same way;</li>
         <li>anything too large or too deeply nested to work out within the check&rsquo;s limits
           (values built from more than 4 KiB, more than 8 levels of modules).</li>
       </ul>
@@ -90,6 +92,44 @@
         authentication is. The check cannot see a tenant a proxy in front of the backend adds, or
         one passed some other way, such as a basic-auth username. What holds regardless is the rule
         on destinations, bindings and tenant routes.</p>
+
+      <h3 id="pinned-imports">Modules from git, pinned to a commit</h3>
+      <p>A strict organisation can still use a module kept in a git repository, with
+        <code>import.git</code>, when two things hold:</p>
+      <ul>
+        <li><code>revision</code> is a <strong>full 40-character commit SHA</strong>, in
+          lower-case. Alloy follows a branch or a tag as it moves, so a branch, a tag, a short SHA
+          or no revision at all (Alloy then follows <code>main</code>) is refused. A commit cannot
+          change.</li>
+        <li><code>repository</code> is on the organisation&rsquo;s <strong>allowed import
+          repositories</strong>. An application administrator keeps that list on
+          <strong>Admin &rarr; Organisations</strong> (Edit &rarr; <em>Allowed import
+          repositories</em>). A private repository names one of the organisation&rsquo;s git
+          credentials (the ones git sync uses); a public one needs none.</li>
+      </ul>
+      <p>Shepherd then fetches the file at <code>path</code> at that commit when the pipeline is
+        saved, synced or enabled, and checks it with the same rules, nested
+        <code>import.git</code> modules included (up to 4 levels, each pinned and allowed the same
+        way). <code>repository</code>, <code>revision</code> and <code>path</code> must be
+        literals, and <code>path</code> must name one file. Each fetch uses git sync&rsquo;s limits
+        (<code>gitsync.max_repo_bytes</code>, <code>max_file_bytes</code>,
+        <code>fetch_timeout</code>), and one save spends at most 30 seconds fetching, so a slow
+        repository fails the save rather than holding it. Shepherd never follows a redirect to
+        another host, and refuses a commit that a branch or tag of the same name would shadow.</p>
+      <p>A repository matches its allowed entry however its URL is spelt, within these rules:
+        the scheme and host are compared in lower-case, a default port (443, 80, 22) is ignored,
+        <code>git@host:owner/repo</code> is the same as <code>ssh://git@host/owner/repo</code>, and
+        a trailing <code>/</code> or <code>.git</code> is ignored. The path&rsquo;s case, the
+        scheme (<code>http</code> is not <code>https</code>), any other port and the SSH user are
+        significant. A URL with percent-encoding, a query, a fragment, a password, credentials in
+        an <code>https</code> URL, or an empty, <code>.</code> or <code>..</code> path segment is
+        refused, as is anything that is not an <code>https</code>, <code>http</code> or
+        <code>ssh</code> remote.</p>
+      <p>Each fetched module is kept (per organisation, the 128 most recently used), so it is
+        never fetched again. If its repository later cannot be reached, a save still checks
+        against the kept copy and succeeds with a <strong>warning</strong>: collectors fetch the
+        module themselves when they start, and may fail to. An entry cannot be removed while an
+        enabled pipeline of a strict organisation imports from it.</p>
 
       <h2 id="auth">Authentication from a Kubernetes Secret</h2>
       <p>Shepherd never holds a telemetry backend&rsquo;s credentials. For an authenticated

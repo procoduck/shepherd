@@ -25,9 +25,11 @@ import (
 	"shepherd/internal/beacon"
 	"shepherd/internal/config"
 	"shepherd/internal/crypto"
+	"shepherd/internal/gitcred"
 	"shepherd/internal/gitrepo"
 	"shepherd/internal/merge"
 	"shepherd/internal/metrics"
+	"shepherd/internal/pinnedimport"
 	"shepherd/internal/reconcile"
 	"shepherd/internal/schema"
 	"shepherd/internal/serve"
@@ -54,7 +56,10 @@ type Reconciler struct {
 	requireOwned bool
 	limits       gitrepo.Limits
 	tokenCache   *gitrepo.TokenCache
-	logger       *slog.Logger
+	// imports fetches strict mode's pinned import.git modules for the
+	// per-file validation (internal/pinnedimport).
+	imports *pinnedimport.Resolver
+	logger  *slog.Logger
 	// locker, when set, limits passes to one replica at a time (see Locker).
 	locker Locker
 	// recompute, when set, refreshes the link's collector's served config
@@ -114,6 +119,7 @@ func New(st *store.Store, enc *crypto.Encryptor, v *validate.Validator, reg *sch
 			FetchTimeout: cfg.GitSync.FetchTimeout,
 		},
 		tokenCache: gitrepo.NewTokenCache(),
+		imports:    pinnedimport.New(cfg, enc, logger),
 		logger:     logger.With("component", "gitsync"),
 	}
 	for _, o := range opts {
@@ -328,6 +334,13 @@ func (r *Reconciler) syncLink(ctx context.Context, link sqlc.RepoLink) (syncOutc
 		fileErrs = verdict.refusals
 		if len(verdict.preexisting) > 0 {
 			warning = preexistingWarning(verdict.preexisting)
+		}
+		// A pinned module checked against Shepherd's cached copy because its
+		// source is unreachable: the commit applies, and the link says so.
+		for _, p := range plans {
+			for _, w := range p.warnings {
+				warning = strings.TrimPrefix(warning+"; "+w, "; ")
+			}
 		}
 	}
 	if len(fileErrs) > 0 {
@@ -771,133 +784,17 @@ func audit(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, action strin
 	return nil
 }
 
-// newSecretScrubber returns a function that rewrites an error so none of
-// auth's secret values appear in its text. Empty values are skipped (a
-// blank passphrase would otherwise match everywhere). The result is a plain
-// error — wrapping is deliberately dropped, because the whole point is that
-// the original text never reaches a sink.
-func newSecretScrubber(auth gitrepo.Auth) func(error) error {
-	var secrets []string
-	switch a := auth.(type) {
-	case gitrepo.BasicAuth:
-		secrets = append(secrets, a.Password)
-	case gitrepo.PATAuth:
-		secrets = append(secrets, a.Token)
-	case gitrepo.SSHAuth:
-		secrets = append(secrets, a.Passphrase, string(a.PrivateKeyPEM))
-	case gitrepo.AdoSPAuth:
-		secrets = append(secrets, a.ClientSecret)
-	case gitrepo.GitHubAppAuth:
-		secrets = append(secrets, string(a.PrivateKeyPEM))
-	}
-	return func(err error) error { return redactSecrets(err, secrets) }
-}
+// newSecretScrubber is gitcred.Scrubber: it rewrites an error so none of
+// auth's secret values appear in its text.
+func newSecretScrubber(auth gitrepo.Auth) func(error) error { return gitcred.Scrubber(auth) }
 
-// redactSecrets replaces every non-empty secret in err's text with
-// "[REDACTED]". A nil error stays nil; an error containing none of the
-// secrets is returned unchanged, wrapping intact.
-func redactSecrets(err error, secrets []string) error {
-	if err == nil {
-		return nil
-	}
-	text := err.Error()
-	changed := false
-	for _, s := range secrets {
-		if s == "" || !strings.Contains(text, s) {
-			continue
-		}
-		text = strings.ReplaceAll(text, s, "[REDACTED]")
-		changed = true
-	}
-	if !changed {
-		return err
-	}
-	return errors.New(text)
-}
+// redactSecrets is gitcred.Redact.
+func redactSecrets(err error, secrets []string) error { return gitcred.Redact(err, secrets) }
 
-// buildAuth decrypts cred's secret(s) and builds the gitrepo.Auth strategy
-// matching cred.Kind (docs/git-provider-design.md §3.2). r.tokenCache is
-// shared across every ado_sp and github_app credential so their minted
-// tokens are cached and refreshed independently, keyed by credential id.
+// buildAuth is gitcred.BuildAuth with the reconciler's encryptor and the
+// token cache shared across every ado_sp and github_app credential.
 func (r *Reconciler) buildAuth(cred sqlc.GitCredential) (gitrepo.Auth, error) {
-	switch cred.Kind {
-	case "none":
-		return gitrepo.NoneAuth{}, nil
-
-	case "basic":
-		secret, err := r.crypto.Decrypt(cred.ClientSecretEnc)
-		if err != nil {
-			return nil, fmt.Errorf("decrypting password: %w", err)
-		}
-		return gitrepo.BasicAuth{Username: cred.Username.String, Password: string(secret)}, nil
-
-	case "pat":
-		secret, err := r.crypto.Decrypt(cred.ClientSecretEnc)
-		if err != nil {
-			return nil, fmt.Errorf("decrypting token: %w", err)
-		}
-		return gitrepo.PATAuth{Username: cred.Username.String, Token: string(secret)}, nil
-
-	case "ssh":
-		key, err := r.crypto.Decrypt(cred.ClientSecretEnc)
-		if err != nil {
-			return nil, fmt.Errorf("decrypting private key: %w", err)
-		}
-		var passphrase string
-		if len(cred.Secret2Enc) > 0 {
-			pp, err := r.crypto.Decrypt(cred.Secret2Enc)
-			if err != nil {
-				return nil, fmt.Errorf("decrypting private key passphrase: %w", err)
-			}
-			passphrase = string(pp)
-		}
-		return gitrepo.SSHAuth{
-			User:          cred.Username.String,
-			PrivateKeyPEM: key,
-			Passphrase:    passphrase,
-			KnownHosts:    []byte(cred.SshKnownHosts.String),
-		}, nil
-
-	case "ado_sp":
-		secret, err := r.crypto.Decrypt(cred.ClientSecretEnc)
-		if err != nil {
-			return nil, fmt.Errorf("decrypting client secret: %w", err)
-		}
-		return gitrepo.AdoSPAuth{
-			CredentialID: cred.ID.String(),
-			TenantID:     cred.EntraTenantID.String,
-			ClientID:     cred.ClientID.String,
-			ClientSecret: string(secret),
-			Cache:        r.tokenCache,
-		}, nil
-
-	case "github_app":
-		key, err := r.crypto.Decrypt(cred.ClientSecretEnc)
-		if err != nil {
-			return nil, fmt.Errorf("decrypting private key: %w", err)
-		}
-		var pc struct {
-			AppID          string `json:"app_id"`
-			InstallationID string `json:"installation_id"`
-			APIBase        string `json:"api_base_url"`
-		}
-		if len(cred.ProviderConfig) > 0 {
-			if err := json.Unmarshal(cred.ProviderConfig, &pc); err != nil {
-				return nil, fmt.Errorf("parsing provider_config: %w", err)
-			}
-		}
-		return gitrepo.GitHubAppAuth{
-			CredentialID:   cred.ID.String(),
-			AppID:          pc.AppID,
-			InstallationID: pc.InstallationID,
-			PrivateKeyPEM:  key,
-			APIBase:        pc.APIBase,
-			Cache:          r.tokenCache,
-		}, nil
-
-	default:
-		return nil, fmt.Errorf("unsupported credential kind %q", cred.Kind)
-	}
+	return gitcred.BuildAuth(r.crypto, r.tokenCache, cred)
 }
 
 // pipelineName derives a git pipeline's name from its file path: the path
@@ -916,6 +813,8 @@ func pipelineName(path string) string {
 type filePlan struct {
 	name, path, contents string
 	existing             *sqlc.Pipeline
+	// warnings are the file's validation warnings, as "path: message".
+	warnings []string
 }
 
 // planFile validates one file on its own (Stages 1-2, ownership) and decides
@@ -952,8 +851,15 @@ func (r *Reconciler) planFile(ctx context.Context, link sqlc.RepoLink, file gitr
 	if err != nil {
 		return nil, fmt.Errorf("loading the org's tenant policy: %w", err)
 	}
-	if result := r.validator.ValidatePipeline(ctx, name, contents, policy.Validation()); !result.Valid {
+	result := r.validator.ValidatePipeline(ctx, name, contents, policy.Validation(r.store.Queries, r.imports.Saving()))
+	if !result.Valid {
 		return nil, fmt.Errorf("validation errors in %s: %v", file.Path, result.Diagnostics)
+	}
+	var warnings []string
+	for _, d := range result.Diagnostics {
+		if d.Warning {
+			warnings = append(warnings, fmt.Sprintf("%s:%d: %s", file.Path, d.Line, d.Message))
+		}
 	}
 
 	// Check if pipeline exists for this file+collector.
@@ -977,7 +883,7 @@ func (r *Reconciler) planFile(ctx context.Context, link sqlc.RepoLink, file gitr
 				"rename the file or the existing pipeline", name, existing.Source)
 	}
 	if errors.Is(err, pgx.ErrNoRows) {
-		return &filePlan{name: name, path: file.Path, contents: contents}, nil
+		return &filePlan{name: name, path: file.Path, contents: contents, warnings: warnings}, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("looking up pipeline %s: %w", name, err)
@@ -988,7 +894,7 @@ func (r *Reconciler) planFile(ctx context.Context, link sqlc.RepoLink, file gitr
 	if existing.Contents == contents {
 		return nil, nil //nolint:nilnil // nil plan: nothing to write for this file
 	}
-	return &filePlan{name: name, path: file.Path, contents: contents, existing: &existing}, nil
+	return &filePlan{name: name, path: file.Path, contents: contents, existing: &existing, warnings: warnings}, nil
 }
 
 // dryRunResult is stage3DryRun's verdict on a commit.

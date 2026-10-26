@@ -1047,6 +1047,104 @@ export function installDefaultHandlers(router: Router) {
     o['tenants'] = orgTenants(o).filter((t) => t !== held);
     return json(r, 200, orgToWire(o));
   });
+  // Allowed import repositories (internal/mgmtapi/import_repositories.go):
+  // app admin only. Held on the org fixture as import_repositories
+  // ({ id, repository, normalized, credential_id, created_by, in_use_by? });
+  // in_use_by lists the enabled pipelines a removal is refused over. The
+  // mock's normal form is the server's rule in brief: lower-case scheme and
+  // host, no trailing slash or ".git"; a query, fragment or escape is refused.
+  type FixtureImportRepo = {
+    id: string;
+    repository: string;
+    normalized: string;
+    credential_id?: string;
+    created_by?: string;
+    created_at?: string;
+    in_use_by?: string[];
+  };
+  const importReposOf = (o: Obj): FixtureImportRepo[] =>
+    (o['import_repositories'] as FixtureImportRepo[] | undefined) ?? [];
+  const importRepoToWire = (o: Obj, x: FixtureImportRepo) => {
+    const cred = (st.gitCredentials as Obj[]).find((c) => c['id'] === x.credential_id);
+    return {
+      id: x.id,
+      orgId: s(o, 'id'),
+      repository: x.repository,
+      normalized: x.normalized,
+      credentialId: x.credential_id ?? '',
+      credentialName: cred ? s(cred, 'name') : '',
+      createdBy: x.created_by ?? '',
+      createdAt: x.created_at ?? '2026-10-26T09:00:00Z',
+    };
+  };
+  const normalizeRepo = (raw: string): string | null => {
+    if (/[?#%\s\\]/.test(raw)) return null;
+    const m = /^(https?|ssh):\/\/([^/]+)(\/.+)$/i.exec(raw);
+    if (!m) return null;
+    const path = m[3].replace(/\/+$/, '').replace(/\.git$/, '');
+    if (path.split('/').some((seg, i) => i > 0 && (seg === '' || seg === '.' || seg === '..')))
+      return null;
+    return `${m[1].toLowerCase()}://${m[2].toLowerCase()}${path}`;
+  };
+  const findOrg = (id: unknown) => (st.orgs as Obj[]).find((org) => org['id'] === id);
+  router.register('POST', '/shepherd.mgmt.v1.AdminService/ListOrgImportRepositories', async (r) => {
+    const denied = requireAppAdmin(r);
+    if (denied) return denied;
+    const o = findOrg((await body(r))['orgId']);
+    if (!o) return connectError(r, 404, 'not_found', 'org not found');
+    return json(r, 200, { items: importReposOf(o).map((x) => importRepoToWire(o, x)) });
+  });
+  router.register('POST', '/shepherd.mgmt.v1.AdminService/AddOrgImportRepository', async (r) => {
+    const denied = requireAppAdmin(r);
+    if (denied) return denied;
+    const req = await body(r);
+    const o = findOrg(req['orgId']);
+    if (!o) return connectError(r, 404, 'not_found', 'org not found');
+    const repository = String(req['repository'] ?? '');
+    const normalized = normalizeRepo(repository);
+    if (!normalized)
+      return connectError(
+        r,
+        400,
+        'invalid_argument',
+        `repository ${JSON.stringify(repository)} is ambiguous or not a git remote URL`,
+      );
+    const held = importReposOf(o).find((x) => x.normalized === normalized);
+    if (held)
+      return connectError(
+        r,
+        409,
+        'already_exists',
+        `repository ${JSON.stringify(repository)} is already allowed as ${JSON.stringify(held.repository)}`,
+      );
+    const entry: FixtureImportRepo = {
+      id: mockId('imprepo'),
+      repository,
+      normalized,
+      credential_id: String(req['credentialId'] ?? '') || undefined,
+      created_by: 'admin',
+    };
+    o['import_repositories'] = [...importReposOf(o), entry];
+    return json(r, 200, importRepoToWire(o, entry));
+  });
+  router.register('POST', '/shepherd.mgmt.v1.AdminService/RemoveOrgImportRepository', async (r) => {
+    const denied = requireAppAdmin(r);
+    if (denied) return denied;
+    const req = await body(r);
+    const o = findOrg(req['orgId']);
+    if (!o) return connectError(r, 404, 'not_found', 'org not found');
+    const held = importReposOf(o).find((x) => x.id === req['id']);
+    if (!held) return connectError(r, 404, 'not_found', 'repository not found');
+    if (held.in_use_by?.length)
+      return connectError(
+        r,
+        400,
+        'failed_precondition',
+        `repository ${JSON.stringify(held.repository)} is still imported by enabled pipeline(s): ${held.in_use_by.map((p) => JSON.stringify(p)).join(', ')}`,
+      );
+    o['import_repositories'] = importReposOf(o).filter((x) => x !== held);
+    return json(r, 200, {});
+  });
   // Strict tenant mode (internal/mgmtapi/strict_tenants.go): app admin
   // only; turning it on is refused while the org owns no tenant or the
   // fixture's strict_violations (what the server's preflight would find)
@@ -2058,9 +2156,13 @@ export function installDefaultHandlers(router: Router) {
   });
 
   // ── GitOpsService ────────────────────────────────────────────────────────
-  router.register('POST', '/shepherd.mgmt.v1.GitOpsService/ListCredentials', (r) =>
-    json(r, 200, list((st.gitCredentials as Obj[]).map(credentialToWire))),
-  );
+  router.register('POST', '/shepherd.mgmt.v1.GitOpsService/ListCredentials', async (r) => {
+    // A credential fixture with an org_id is listed for that org only; one
+    // without is every org's (the older fixtures).
+    const orgId = (await body(r))['orgId'];
+    const creds = (st.gitCredentials as Obj[]).filter((c) => !c['org_id'] || c['org_id'] === orgId);
+    return json(r, 200, list(creds.map(credentialToWire)));
+  });
   router.register('POST', '/shepherd.mgmt.v1.GitOpsService/CreateCredential', async (r) => {
     const req = await body(r);
     const c: Obj = {

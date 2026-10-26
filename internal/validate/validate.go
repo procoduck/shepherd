@@ -230,15 +230,15 @@ func (v *Validator) Stages12(ctx context.Context, content string) Result {
 func (v *Validator) ValidatePipeline(ctx context.Context, pipelineName, contents string, tenants TenantPolicy) Result {
 	r := v.Stages12(ctx, WrapForValidation(pipelineName, contents))
 	r.Diagnostics = UnwrapDiagnostics(contents, r.Diagnostics)
-	return WithTenantLint(r, contents, tenants)
+	return WithTenantLint(ctx, r, contents, tenants)
 }
 
 // WithTenantLint adds TenantLint(contents, tenants) to r: its diagnostics
 // appended, and r failed when one is a refusal. For a caller that validated
 // contents itself (the visual builder's render, which has no declare
 // wrapper to undo). A no-op when tenants is not strict.
-func WithTenantLint(r Result, contents string, tenants TenantPolicy) Result {
-	lint, err := TenantLintChecked(contents, tenants)
+func WithTenantLint(ctx context.Context, r Result, contents string, tenants TenantPolicy) Result {
+	lint, err := TenantLintChecked(ctx, contents, tenants)
 	if err != nil {
 		// The tenant check's wall-clock guard: no verdict. Busy, not a
 		// refusal: writes answer it with a retryable Unavailable.

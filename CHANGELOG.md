@@ -25,6 +25,22 @@ Categories used here:
   `pipeline.propose` audit row, the same as an org viewer's. Create viewer accounts only once
   every replica runs v0.20: an older pod rejects a viewer's credential and answers `Internal`
   to its org's `ListServiceAccounts` (UPGRADING, 0.24.0). (#362)
+- **Pinned `import.git` modules in strict tenant mode.** Shipped. A strict org's pipelines may
+  now use `import.git` when `revision` is a full lower-case 40-character commit SHA and
+  `repository` is on the org's allowed import repositories, which an app admin keeps on Admin →
+  Organisations (new `AdminService.List/Add/RemoveOrgImportRepository`, audited as
+  `org.import_repository.add` / `.remove`). An entry may name one of the org's git credentials
+  for a private repository. Shepherd fetches the module when the pipeline is saved, synced or
+  enabled, using git sync's size and time limits, at most 30 s per save, and no redirect to
+  another host. It lints the module with the same rules, nested `import.git` to depth 4. Branches,
+  tags, short SHAs, `import.http` and `import.file` stay refused. Repository URLs are compared in a
+  normal form (case of scheme and host, default port, scp-like form, trailing `/` and `.git`), and
+  ambiguous spellings are refused. Fetched modules are cached in the database, the 128 most
+  recently used per org. When a cached module's source can no longer be reached, a save still
+  verifies against the cached copy and warns that collectors may fail to fetch the module. An
+  allowlist entry cannot be removed while an enabled pipeline of a strict org imports from it.
+  The preflights, the boot check under `tenants.require_owned` and `shepherd admin
+  tenant-preflight` read modules the same way. Migration 0043. (#390)
 
 ### Fixed
 

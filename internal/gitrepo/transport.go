@@ -2,10 +2,12 @@ package gitrepo
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/go-git/go-git/v6/plumbing/client"
 	"github.com/go-git/go-git/v6/plumbing/transport"
@@ -45,6 +47,9 @@ func (r Repo) clientOptions(ctx context.Context, counter *byteCounter) ([]client
 
 	httpClient := &http.Client{
 		Transport: &countingTransport{next: transport, counter: counter},
+	}
+	if r.SameHostRedirects {
+		httpClient.CheckRedirect = sameHostOnly
 	}
 
 	opts := []client.Option{client.WithHTTPClient(httpClient)}
@@ -86,6 +91,23 @@ func (r Repo) clientOptions(ctx context.Context, counter *byteCounter) ([]client
 	}
 
 	return opts, nil
+}
+
+// ErrRedirectRefused is an HTTP redirect to another scheme, host or port,
+// refused because Repo.SameHostRedirects is set.
+var ErrRedirectRefused = errors.New("gitrepo: redirect to another host refused")
+
+// sameHostOnly is an http.Client.CheckRedirect that refuses a hop off the
+// first request's scheme and host:port.
+func sameHostOnly(req *http.Request, via []*http.Request) error {
+	if len(via) == 0 {
+		return nil
+	}
+	first := via[0].URL
+	if req.URL.Scheme != first.Scheme || !strings.EqualFold(req.URL.Host, first.Host) {
+		return fmt.Errorf("%w: %s://%s to %s://%s", ErrRedirectRefused, first.Scheme, first.Host, req.URL.Scheme, req.URL.Host)
+	}
+	return nil
 }
 
 // sshClientConfig wraps an *xssh.PublicKeys auth into go-git's

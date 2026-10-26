@@ -194,6 +194,16 @@ type Org struct {
 	StrictTenants               bool               `json:"strict_tenants"`
 }
 
+type OrgImportRepository struct {
+	ID            pgtype.UUID        `json:"id"`
+	OrgID         pgtype.UUID        `json:"org_id"`
+	Repository    string             `json:"repository"`
+	RepositoryKey string             `json:"repository_key"`
+	CredentialID  pgtype.UUID        `json:"credential_id"`
+	CreatedBy     string             `json:"created_by"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+}
+
 type OrgMember struct {
 	OrgID     pgtype.UUID        `json:"org_id"`
 	UserID    pgtype.UUID        `json:"user_id"`
@@ -209,6 +219,16 @@ type OrgTenant struct {
 	IsDefault bool               `json:"is_default"`
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 	CreatedBy string             `json:"created_by"`
+}
+
+type PinnedImportModule struct {
+	OrgID         pgtype.UUID        `json:"org_id"`
+	RepositoryKey string             `json:"repository_key"`
+	Revision      string             `json:"revision"`
+	Path          string             `json:"path"`
+	Content       string             `json:"content"`
+	FetchedAt     pgtype.Timestamptz `json:"fetched_at"`
+	UsedAt        pgtype.Timestamptz `json:"used_at"`
 }
 
 type Pipeline struct {

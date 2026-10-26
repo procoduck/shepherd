@@ -289,6 +289,9 @@ orgs(id, name text UNIQUE, display_name text,
 --        by an app admin only (§11.4 "Strict tenant mode")
 --   0042 service_accounts: 'viewer' tier; capability NULL for a viewer, required
 --        for editor/admin (§7.3a, #362)
+--   0043 org_import_repositories (an org's allowed import.git repositories, app admin
+--        writes only) and pinned_import_modules (fetched modules by org, repository,
+--        commit, path) — strict mode's pinned import.git (§8 "Pinned import.git")
 
 org_tenants(org_id uuid REFERENCES orgs ON DELETE CASCADE,       -- 0039; app admin writes only
            tenant text, kind text CHECK (kind IN ('exact','prefix')),
@@ -635,10 +638,42 @@ Strict mode refuses:
   `action` (matched exactly, as Alloy v1.20.1's `relabel.Action.UnmarshalText` does), or an
   `otelcol.auth.bearer` `header` it cannot resolve; a tenant-header bearer with a non-empty
   `scheme`;
-- every `import.file`, `import.git` and `import.http` block (what they load cannot be verified),
-  and an `import.string` whose `content` it cannot read or that does not parse. A readable
-  `import.string` module is linted with the same rules (up to 8 levels), including the values the
-  importing text gives its declares.
+- every `import.file` and `import.http` block (what they load cannot be verified; Alloy has no
+  integrity attribute for them), an `import.git` block that is not a pinned import of an allowed
+  repository (below), and an `import.string` whose `content` it cannot read or that does not
+  parse. A readable `import.string` module is linted with the same rules (up to 8 levels),
+  including the values the importing text gives its declares.
+
+**Pinned `import.git` (0043, #390).** A strict org may use `import.git` when `repository`,
+`revision` and `path` are readable values, `revision` is a full lower-case 40-hex commit SHA (a
+branch, tag, short or upper-case SHA, or no revision — Alloy's default `main` — is refused: Alloy
+checks a revision out as a tag, then a branch, then a commit, and force-fetches tags), `path` is a
+clean relative path, and `repository` normalises (`pinnedimport.NormalizeRepository`: lower-case
+scheme and host, default port dropped, scp-like form as `ssh://`, one trailing `/` then `.git`
+dropped; percent-encoding, query, fragment, `https` user info, an ssh password and empty/`.`/`..`
+segments refused, and only `https`, `http` and `ssh` remotes, via `gitrepo.RemoteTransport`) to an
+entry of the org's allowlist (`org_import_repositories`, kept by an app admin with
+`AdminService.List/Add/RemoveOrgImportRepository`, audited as `org.import_repository.add` /
+`.remove`; an entry may name one of the org's git credentials for a private repository). The
+module is fetched — the URL the pipeline spells, with `gitrepo.Repo.FileAtCommit`: the commit
+alone when the server allows a want by SHA, else every branch and tag, git sync's
+`max_repo_bytes`/`max_file_bytes`/`fetch_timeout`, no redirect off the host, refused when a branch
+or tag is named like the SHA — and linted with the same rules, nested `import.git` to depth 4
+(`validate.MaxGitImportDepth`), at most 16 modules per pipeline and 30 s of fetching per
+validation (`pinnedimport.SaveBudget`). The lint never waits on the network: `TenantLintChecked`
+runs, fetches what that run needed, and runs again. Fetched modules are cached in
+`pinned_import_modules` by (org, repository, commit, path), never refreshed (a commit cannot
+change), the 128 most recently used per org kept (`pinnedimport.MaxCachedModules`). Where it is
+read: a save or validation (`Resolver.Saving`) uses a cached module after one `ls-remote` — an
+unreachable source gives a **warning** diagnostic (collectors may fail to fetch the module on
+restart), a shadowing ref a refusal — and fetches an uncached one (failure refuses); the
+preflights, the boot check, `shepherd admin tenant-preflight` and enabling or restoring
+(`Resolver.Preflight`) use a cached module as is and fetch an uncached one; the in-transaction
+lint (`tenancy.LintLocked`), `OrphanedPipelines` and `SetOrgStrictTenants`' check under the
+exclusive lock read the cache only (`pinnedimport.Cached`; the toggle fetches first, outside the
+lock). `RemoveOrgImportRepository` is refused while the rule applies and an enabled pipeline
+imports from the entry. Residual: a branch or tag named like the SHA created after the save would
+make collectors follow it; the next save refuses it.
 
 A value is *readable* when it is a string literal, a `+` concatenation of readable values, or a
 declare argument (`argument.<name>.value`) whose default and every value an instantiation gives it

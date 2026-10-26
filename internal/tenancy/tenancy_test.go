@@ -14,6 +14,7 @@ import (
 
 	"shepherd/internal/config"
 	"shepherd/internal/gateway"
+	"shepherd/internal/pinnedimport"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
 	"shepherd/internal/tenancy"
@@ -51,8 +52,8 @@ var _ = Describe("Policy", func() {
 		Expect(p.Check("acme-eu")).To(Succeed())
 		Expect(p.Check("")).To(Succeed())
 		Expect(p.Check("free")).To(MatchError(tenancy.ErrNotOwned))
-		Expect(p.Validation().Strict).To(BeTrue())
-		Expect(tenancy.Policy{}.Validation().Strict).To(BeFalse())
+		Expect(p.Validation(nil, pinnedimport.Cached).Strict).To(BeTrue())
+		Expect(tenancy.Policy{}.Validation(nil, pinnedimport.Cached).Strict).To(BeFalse())
 	})
 })
 
@@ -199,20 +200,20 @@ var _ = Describe("CheckRequireOwned", Label("integration"), func() {
 		destination("none", "")
 		pipeline("w", "acme", true)
 		pipeline("parked", "free", false)
-		Expect(tenancy.CheckRequireOwned(ctx, st.Queries)).To(Succeed())
+		Expect(tenancy.CheckRequireOwned(ctx, st.Queries, pinnedimport.Cached)).To(Succeed())
 	})
 
 	It("fails closed, listing every violation and how to fix it", func() {
 		destination("legacy", "free-d")
 		pipeline("w", "free-p", true)
-		err := tenancy.CheckRequireOwned(ctx, st.Queries)
+		err := tenancy.CheckRequireOwned(ctx, st.Queries, pinnedimport.Cached)
 		Expect(err).To(MatchError(tenancy.ErrRequireOwnedViolations))
 		Expect(err.Error()).To(And(
 			ContainSubstring(`destination "legacy" uses tenant "free-d"`),
 			ContainSubstring(`enabled pipeline "w"`), ContainSubstring(`"free-p"`),
 			ContainSubstring("shepherd admin tenant-preflight"),
 		))
-		vs, err := tenancy.Preflight(ctx, st.Queries, org, false)
+		vs, err := tenancy.Preflight(ctx, st.Queries, org, false, pinnedimport.Cached)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(vs).To(HaveLen(2))
 	})
@@ -220,10 +221,10 @@ var _ = Describe("CheckRequireOwned", Label("integration"), func() {
 	It("needs a tenant for per-org strict mode only (requireTenant)", func() {
 		empty, err := st.Queries.GetOrgByName(ctx, "preflight-empty")
 		Expect(err).NotTo(HaveOccurred())
-		vs, err := tenancy.Preflight(ctx, st.Queries, empty, true)
+		vs, err := tenancy.Preflight(ctx, st.Queries, empty, true, pinnedimport.Cached)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(vs).To(ConsistOf(HaveField("Kind", tenancy.KindOrg)))
-		vs, err = tenancy.Preflight(ctx, st.Queries, empty, false)
+		vs, err = tenancy.Preflight(ctx, st.Queries, empty, false, pinnedimport.Cached)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(vs).To(BeEmpty())
 	})
@@ -273,5 +274,93 @@ var _ = Describe("CheckRequireOwned", Label("integration"), func() {
 		Expect(p).To(And(HaveField("Strict", true), HaveField("OrgStrict", true)))
 		_, err = tenancy.Load(ctx, st.Queries, pgtype.UUID{}, false)
 		Expect(err).To(HaveOccurred())
+	})
+})
+
+// Pinned import.git (#390): the preflight, the boot check, the in-transaction
+// lint and the allowlist-removal guard read a pipeline's modules the way a
+// save does, so a pipeline the save path accepted passes them all, and one
+// it would refuse fails them all.
+var _ = Describe("pinned import.git in the preflight", Label("integration"), func() {
+	const (
+		repo = "https://git.example.com/team/modules.git"
+		sha  = "0123456789abcdef0123456789abcdef01234567"
+	)
+	var (
+		ctx   context.Context
+		st    *store.Store
+		org   sqlc.Org
+		repos []sqlc.OrgImportRepository
+	)
+
+	importing := func(path string) string {
+		return "import.git \"m\" {\n  repository = \"" + repo + "\"\n  revision   = \"" + sha + "\"\n  path       = \"" + path + "\"\n}\n"
+	}
+	module := func(tenant string) string {
+		return "declare \"out\" {\n  loki.write \"w\" {\n    endpoint {\n      url       = \"https://loki.example.com/loki/api/v1/push\"\n" +
+			"      tenant_id = \"" + tenant + "\"\n    }\n  }\n}\n"
+	}
+
+	BeforeEach(func() {
+		ctx = context.Background()
+		var err error
+		st, err = store.New(ctx, &config.DatabaseConfig{URL: sharedPG.IsolatedDB(ctx, GinkgoTB()), MaxConns: 4})
+		Expect(err).NotTo(HaveOccurred())
+		DeferCleanup(st.Close)
+		org, err = st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{Name: "pinned-org", DisplayName: "P", AdminGroupID: "p-admins"})
+		Expect(err).NotTo(HaveOccurred())
+		_, err = st.Queries.AddOrgTenant(ctx, sqlc.AddOrgTenantParams{OrgID: org.ID, Tenant: "acme", Kind: "exact", IsDefault: true, CreatedBy: "t"})
+		Expect(err).NotTo(HaveOccurred())
+		key, err := pinnedimport.NormalizeRepository(repo)
+		Expect(err).NotTo(HaveOccurred())
+		e, err := st.Queries.AddOrgImportRepository(ctx, sqlc.AddOrgImportRepositoryParams{OrgID: org.ID, Repository: repo, RepositoryKey: key, CreatedBy: "t"})
+		Expect(err).NotTo(HaveOccurred())
+		repos = []sqlc.OrgImportRepository{e}
+		for path, tenant := range map[string]string{"owned.alloy": "acme", "foreign.alloy": "victim"} {
+			Expect(st.Queries.PutPinnedImportModule(ctx, sqlc.PutPinnedImportModuleParams{
+				OrgID: org.ID, RepositoryKey: key, Revision: sha, Path: path, Content: module(tenant),
+			})).To(Succeed())
+		}
+	})
+
+	pipeline := func(name, contents string) {
+		GinkgoHelper()
+		_, err := st.Queries.CreatePipeline(ctx, sqlc.CreatePipelineParams{
+			OrgID: org.ID, Name: name, Contents: contents, Matchers: json.RawMessage(`[]`), Source: "ui", Enabled: true,
+		})
+		Expect(err).NotTo(HaveOccurred())
+	}
+
+	It("passes an allowlisted SHA-pinned import whose module uses owned tenants", func() {
+		pipeline("ok", importing("owned.alloy"))
+		vs, err := tenancy.Preflight(ctx, st.Queries, org, true, pinnedimport.Cached)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(vs).To(BeEmpty())
+		Expect(tenancy.CheckRequireOwned(ctx, st.Queries, pinnedimport.Cached)).To(Succeed())
+		Expect(tenancy.LintLocked(ctx, st.Queries, org.ID, true, tenancy.Pipeline{Name: "ok", Contents: importing("owned.alloy")})).To(Succeed())
+	})
+
+	It("refuses a module writing to a foreign tenant, a branch revision and a repository off the allowlist", func() {
+		pipeline("foreign", importing("foreign.alloy"))
+		pipeline("branch", strings.Replace(importing("owned.alloy"), sha, "main", 1))
+		pipeline("elsewhere", strings.Replace(importing("owned.alloy"), "team/modules", "other/modules", 1))
+		vs, err := tenancy.Preflight(ctx, st.Queries, org, true, pinnedimport.Cached)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(vs).To(ConsistOf(
+			And(HaveField("Name", "foreign"), HaveField("Message", ContainSubstring(`"victim"`))),
+			And(HaveField("Name", "branch"), HaveField("Message", ContainSubstring("commit SHA"))),
+			And(HaveField("Name", "elsewhere"), HaveField("Message", ContainSubstring("allowlist"))),
+		))
+		Expect(tenancy.CheckRequireOwned(ctx, st.Queries, pinnedimport.Cached)).To(MatchError(tenancy.ErrRequireOwnedViolations))
+		Expect(tenancy.LintLocked(ctx, st.Queries, org.ID, true, tenancy.Pipeline{Name: "foreign", Contents: importing("foreign.alloy")})).
+			To(MatchError(tenancy.ErrPipelineNotOwned))
+	})
+
+	It("names the enabled pipelines that import from an allowlist entry", func() {
+		pipeline("user", importing("owned.alloy"))
+		pipeline("bystander", module("acme"))
+		users, err := tenancy.ImportRepositoryUsers(ctx, st.Queries, org.ID, repos[0].RepositoryKey, repos)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(users).To(ConsistOf(`pipeline "user"`))
 	})
 })

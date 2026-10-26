@@ -51,6 +51,11 @@ type Repo struct {
 	// Limits bounds the resources one call may consume. The zero value
 	// is filled in with DefaultLimits().
 	Limits Limits
+	// SameHostRedirects refuses (ErrRedirectRefused) an HTTP redirect to
+	// another scheme, host or port, so a call reaches only the host URL
+	// names (strict tenant mode's pinned imports fetch only allowlisted
+	// repositories). Off, go-git's own redirect policy applies.
+	SameHostRedirects bool
 }
 
 // File is one *.alloy file read out of a repository.
