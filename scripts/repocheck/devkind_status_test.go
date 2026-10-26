@@ -47,3 +47,43 @@ ts=2026-10-24T00:19:27Z level=error msg="failed to get configuration from remote
 		Expect(verdict("")).To(Equal("ok"))
 	})
 })
+
+// `make dev-kind-status` reported the agents' remotecfg health only: an agent
+// whose beacon never authenticated read "ok" while the Reconciliation tab had
+// no observed data (0.22 -> 0.23 upgrade walkthrough). The status report now
+// counts beacon_inventory rows per instance, read from the CNPG primary with
+// psql through kc. These specs run beacon_status against a stubbed db_psql.
+var _ = Describe("scripts/dev-kind.sh beacon_status", func() {
+	status := func(stub string) string {
+		GinkgoHelper()
+		body := funcBody(readRepoFile(devKindScriptRel), "beacon_status")
+		cmd := exec.Command("bash", "-c", "DB_CLUSTER=shepherd-db\ndb_psql() {\n"+stub+"\n}\nbeacon_status() {"+body+"\n}\nbeacon_status")
+		out, err := cmd.CombinedOutput()
+		Expect(err).NotTo(HaveOccurred(), string(out))
+		return strings.TrimSpace(string(out))
+	}
+
+	It("is part of the status report and reads beacon_inventory through kc", func() {
+		script := readRepoFile(devKindScriptRel)
+		Expect(funcBody(script, "cmd_status")).To(ContainSubstring("beacon_status"))
+		Expect(funcBody(script, "beacon_status")).To(ContainSubstring("beacon_inventory"))
+		psql := funcBody(script, "db_psql")
+		Expect(psql).To(ContainSubstring(`kc -n "$NAMESPACE" exec`))
+		Expect(psql).To(ContainSubstring("psql"))
+		Expect(psql).To(ContainSubstring("cnpg.io/cluster=${DB_CLUSTER}"))
+	})
+
+	It("reports rows per instance with their healthy count", func() {
+		Expect(status(`printf 'alloy-logs 12 12\nalloy-singleton 7 6\n'`)).To(Equal(
+			"beacon_inventory: alloy-logs: 12 components (12 healthy)\n" +
+				"beacon_inventory: alloy-singleton: 7 components (6 healthy)"))
+	})
+
+	It("says so when no beacon has reported", func() {
+		Expect(status(`true`)).To(Equal("beacon_inventory: 0 rows — no beacon has reported yet"))
+	})
+
+	It("says so when the database cannot be reached", func() {
+		Expect(status(`return 1`)).To(ContainSubstring("database unreachable"))
+	})
+})

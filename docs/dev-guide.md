@@ -75,9 +75,10 @@ Kubernetes counterpart to `make dev` above, not a test suite — see
   since its `discovery.kubernetes` needs a cluster.
 - **Health check:** `make dev-kind-status` lists the pods, Services, PVCs, Gateway and HTTPRoutes and
   the Helm release, confirms the CoreDNS rewrite, probes Shepherd's `/healthz` and `/readyz` (the
-  latter fails while a migration is pending or the DB is unreachable), reports any of the three
-  agents whose last two minutes of logs show it rejecting its served config, and checks the OIDC and
-  Gitea endpoints.
+  latter fails while a migration is pending or the DB is unreachable), reports any of the four
+  agents (the kind stack adds `alloy-singleton`, `cluster=prod-eu-1 role=singleton`) whose last two
+  minutes of logs show it refused or rejecting its served config, counts `beacon_inventory` rows per
+  instance (read with `psql` on the CNPG primary), and checks the OIDC and Gitea endpoints.
 - **The OIDC walk, briefly:** sign in with the "Mock SSO" button, enter a username and a JSON
   `groups` claim on mock-oauth2-server's login page. A group matching the seeded app-admin group
   id signs in as an app admin; a group matching a seeded org's admin/viewer group id signs in with
@@ -163,11 +164,12 @@ The dev seed (`shepherd dev seed`) creates:
 | Orgs | `platform-org` (admin group `22222222-aaaa-4000-8000-000000000001`, viewer group `…0002`) + `data-eng` (admin group `…0003`) |
 | Local users | Bootstrap admin (§ Credentials below) plus two more on `platform-org`: `editor` / `editor-dev-pass` (`org_members.role = editor`) and `viewer` / `viewer-dev-pass` (`role = viewer`) — deterministic fixtures for exercising the editor/viewer tiers without an OIDC provider (`internal/cli/dev.go`'s `seedLocalUsers`) |
 | Clusters | `prod-eu-1`, `staging-eu-1` (both claimed by platform-org), `data-eng-eu-1` (claimed by data-eng) |
-| Collectors | `metrics`, `logs`, `singleton` on prod-eu-1; `metrics` on data-eng-eu-1. Collector rows only — instances register themselves from the compose Alloy containers; `singleton` shows zero instances until something registers, which is expected |
-| Pipelines (platform-org) | `base-metrics` (ui, enabled), `demo-visual` (visual, disabled — real `alloy-graph/v1` wizard_state so the visual builder opens with an editable example; its `discovery.kubernetes` only loads in a cluster, so enable it on the kind stack, not compose), `loki-logs` (ui, disabled), `app-obs-wizard` (wizard, disabled) |
+| Collectors | `metrics`, `logs`, `singleton` on prod-eu-1; `metrics` on data-eng-eu-1. Collector rows only — instances register themselves from the compose Alloy containers; `singleton` shows zero instances on compose, which is expected; on `make dev-kind` the `alloy-singleton` agent registers against it |
+| Pipelines (platform-org) | `base-metrics` (ui, enabled), `demo-visual` (visual, disabled — real `alloy-graph/v1` wizard_state so the visual builder opens with an editable example; its `discovery.kubernetes` only loads in a cluster, so enable it on the kind stack, not compose), `loki-logs` (ui, disabled), `app-obs-wizard` (wizard, disabled), `k8smon-metrics` / `k8smon-logs` (ui, disabled — the chart-shaped k8s-monitoring fixtures, destinations rewritten to `prom-prod` / `loki-prod`), and once the module repo below is pushed `pinned-module` (enabled, `prod-eu-1/singleton`) and `pinned-module-foreign` (disabled) |
 | Pipelines (data-eng) | `example-metrics` (ui, disabled) |
 | Destinations | `prom-prod` (prometheus), `loki-prod` (loki) — platform-org |
 | GitOps | Gitea repo `shepherd-demo-config` + `pat` credential `gitea-demo` + repo link → git-sourced `demo-git.alloy` pipeline (skipped with a notice if Gitea is unreachable) |
+| Module repo | Gitea repo `shepherd-modules`, two commits with fixed SHAs: `b42fd3c75d02ff44e7dbd89f83bc22f8d15eb410` (`platform-metrics.alloy`, owned tenant `platform-org`) and `5c48c5d49ac7f34d79fd55b36c648687a4307350` (adds `foreign-tenant.alloy`, data-eng's tenant); platform-org's import allowlist holds `http://gitea:3000/shepherd-admin/shepherd-modules.git`. Strict tenant mode stays off. Skipped with a notice if Gitea is unreachable |
 | Agent token | ID `00000000-de00-4000-a000-000000000001`, secret `dev-only-agent-secret-32byteslong` |
 
 To reseed without resetting data: `make dev-seed` (idempotent — inserts use `ON CONFLICT DO NOTHING`, orgs `ON CONFLICT DO UPDATE`).
