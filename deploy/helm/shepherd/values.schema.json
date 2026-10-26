@@ -328,6 +328,9 @@
             },
             "outage_cache_ttl": {
               "type": "string"
+            },
+            "refusal_visible_for": {
+              "type": "string"
             }
           }
         },

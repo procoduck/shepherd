@@ -138,15 +138,20 @@ type Collector struct {
 	// UI-managed grouping labels, independent of Alloy attributes and pipeline matching.
 	Labels map[string]string `protobuf:"bytes,12,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// last_refused_reason is set while the agent API's latest refusal of a poll
-	// for this collector is newer than its last successful poll (instances are
-	// never written on a refused poll, so last_seen and remote_config_status
-	// still describe the last poll that passed). One of "token_unbound",
+	// for this collector is younger than agent.refusal_visible_for (default
+	// 15m), whether or not another instance's poll passed since: a passing poll
+	// does not clear a recent refusal. Instances are never written on a refused
+	// poll, so last_seen and remote_config_status still describe the last poll
+	// that passed: a refusal newer than last_seen means no instance is passing
+	// (the collector is refused); an older one means a sibling instance was
+	// refused beside healthy ones. One of "token_unbound",
 	// "claim_denied" (cluster not permitted, or claimed by another org) or
 	// "role_denied"; empty when the collector is not being refused. A string,
 	// per this repo's enum-like-field rule.
 	LastRefusedReason string `protobuf:"bytes,13,opt,name=last_refused_reason,json=lastRefusedReason,proto3" json:"last_refused_reason,omitempty"`
 	// last_refused_at is when that refusal was recorded (refreshed at most once
-	// per refusal-log window while refusals continue); unset with the reason.
+	// per refusal-log window, five minutes, while refusals continue); unset
+	// with the reason.
 	LastRefusedAt *timestamppb.Timestamp `protobuf:"bytes,14,opt,name=last_refused_at,json=lastRefusedAt,proto3" json:"last_refused_at,omitempty"`
 	// version_warning is what the agent API's version check of this
 	// collector's served config found (#375), unset when it found nothing.

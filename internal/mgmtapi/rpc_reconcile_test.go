@@ -225,6 +225,21 @@ var _ = Describe("shepherd.mgmt.v1.FleetService/GetReconciliation", Label("integ
 		Expect(sources).To(ConsistOf("served", "observed"))
 	})
 
+	// 0.20 walkthrough: a pipeline served, then disabled. Alloy reloaded and
+	// stopped reporting it, so its row went minutes without a refresh while
+	// the instance's live rows kept refreshing — and the tab still listed it
+	// as running. A row the instance's latest report did not refresh is no
+	// longer running.
+	It("does not report a row the instance's latest report no longer carries", func() {
+		observe("pipe_keep_me", true)
+		observe("pipe_ghost", true)
+		// RAW-SQL-OK: backdating last_seen to simulate missed refreshes — no sqlc query sets it
+		_, err := st.Pool().Exec(ctx, `UPDATE beacon_inventory SET last_seen = now() - interval '4 minutes 22 seconds' WHERE component_name = 'pipe_ghost'`)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(findings()).To(BeEmpty())
+		Expect(observedKnown()).To(BeTrue())
+	})
+
 	It("ignores root-level (non-managed) observed components", func() {
 		// A BYO / baseline component at the root controller path is out of scope
 		// and must not produce a finding.

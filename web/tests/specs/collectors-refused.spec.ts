@@ -2,8 +2,9 @@
 // poll of a collector was refused (an unbound agent token), the Collectors
 // list and the collector page still read the last successful poll's APPLIED.
 // The server now carries the latest refusal (migration 0041:
-// last_refused_reason / last_refused_at, set only while newer than the last
-// successful poll), and it takes precedence over the instance status.
+// last_refused_reason / last_refused_at, carried for agent.refusal_visible_for),
+// and while it is newer than the last successful poll it takes precedence over
+// the instance status.
 import { expect } from '@playwright/test';
 import { basicScenario, collector } from '../fixtures/factories';
 import { orgAdmin, viewer } from '../fixtures/personas';
@@ -106,4 +107,58 @@ test('a collector with no refusal shows its instance status and no banner', asyn
   await page.goto(`/collectors/${c.id}`);
   await expect(page.getByTestId('collector-status')).toHaveText('APPLIED');
   await expect(page.getByTestId('collector-refused')).toHaveCount(0);
+});
+
+// 0.20 walkthrough: one pod with a token scoped to another cluster, beside
+// healthy pods of the same (cluster, role). The server now keeps the refusal
+// for agent.refusal_visible_for even while the healthy pods poll; a poll that
+// passed after it means the collector is healthy, so the status stays APPLIED
+// and the refusal shows as a warning beside it.
+test('a refused instance beside a healthy one shows APPLIED with a warning on the list', async ({
+  page,
+  api,
+}) => {
+  await api.loginAs(viewer);
+  const s = basicScenario();
+  const c = collector({
+    id: 'col-sibling',
+    role: 'metrics',
+    remote_config_status: 'APPLIED',
+    last_seen: new Date(Date.now() - 5_000).toISOString(),
+    last_refused_reason: 'claim_denied',
+    last_refused_at: new Date(Date.now() - 3 * 60_000).toISOString(),
+  });
+  api.seed({ orgs: [s.org], collectors: [c] });
+
+  await page.goto('/collectors');
+  const row = page.getByRole('row').filter({ hasText: 'metrics' });
+  await expect(row).toContainText('APPLIED');
+  await expect(row.getByTestId('collector-refused-badge')).toHaveCount(0);
+  await expect(row.getByTestId('collector-sibling-refused-badge')).toHaveAttribute(
+    'title',
+    'An instance using this collector was refused 3m ago: cluster not allowed',
+  );
+});
+
+test('the collector page shows a sibling refusal as a warning, not as REFUSED', async ({
+  page,
+  api,
+}) => {
+  await api.loginAs(viewer);
+  const s = basicScenario();
+  const c = collector({
+    id: 'col-sibling-detail',
+    remote_config_status: 'APPLIED',
+    last_seen: new Date(Date.now() - 5_000).toISOString(),
+    last_refused_reason: 'role_denied',
+    last_refused_at: new Date(Date.now() - 2 * 60_000).toISOString(),
+  });
+  api.seed({ orgs: [s.org], collectors: [c] });
+
+  await page.goto(`/collectors/${c.id}`);
+  await expect(page.getByTestId('collector-status')).toHaveText('APPLIED');
+  await expect(page.getByTestId('collector-refused')).toHaveCount(0);
+  await expect(page.getByTestId('collector-sibling-refused')).toContainText(
+    'An instance using this collector was refused 2m ago: role not allowed',
+  );
 });

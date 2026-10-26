@@ -1,4 +1,4 @@
-import type { Timestamp } from '@bufbuild/protobuf/wkt';
+import { type Timestamp, timestampDate } from '@bufbuild/protobuf/wkt';
 import { Link } from '@tanstack/react-router';
 import { toneClass } from '@/components/ui/statusTone';
 import { useCanAdminister } from '@/hooks/useOrg';
@@ -6,10 +6,14 @@ import { formatTimestampRelative } from '@/lib/utils';
 
 // A collector the agent API is refusing (migration 0041). A refused poll writes
 // no instance row, so the instance status (APPLIED, …) and last_seen still
-// describe the last poll that passed; the server sets last_refused_reason only
-// while the latest refusal is newer than that, and the UI shows it in place of
-// the instance status. Found by the 0.22 -> 0.23 upgrade walkthrough: a fleet
-// whose every poll was refused (unbound token) read APPLIED / "1m ago".
+// describe the last poll that passed. Found by the 0.22 -> 0.23 upgrade
+// walkthrough: a fleet whose every poll was refused (unbound token) read
+// APPLIED / "1m ago".
+//
+// The server carries the latest refusal for agent.refusal_visible_for (15m by
+// default) whether or not a poll passed since (0.20 walkthrough): one pod with
+// credentials for another cluster, beside healthy pods of the same (cluster,
+// role), used to vanish behind them. refusalState tells the two cases apart.
 
 /** The refusal reasons the server reports (internal/metrics AgentRefused*). */
 export type RefusalReason = 'token_unbound' | 'claim_denied' | 'role_denied';
@@ -25,6 +29,20 @@ export function refusalMessage(reason: string): string {
       return 'Refused — role not allowed';
     default:
       return 'Refused';
+  }
+}
+
+/** The reason alone, lower-case, for a sentence about one refused instance. */
+function refusalReasonText(reason: string): string {
+  switch (reason) {
+    case 'token_unbound':
+      return 'agent token not bound to an organisation';
+    case 'claim_denied':
+      return 'cluster not allowed';
+    case 'role_denied':
+      return 'role not allowed';
+    default:
+      return 'refused on an identity check';
   }
 }
 
@@ -45,11 +63,44 @@ function refusalHint(reason: string): string {
 interface Refusable {
   lastRefusedReason: string;
   lastRefusedAt?: Timestamp;
+  lastSeen?: Timestamp;
 }
 
 /**
- * The status badge for a collector: REFUSED while the server reports a
- * refusal, otherwise the caller's instance-status badge.
+ * How a collector's recorded refusal reads. `refused`: no poll has passed
+ * since it (last_seen is the newest passing poll, as a refused poll writes no
+ * instance row), so REFUSED is the collector's status. `sibling`: a poll passed
+ * after it, so another instance is healthy; the status stays the instance
+ * status and the refusal is a warning beside it.
+ */
+export function refusalState(c: Refusable): 'none' | 'refused' | 'sibling' {
+  if (!c.lastRefusedReason) return 'none';
+  if (!c.lastSeen || !c.lastRefusedAt) return 'refused';
+  return timestampDate(c.lastRefusedAt) > timestampDate(c.lastSeen) ? 'refused' : 'sibling';
+}
+
+/** The one-line warning for a refused instance beside a healthy one. */
+export function siblingRefusalText(c: Refusable): string {
+  return `An instance using this collector was refused ${formatTimestampRelative(c.lastRefusedAt)}: ${refusalReasonText(c.lastRefusedReason)}`;
+}
+
+/** The Collectors list's marker beside a healthy status; renders nothing otherwise. */
+export function SiblingRefusalBadge({ collector }: { collector: Refusable }) {
+  if (refusalState(collector) !== 'sibling') return null;
+  return (
+    <span
+      data-testid='collector-sibling-refused-badge'
+      title={siblingRefusalText(collector)}
+      className={`ml-2 text-xs font-medium px-1.5 py-0.5 rounded border ${toneClass('warn')}`}
+    >
+      INSTANCE REFUSED
+    </span>
+  );
+}
+
+/**
+ * The status badge for a refused collector (refusalState === 'refused'); the
+ * caller renders its instance-status badge otherwise.
  */
 export function RefusedBadge({ collector, testId }: { collector: Refusable; testId?: string }) {
   return (
@@ -67,7 +118,22 @@ export function RefusedBadge({ collector, testId }: { collector: Refusable; test
 export function CollectorRefusedBanner({ collector }: { collector: Refusable }) {
   const canAdminister = useCanAdminister();
   const reason = collector.lastRefusedReason;
-  if (!reason) return null;
+  const state = refusalState(collector);
+  if (state === 'none') return null;
+  if (state === 'sibling') {
+    return (
+      <div
+        className={`rounded-lg border px-4 py-3 text-sm ${toneClass('warn')}`}
+        data-testid='collector-sibling-refused'
+      >
+        <p className='font-medium'>{siblingRefusalText(collector)}</p>
+        <p className='mt-1'>
+          {refusalHint(reason)} Other instances of this collector are polling successfully, so the
+          status shown is theirs. This warning clears once no instance has been refused for a while.
+        </p>
+      </div>
+    );
+  }
   return (
     <div
       className={`rounded-lg border px-4 py-3 text-sm ${toneClass('danger')}`}

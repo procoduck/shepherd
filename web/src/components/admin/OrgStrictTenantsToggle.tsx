@@ -11,12 +11,35 @@ import { errorText } from '@/lib/formError';
  * on is refused while anything of the org breaks the rule; the refusal is
  * followed by TenantPreflight, so the admin sees each object to fix.
  */
+/**
+ * What a refused toggle attempt left behind, for the dialog's Save toast (0.20
+ * walkthrough: Save closed the dialog with "Organisation updated" while the
+ * refused strict mode stayed off, so the outcome read as a success).
+ */
+export function strictRefusalNote(on: boolean, violations: number, error: unknown): string {
+  const head = `strict tenant mode was not ${on ? 'enabled' : 'disabled'}`;
+  if (violations > 0) {
+    return violations === 1
+      ? `${head}: 1 item uses a tenant this organisation does not own`
+      : `${head}: ${violations} items use a tenant this organisation does not own`;
+  }
+  return `${head}: ${errorText(error, 'the change was refused')}`;
+}
+
+/** The edit dialog's Save toast, given the strict toggle's refusal note. */
+export function savedToastText(strictRefusal: string | null): string {
+  return strictRefusal ? `Organisation updated — ${strictRefusal}` : 'Organisation updated';
+}
+
 export function OrgStrictTenantsToggle({
   org,
   onChange,
+  onRefusal,
 }: {
   org: Org;
   onChange: (org: Org) => void;
+  /** Called with a note after a refused attempt, and with null after one that took. */
+  onRefusal?: (note: string | null) => void;
 }) {
   const setMut = useMutation({
     mutationFn: async (on: boolean) => {
@@ -33,8 +56,13 @@ export function OrgStrictTenantsToggle({
         return { error: err, violations: pre?.violations ?? [] };
       }
     },
-    onSuccess: (res) => {
-      if (res.org) onChange(res.org);
+    onSuccess: (res, on) => {
+      if (res.org) {
+        onChange(res.org);
+        onRefusal?.(null);
+        return;
+      }
+      onRefusal?.(strictRefusalNote(on, res.violations.length, res.error));
     },
   });
   const result = setMut.data;

@@ -31,6 +31,7 @@ import (
 	"shepherd/internal/auth"
 	"shepherd/internal/config"
 	"shepherd/internal/crypto"
+	"shepherd/internal/pinnedimport"
 	"shepherd/internal/schema"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
@@ -279,7 +280,7 @@ func runDevSeed(cmd *cobra.Command, _ []string) error {
 		// shepherd itself from starting.
 		fmt.Printf("gitops seed: skipped (%v)\n", err)
 	}
-	if err := seedModuleRepo(ctx, st, platform.ID); err != nil {
+	if err := seedModuleRepo(ctx, st, pinnedimport.New(cfg, nil, slog.Default()), platform.ID); err != nil {
 		// Best-effort for the same reason: the module repository lives in
 		// Gitea too. Its pipelines are seeded only once the push succeeded,
 		// so a missing repository never reaches a collector.

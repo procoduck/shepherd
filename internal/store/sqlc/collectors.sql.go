@@ -15,11 +15,19 @@ import (
 const clearCollectorRefusal = `-- name: ClearCollectorRefusal :exec
 UPDATE collectors
 SET last_refused_at = NULL, last_refused_reason = NULL
-WHERE id = $1 AND last_refused_at IS NOT NULL
+WHERE id = $1 AND last_refused_at < $2::timestamptz
 `
 
-func (q *Queries) ClearCollectorRefusal(ctx context.Context, id pgtype.UUID) error {
-	_, err := q.db.Exec(ctx, clearCollectorRefusal, id)
+type ClearCollectorRefusalParams struct {
+	ID            pgtype.UUID        `json:"id"`
+	RefusedBefore pgtype.Timestamptz `json:"refused_before"`
+}
+
+// Clears a refusal only while it is still older than refused_before (now minus
+// agent.refusal_visible_for): a refused poll that re-recorded it between the
+// caller's read and this write keeps it.
+func (q *Queries) ClearCollectorRefusal(ctx context.Context, arg ClearCollectorRefusalParams) error {
+	_, err := q.db.Exec(ctx, clearCollectorRefusal, arg.ID, arg.RefusedBefore)
 	return err
 }
 

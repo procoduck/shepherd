@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { useMemo, useState } from 'react';
 import { clients } from '@/api/transport';
-import { RefusedBadge } from '@/components/CollectorRefusal';
+import { RefusedBadge, refusalState, SiblingRefusalBadge } from '@/components/CollectorRefusal';
 import { VersionWarningBadge } from '@/components/CollectorVersionWarning';
 import { ConnectClusterDialog } from '@/components/ConnectClusterDialog';
 import { QueryError } from '@/components/QueryError';
@@ -42,16 +42,20 @@ const collectorColumns: DataTableColumn<Collector>[] = [
     render: (c) => {
       // A refusal newer than the last successful poll wins (0041): the
       // instance status is the last poll that passed, not what happens now.
-      if (c.lastRefusedReason) return <RefusedBadge collector={c} />;
+      // One older than it is another instance's: a warning beside the status.
+      if (refusalState(c) === 'refused') return <RefusedBadge collector={c} />;
       const status = c.remoteConfigStatus?.toUpperCase() ?? '';
       const tone = statusColor(status);
       return (
-        <span
-          title={statusTitle(status)}
-          className={`text-xs font-medium px-2 py-0.5 rounded border ${tone}`}
-        >
-          {status || 'UNKNOWN'}
-        </span>
+        <>
+          <span
+            title={statusTitle(status)}
+            className={`text-xs font-medium px-2 py-0.5 rounded border ${tone}`}
+          >
+            {status || 'UNKNOWN'}
+          </span>
+          <SiblingRefusalBadge collector={c} />
+        </>
       );
     },
   },
@@ -117,7 +121,7 @@ export function CollectorsPage() {
           c.cluster,
           c.role,
           c.alloyVersion,
-          c.lastRefusedReason ? 'refused' : c.remoteConfigStatus || 'unknown',
+          refusalState(c) === 'refused' ? 'refused' : c.remoteConfigStatus || 'unknown',
           ...Object.entries(c.labels).map(([key, value]) => `${key}=${value}`),
         ].some((value) => value.toLowerCase().includes(query)),
       ),
