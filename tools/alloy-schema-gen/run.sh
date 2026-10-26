@@ -11,6 +11,10 @@
 #   SCHEMA_OUT_DIR   directory to write the artifact into
 #                    (default: internal/schema/artifacts)
 #   SKIP_RECONCILE   when non-empty, do not touch overlay.json
+#   SCHEMA_ALLOY_VERSION
+#                    generate the artifact for this release tag instead of
+#                    the pin (an additional, older schema); implies
+#                    SKIP_RECONCILE
 #   ALLOY_SRC        reuse an existing grafana/alloy checkout instead of cloning
 #
 # Prerequisites: git, go, jq, docker, network access to ALLOY_REPO. The
@@ -29,7 +33,19 @@ source "${REPO_ROOT}/deploy/versions.env"
 # `source` does not export, and run.sh is also invoked directly (not only via
 # make, whose bare `export` would otherwise be the only reason this works).
 # The injected extractor reads ALLOY_VERSION from its own environment.
-export ALLOY_VERSION="${ALLOY_VERSION:?ALLOY_VERSION must be set in deploy/versions.env}"
+PINNED_ALLOY_VERSION="${ALLOY_VERSION:?ALLOY_VERSION must be set in deploy/versions.env}"
+# SCHEMA_ALLOY_VERSION generates an ADDITIONAL artifact for another release
+# (the older schemas version-aware validation checks collectors against,
+# internal/validate/versions.go) without moving the pin. The overlay is tied
+# to the pin, so a non-pin run never reconciles it.
+export ALLOY_VERSION="${SCHEMA_ALLOY_VERSION:-${PINNED_ALLOY_VERSION}}"
+if [[ ! "${ALLOY_VERSION}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo "ERROR: '${ALLOY_VERSION}' is not a vX.Y.Z release tag" >&2
+  exit 1
+fi
+if [[ "${ALLOY_VERSION}" != "${PINNED_ALLOY_VERSION}" ]]; then
+  SKIP_RECONCILE=1
+fi
 ALLOY_REPO="${ALLOY_REPO:-https://github.com/grafana/alloy}"
 OUT_DIR="${SCHEMA_OUT_DIR:-${REPO_ROOT}/internal/schema/artifacts}"
 OUTPUT="${OUT_DIR}/alloy-${ALLOY_VERSION}.json"

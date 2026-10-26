@@ -33,6 +33,26 @@ When network access is unavailable (local dev, air-gapped), the committed `inter
 `run.sh` also honours `ALLOY_SRC=<path>` to reuse an existing checkout instead of
 cloning, which turns a local verify from a ~4 GB clone into a ~40 s run.
 
+## Older releases (version-aware validation)
+
+Besides the pin, `internal/schema/artifacts/` carries an artifact for every
+released Alloy patch from v1.18.0 up to the pin: Stage 3 checks each collector's
+merged config against the schema of the version it reports
+(`internal/validate/versions.go`), and a version without its own artifact is
+only approximated by the nearest older one. Generate and verify one with the
+same extractor, without moving the pin:
+
+```bash
+make schema        SCHEMA_ALLOY_VERSION=v1.21.0   # writes alloy-v1.21.0.json; overlay.json untouched
+make schema-verify SCHEMA_ALLOY_VERSION=v1.21.0   # regenerate + diff that artifact; overlay guards run against the pin
+```
+
+A non-pin run never reconciles `overlay.json`: the overlay is tied to the pin
+(its guards and `ValidateOverlay` read only the pin's artifact), and the
+version check reads only component names, block/attribute names and stability
+from the older artifacts, never the overlay. On an Alloy bump, keep the old
+pin's artifact and add any patches released in between.
+
 
 ## Overlay guards (CI-enforced)
 

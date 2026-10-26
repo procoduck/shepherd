@@ -62,9 +62,11 @@ Categories used here:
   block or attribute that version lacks refuses the save, naming the collector, the version and
   the item: `otelcol.processor.redaction` on a v1.18.1 collector, or `scrape_classic_histograms`
   in a `prometheus.operator.*` scrape block. **Saves that passed before can now be refused for a
-  fleet still running an older Alloy.** Schemas ship for v1.18.1, v1.19.2, v1.20.1 and v1.21.2;
-  a release without its own schema is checked against the nearest older one (v1.20.0 against
-  v1.19.2, v1.21.0 against v1.20.1) with a warning that the check is an approximation, and one
+  fleet still running an older Alloy.** Schemas ship for every released patch from v1.18.0 to
+  the pin: v1.18.0, v1.18.1, v1.19.0, v1.19.1, v1.19.2, v1.20.0, v1.20.1, v1.21.0, v1.21.1 and
+  v1.21.2, so a v1.21.0 collector is checked against v1.21.0 itself. A release
+  without its own schema is checked against the nearest older one (a v1.20.5 against v1.20.1,
+  a v1.17.x against v1.18.0) with a warning that the check is an approximation, and one
   newer than every shipped schema, a pre-release or none reported against the pinned schema,
   with a warning. A refusal names the instances reporting the version. A mismatch a collector is
   already served refuses only a change to the pipeline that holds it: disabling a pipeline,

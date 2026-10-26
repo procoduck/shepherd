@@ -56,9 +56,42 @@ func versionWarnings(diags []validate.Diagnostic) []string {
 var pinned = validate.DisplayVersion(version.AlloySchemaVersion)
 
 var _ = Describe("CheckAlloyVersions (#375)", func() {
-	It("ships a schema for the pinned version and every older release it checks", func() {
-		Expect(validate.ShippedVersions()).To(ContainElements(
-			"alloy-v1.18.1", "alloy-v1.19.2", "alloy-v1.20.1", version.AlloySchemaVersion))
+	It("ships a schema for the pinned version and every released patch back to v1.18.0", func() {
+		Expect(validate.ShippedVersions()).To(Equal([]string{
+			"alloy-v1.18.0", "alloy-v1.18.1",
+			"alloy-v1.19.0", "alloy-v1.19.1", "alloy-v1.19.2",
+			"alloy-v1.20.0", "alloy-v1.20.1",
+			"alloy-v1.21.0", "alloy-v1.21.1", "alloy-v1.21.2",
+		}))
+		Expect(validate.ShippedVersions()).To(ContainElement(version.AlloySchemaVersion))
+	})
+
+	// v1.21.0 added no component, but it added attributes. Before every patch
+	// had its own schema a v1.21.0 collector was checked against v1.20.1 and
+	// these were false refusals.
+	It("checks a v1.21.0 collector against v1.21.0 itself, accepting what 1.21.0 added", func() {
+		content := `loki.source.cloudflare "cf" {
+  api_token  = "t"
+  zone_id    = "z"
+  api_url    = "https://api.cloudflare.example"
+  forward_to = []
+}
+otelcol.encoding.jsonlog "j" {
+  parse_ints = true
+}
+`
+		rv := validate.ResolveVersion("v1.21.0")
+		Expect(rv.Artifact).To(Equal("alloy-v1.21.0"))
+		Expect(rv.How).To(Equal(validate.ResolvedExact))
+		diags := validate.CheckAlloyVersions(content, []string{"v1.21.0"})
+		Expect(versionErrors(diags)).To(BeEmpty())
+		Expect(versionWarnings(diags)).NotTo(ContainElement(ContainSubstring("approximation")))
+		// The release before refuses the same config, so the acceptance
+		// above is v1.21.0's own schema talking.
+		Expect(versionErrors(validate.CheckAlloyVersions(content, []string{"v1.20.1"}))).To(ConsistOf(
+			`attribute api_url (in loki.source.cloudflare "cf") is not available in Alloy v1.20.1`,
+			`attribute parse_ints (in otelcol.encoding.jsonlog "j") is not available in Alloy v1.20.1`,
+		))
 	})
 
 	It("refuses otelcol.processor.redaction for a 1.18.1 collector, naming the version and component", func() {
@@ -126,10 +159,12 @@ prometheus.operator.podmonitors "pods" {
 		},
 		Entry("exact", "v1.20.1", "alloy-v1.20.1", validate.ResolvedExact),
 		Entry("exact without the v", "1.18.1", "alloy-v1.18.1", validate.ResolvedExact),
-		Entry("an older patch of a shipped minor: the minor's newest not newer", "v1.20.0", "alloy-v1.19.2", validate.ResolvedNearestOlder),
-		Entry("a newer patch of a shipped minor", "v1.20.5", "alloy-v1.20.1", validate.ResolvedNearestOlder),
-		Entry("a minor with no schema: the newest older one", "v1.21.0", "alloy-v1.20.1", validate.ResolvedNearestOlder),
-		Entry("older than every shipped schema: the oldest", "v1.17.0", "alloy-v1.18.1", validate.ResolvedOldest),
+		Entry("every released patch is exact: v1.21.0", "v1.21.0", "alloy-v1.21.0", validate.ResolvedExact),
+		Entry("every released patch is exact: v1.20.0", "v1.20.0", "alloy-v1.20.0", validate.ResolvedExact),
+		Entry("every released patch is exact: v1.19.1 (a tag and an image, no GitHub release)", "v1.19.1", "alloy-v1.19.1", validate.ResolvedExact),
+		Entry("an unreleased patch of a shipped minor: the minor's newest not newer", "v1.20.5", "alloy-v1.20.1", validate.ResolvedNearestOlder),
+		Entry("an unreleased patch of an older minor: that minor's newest", "v1.19.3", "alloy-v1.19.2", validate.ResolvedNearestOlder),
+		Entry("older than every shipped schema: the oldest", "v1.17.0", "alloy-v1.18.0", validate.ResolvedOldest),
 		Entry("newer than every shipped schema: the pin", "v9.0.0", version.AlloySchemaVersion, validate.ResolvedNewer),
 		Entry("not a release: the pin", "v1.21.0-rc.1", version.AlloySchemaVersion, validate.ResolvedNotRelease),
 		Entry("devel: the pin", "devel", version.AlloySchemaVersion, validate.ResolvedNotRelease),
@@ -146,8 +181,8 @@ prometheus.operator.podmonitors "pods" {
 
 	It("warns for a version older than every shipped schema, checked against the oldest", func() {
 		diags := validate.CheckAlloyVersions(redactionPipeline, []string{"v1.17.0"})
-		Expect(versionErrors(diags)).To(ConsistOf(ContainSubstring("not available in Alloy v1.18.1")))
-		Expect(versionWarnings(diags)).To(ContainElement(ContainSubstring("older than every shipped schema; checked against the oldest, v1.18.1")))
+		Expect(versionErrors(diags)).To(ConsistOf(ContainSubstring("not available in Alloy v1.18.0")))
+		Expect(versionWarnings(diags)).To(ContainElement(ContainSubstring("older than every shipped schema; checked against the oldest, v1.18.0")))
 	})
 
 	It("warns for a missing, unparseable, too-new or absent version", func() {
@@ -207,13 +242,13 @@ prometheus.operator.podmonitors "pods" {
 			tooNew = append(tooNew, fmt.Sprintf("v9.%d.0", i))
 		}
 		diags := validate.CheckAlloyVersions(podMonitorPipeline, tooNew)
-		Expect(versionErrors(diags)).To(ConsistOf(ContainSubstring("not available in Alloy v1.18.1")))
-		Expect(versionWarnings(diags)).To(ContainElement(ContainSubstring("also checked against the oldest shipped schema, v1.18.1")))
+		Expect(versionErrors(diags)).To(ConsistOf(ContainSubstring("not available in Alloy v1.18.0")))
+		Expect(versionWarnings(diags)).To(ContainElement(ContainSubstring("also checked against the oldest shipped schema, v1.18.0")))
 
 		// Truncated by the caller (a per-collector SQL cap): the same.
 		marked := validate.WithTruncatedVersions([]string{"v9.0.0"}, 5)
 		diags = validate.CheckAlloyVersions(podMonitorPipeline, marked)
-		Expect(versionErrors(diags)).To(ConsistOf(ContainSubstring("not available in Alloy v1.18.1")))
+		Expect(versionErrors(diags)).To(ConsistOf(ContainSubstring("not available in Alloy v1.18.0")))
 		Expect(versionWarnings(diags)).To(ContainElement(ContainSubstring("5 further reported versions")))
 		Expect(validate.VersionSetKey(marked)).NotTo(Equal(validate.VersionSetKey([]string{"v9.0.0"})))
 	})
@@ -233,7 +268,7 @@ prometheus.operator.podmonitors "pods" {
 		Expect(warns).To(ConsistOf(
 			"component otelcol.exporter.debug is experimental in Alloy v1.18.1, v1.19.2, v1.20.1, " + pinned +
 				"; collectors need --stability.level=experimental to load it"))
-		// v1.20.0 resolves to v1.19.2: both lack nothing here, but v1.18.1 does.
+		// v1.18.0 and v1.18.1 both lack the attribute: one refusal naming both.
 		errs := validate.CheckAlloyVersions(podMonitorPipeline, []string{"v1.18.1", "v1.18.0"})
 		Expect(versionErrors(errs)).To(HaveLen(1))
 	})
@@ -253,7 +288,7 @@ prometheus.operator.podmonitors "pods" {
 	It("names the schemas lacking an item on the diagnostic, for the caller to name instances", func() {
 		diags := versionErrorDiags(validate.CheckAlloyVersions(redactionPipeline, []string{"v1.18.1", "v1.17.0", pinned}))
 		Expect(diags).To(HaveLen(1))
-		Expect(diags[0].AlloySchemas).To(Equal([]string{"v1.18.1"}))
+		Expect(diags[0].AlloySchemas).To(ConsistOf("v1.18.0", "v1.18.1"), "v1.17.0 resolves to the oldest, v1.18.0")
 	})
 
 	It("returns nothing for content that does not parse (Stage 1 refuses it)", func() {
@@ -265,7 +300,7 @@ prometheus.operator.podmonitors "pods" {
 		b := validate.VersionSetKey([]string{pinned, "1.18.1"})
 		Expect(a).To(Equal(b))
 		Expect(validate.VersionSetKey([]string{pinned})).NotTo(Equal(a))
-		Expect(validate.VersionSetKey([]string{"v1.20.0"})).NotTo(Equal(validate.VersionSetKey([]string{"v1.19.2"})),
+		Expect(validate.VersionSetKey([]string{"v1.20.5"})).NotTo(Equal(validate.VersionSetKey([]string{"v1.20.1"})),
 			"an approximation carries a note an exact match does not")
 	})
 })
