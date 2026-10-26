@@ -676,7 +676,14 @@ Stage 3 dry runs, the Reconciliation tab), which for a strict org rewrites each 
 { … }` — top level or in a declare — into `import.string "<label>" { content = "<module>" }`, the
 module being the exact cached bytes, quoted by the Alloy syntax package's encoder
 (`alloysyntax.QuoteString`), its own pinned imports inlined the same way (depth 4)
-(`pinnedimport.Inline`). The label is kept, so `<label>.<declare>` instances are unchanged; the
+(`pinnedimport.Inline`); an `import.git` inside an `import.string`'s literal content is
+rewritten there and the content re-quoted. Every decision is made from the parse tree, so any
+spelling the parser accepts (`import . git`, comments or newlines between the parts) is treated
+alike. The bound that holds whatever the rewrite did is `validate.ServedFormProblem`: the served
+text, and every `import.string` content in it at any depth, parsed, must hold no `import.git`
+block, and each `import.string` content must be a plain string literal. The save applies it
+(and lints the served form with no module source), and so does `serve.ServedForm` on every serve
+path. The label is kept, so `<label>.<declare>` instances are unchanged; the
 block's auth sub-blocks and `pull_frequency` are not served. Collectors in strict orgs need no egress
 to module repositories. The stored pipeline text keeps `import.git` as written. Non-strict orgs, and
 every pipeline without an `import.git` block, are served byte for byte as before (no `serve.Format`
@@ -695,8 +702,9 @@ enabling or restoring (`Resolver.Preflight`) use a cached module and fetch an un
 in-transaction lint (`tenancy.LintLocked`), `OrphanedPipelines`, `SetOrgStrictTenants`' check under
 the exclusive lock and the serve paths read the cache only (`pinnedimport.Cached`; the toggle fetches
 first, outside the lock). Turning strict mode on or off for an org marks its served configs dirty
-and recomputes them; at boot, every org with an enabled `import.git` pipeline is marked dirty, since
-`tenants.require_owned` may have changed. A strict pipeline's cached modules count towards
+and recomputes them; at boot, every strict org, and every org with an enabled pipeline that may hold
+an `import.git` (by `validate.ServedFormProblem`), is marked dirty, since `tenants.require_owned`
+may have changed. A strict pipeline's cached modules count towards
 `pipeline_tenants` (`validate.TenantLiteralsWith`). `RemoveOrgImportRepository` is refused while the
 rule applies and an enabled pipeline imports from the entry.
 

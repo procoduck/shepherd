@@ -370,21 +370,41 @@ var _ = Describe("pinned import.git in the preflight", Label("integration"), fun
 
 	// tenants.require_owned may change across a restart, which switches how
 	// every org's pinned imports are served: boot marks those orgs dirty.
-	It("marks dirty the collectors of orgs with an enabled import.git pipeline, and no other", func() {
-		cl, err := st.Queries.UpsertCluster(ctx, "pinned-boot")
+	It("marks dirty at boot every strict org and every org with an import.git, however spelt, and no other", func() {
+		collectorOf := func(o sqlc.Org) pgtype.UUID {
+			GinkgoHelper()
+			cl, err := st.Queries.UpsertCluster(ctx, "boot-"+o.Name)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(st.Queries.ClaimCluster(ctx, sqlc.ClaimClusterParams{ID: cl.ID, OrgID: o.ID})).To(Succeed())
+			c, err := st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: cl.ID, Role: "singleton"})
+			Expect(err).NotTo(HaveOccurred())
+			return c.ID
+		}
+		dirty := func(id pgtype.UUID) bool {
+			row, err := st.Queries.GetServeCache(ctx, id)
+			return err == nil && row.Dirty
+		}
+		plain := collectorOf(org)
+		strictOrg, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{Name: "boot-strict", DisplayName: "B", AdminGroupID: "bs"})
 		Expect(err).NotTo(HaveOccurred())
-		Expect(st.Queries.ClaimCluster(ctx, sqlc.ClaimClusterParams{ID: cl.ID, OrgID: org.ID})).To(Succeed())
-		c, err := st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: cl.ID, Role: "singleton"})
+		_, err = st.Queries.SetOrgStrictTenants(ctx, sqlc.SetOrgStrictTenantsParams{ID: strictOrg.ID, StrictTenants: true})
 		Expect(err).NotTo(HaveOccurred())
-		Expect(tenancy.MarkPinnedImportOrgsDirty(ctx, st.Queries)).To(Succeed())
-		_, err = st.Queries.GetServeCache(ctx, c.ID)
-		Expect(err).To(HaveOccurred(), "no import.git pipeline yet: nothing marked")
+		strictColl := collectorOf(strictOrg)
 
-		pipeline("pinned", importing("owned.alloy"))
-		Expect(tenancy.MarkPinnedImportOrgsDirty(ctx, st.Queries)).To(Succeed())
-		row, err := st.Queries.GetServeCache(ctx, c.ID)
+		Expect(tenancy.MarkPinnedImportOrgsDirty(ctx, st.Queries, false)).To(Succeed())
+		Expect(dirty(strictColl)).To(BeTrue(), "a strict org's served form depends on the inlining")
+		Expect(dirty(plain)).To(BeFalse(), "a non-strict org with no import.git is not touched")
+
+		// A spelling no text search finds: decided from the parse tree.
+		pipeline("spelled", strings.Replace(importing("owned.alloy"), "import.git", "import . git", 1))
+		Expect(tenancy.MarkPinnedImportOrgsDirty(ctx, st.Queries, false)).To(Succeed())
+		Expect(dirty(plain)).To(BeTrue(), "tenants.require_owned may have been on at the last boot")
+
+		other, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{Name: "boot-other", DisplayName: "O", AdminGroupID: "bo"})
 		Expect(err).NotTo(HaveOccurred())
-		Expect(row.Dirty).To(BeTrue())
+		otherColl := collectorOf(other)
+		Expect(tenancy.MarkPinnedImportOrgsDirty(ctx, st.Queries, true)).To(Succeed())
+		Expect(dirty(otherColl)).To(BeTrue(), "with tenants.require_owned every org is strict")
 	})
 
 	It("indexes a pinned module's tenants, so the pipeline is recorded complete", func() {

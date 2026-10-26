@@ -1047,7 +1047,7 @@ func (s *PipelineService) ValidatePipeline(ctx context.Context, req *connect.Req
 	// modules inlined, which is what role enforcement sees (an import.git
 	// instance is Unknown, an inlined import.string module is not).
 	derived := req.Msg.GetContents()
-	if result.Valid && tenants.Inline != nil && strings.Contains(derived, "import.git") {
+	if result.Valid && tenants.Inline != nil {
 		if servedForm, err := tenants.Inline(ctx, derived); err == nil {
 			derived = servedForm
 		}

@@ -3,25 +3,27 @@ package serve
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"shepherd/internal/merge"
 	"shepherd/internal/pinnedimport"
 	"shepherd/internal/store/sqlc"
+	"shepherd/internal/validate"
 )
 
 // Inliner builds a pipeline's served text from its stored text (#390): in a
 // strict org, pinnedimport.Inline. Nil serves stored text as it is.
 type Inliner func(ctx context.Context, contents string) (string, error)
 
-// ServedForm is pipelines as they are served: each one whose text has an
-// import.git block passed through inline, and every other one — and every
-// pipeline when inline is nil (an org not in strict tenant mode) — exactly
-// as given. That is what keeps every other collector's bytes and hash where
-// they are: only a strict org's pipeline that uses a pinned import is served
-// differently from its stored text. A pipeline inline cannot rewrite fails
+// ServedForm is pipelines as they are served: in a strict org (inline not
+// nil) each one passed through inline, which rewrites the import.git blocks
+// it finds in the parse tree and leaves every other byte — and text with no
+// such block — exactly as stored; with inline nil (an org not in strict
+// tenant mode) every pipeline as given. That keeps every other collector's
+// bytes and hash where they are. Whatever inline returns, a served text
+// that still holds an import.git (validate.ServedFormProblem) fails the
+// call. A pipeline inline cannot rewrite fails
 // the whole call: a strict org is never served an import.git, so the caller
 // keeps the collector's last good config (RecordFailure). The input is not
 // modified.
@@ -32,12 +34,15 @@ func ServedForm(ctx context.Context, inline Inliner, pipelines []merge.Pipeline)
 	out := make([]merge.Pipeline, len(pipelines))
 	copy(out, pipelines)
 	for i := range out {
-		if !strings.Contains(out[i].Contents, "import.git") {
-			continue
-		}
 		served, err := inline(ctx, out[i].Contents)
 		if err != nil {
 			return nil, fmt.Errorf("pipeline %q cannot be served with its pinned modules inlined: %w", out[i].Name, err)
+		}
+		// The bound, whatever the inliner did: a strict org is served no
+		// import.git, however spelt, anywhere — import.string contents
+		// included (validate.ServedFormProblem parses, never searches).
+		if err := validate.ServedFormProblem(served); err != nil {
+			return nil, fmt.Errorf("pipeline %q cannot be served: %w", out[i].Name, err)
 		}
 		out[i].Contents = served
 	}

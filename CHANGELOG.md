@@ -40,7 +40,11 @@ Categories used here:
   and `.git`); non-ASCII and other ambiguous spellings are refused.
   **A strict org is served the module Shepherd checked, not the import.** Each pinned
   `import.git` block is served as an `import.string` with the same label and the cached module
-  text, nested modules inlined too. A tag pushed later under the commit's name changes nothing,
+  text, nested modules inlined too, including one inside an `import.string`'s content and any
+  spelling of the block name the parser accepts. A strict org's served text may hold no
+  `import.git` anywhere, and each `import.string` content in it must be a plain string literal;
+  a strict pipeline whose `import.string` content is a concatenation is now refused. A tag pushed
+  later under the commit's name changes nothing,
   and collectors in strict orgs need no access to module repositories. The stored pipeline keeps
   `import.git` as written. Validation, role enforcement and the editor's signals all use the
   inlined form, so a pinned metrics-only module reaches `metrics` collectors. The inlined

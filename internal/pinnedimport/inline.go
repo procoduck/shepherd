@@ -34,16 +34,18 @@ type Ref struct {
 // the cached text the tenant lint checked, itself inlined the same way
 // (nested imports to validate.MaxGitImportDepth). The label is kept, so
 // `<label>.<declare>` instances are unchanged; the block's other attributes
-// and its auth blocks are not served. Every other byte of contents is kept:
-// text without an import.git block is returned unchanged, so a pipeline that
-// uses none serves exactly what it did before. The content is quoted by
+// and its auth blocks are not served. An import.git inside an import.string's
+// content is rewritten there, the content re-quoted. Every other byte of
+// contents is kept: text without an import.git block (found by parsing,
+// never by searching) is returned unchanged, so a pipeline that uses none
+// serves exactly what it did before. The content is quoted by
 // alloysyntax.QuoteString (the Alloy syntax package's encoder).
 //
 // Only the cache is read, through q. The result is at most
 // validate.MaxContentBytes (the pipeline contents cap).
 func Inline(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, repos []sqlc.OrgImportRepository, contents string) (string, error) {
 	w := newWalker(ctx, q, orgID, repos)
-	out, err := w.inline(contents, 0)
+	out, err := w.inline(contents, 0, 0)
 	if err != nil {
 		return "", err
 	}
@@ -56,9 +58,6 @@ func Inline(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, repos []sql
 
 // InlineOrg is Inline with orgID's allowlist read through q.
 func InlineOrg(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, contents string) (string, error) {
-	if !strings.Contains(contents, "import.git") {
-		return contents, nil
-	}
 	repos, err := q.ListOrgImportRepositories(ctx, orgID)
 	if err != nil {
 		return "", fmt.Errorf("loading the org's import repositories: %w", err)
@@ -72,7 +71,7 @@ func InlineOrg(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, contents
 func References(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, repos []sqlc.OrgImportRepository, contents string) ([]Ref, error) {
 	w := newWalker(ctx, q, orgID, repos)
 	w.collect = true
-	if _, err := w.inline(contents, 0); err != nil {
+	if _, err := w.inline(contents, 0, 0); err != nil {
 		return nil, err
 	}
 	return w.refs, nil
@@ -95,10 +94,26 @@ func newWalker(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, repos []
 	return w
 }
 
-// inline rewrites text's import.git blocks; depth is how many enclose it.
-func (w *walker) inline(text string, depth int) (string, error) {
-	if !strings.Contains(text, "import.git") {
-		return text, nil
+// maxModuleDepth is how many modules (import.git or import.string) Inline
+// follows into: the tenant lint's module depth.
+const maxModuleDepth = 8
+
+// splice is one rewrite of a byte range of a text.
+type splice struct {
+	start, end int // [start, end)
+	text       string
+}
+
+// inline rewrites text's import.git blocks — found in the parse tree, so
+// whatever spelling of the name the parser accepts — and descends into each
+// import.string whose content is a plain literal, rewriting the module text
+// it holds the same way. gitDepth is how many import.git modules enclose
+// text, depth how many modules of either kind. Text with nothing to rewrite
+// is returned unchanged; otherwise only the rewritten byte ranges change,
+// located by the parsed nodes' positions.
+func (w *walker) inline(text string, gitDepth, depth int) (string, error) {
+	if depth > maxModuleDepth {
+		return "", fmt.Errorf("%w: modules nest more than %d deep", ErrNotInlinable, maxModuleDepth)
 	}
 	file, err := alloysyntax.ParseFile("<pipeline>", []byte(text))
 	if err != nil {
@@ -109,53 +124,103 @@ func (w *walker) inline(text string, depth int) (string, error) {
 	}
 	var blocks []*ast.BlockStmt
 	collectImports(file.Body, &blocks, 0)
-	if len(blocks) == 0 {
+	var splices []splice
+	for _, b := range blocks {
+		var sp *splice
+		var err error
+		if strings.Join(b.Name, ".") == "import.git" {
+			sp, err = w.gitBlock(b, gitDepth, depth)
+		} else {
+			sp, err = w.stringBlock(b, gitDepth, depth)
+		}
+		if err != nil {
+			if w.collect {
+				continue
+			}
+			return "", err
+		}
+		if sp != nil {
+			splices = append(splices, *sp)
+		}
+	}
+	if len(splices) == 0 {
 		return text, nil
 	}
-	if depth >= validate.MaxGitImportDepth {
-		return "", fmt.Errorf("%w: import.git nests more than %d deep", ErrNotInlinable, validate.MaxGitImportDepth)
-	}
-	// Replace from the last block back, so earlier offsets stay valid.
-	slices.SortFunc(blocks, func(a, b *ast.BlockStmt) int {
-		return ast.StartPos(b).Position().Offset - ast.StartPos(a).Position().Offset
-	})
+	// Apply from the last range back, so earlier offsets stay valid.
+	slices.SortFunc(splices, func(a, b splice) int { return b.start - a.start })
 	out := text
-	for _, b := range blocks {
-		ref, err := w.ref(b)
-		if err != nil {
-			if w.collect {
-				continue
-			}
-			return "", err
-		}
-		if w.collect && !slices.Contains(w.refs, ref) {
-			w.refs = append(w.refs, ref)
-		}
-		row, err := w.q.GetPinnedImportModule(w.ctx, sqlc.GetPinnedImportModuleParams{
-			OrgID: w.orgID, RepositoryKey: ref.Key, Revision: ref.Revision, Path: ref.Path,
-		})
-		if err != nil {
-			if w.collect {
-				continue
-			}
-			return "", fmt.Errorf("%w: module %s at %s (%s) is not cached", ErrNotInlinable, ref.Path, ref.Revision, ref.Key)
-		}
-		module, err := w.inline(row.Content, depth+1)
-		if err != nil {
-			return "", err
-		}
-		start := ast.StartPos(b).Position()
-		end := ast.EndPos(b).Position().Offset + 1
-		indent := strings.Repeat(" ", max(start.Column-1, 0))
-		replacement := "import.string " + alloysyntax.QuoteString(b.Label) + " {\n" +
-			indent + "  content = " + alloysyntax.QuoteString(module) + "\n" + indent + "}"
-		out = out[:start.Offset] + replacement + out[end:]
+	for _, sp := range splices {
+		out = out[:sp.start] + sp.text + out[sp.end:]
 	}
 	return out, nil
 }
 
-// collectImports finds the import.git blocks Alloy loads: top-level ones and
-// those in a declare body, at any declare depth.
+// gitBlock rewrites one import.git block into an import.string of its
+// cached module, itself inlined.
+func (w *walker) gitBlock(b *ast.BlockStmt, gitDepth, depth int) (*splice, error) {
+	if gitDepth >= validate.MaxGitImportDepth {
+		return nil, fmt.Errorf("%w: import.git nests more than %d deep", ErrNotInlinable, validate.MaxGitImportDepth)
+	}
+	ref, err := w.ref(b)
+	if err != nil {
+		return nil, err
+	}
+	if w.collect && !slices.Contains(w.refs, ref) {
+		w.refs = append(w.refs, ref)
+	}
+	row, err := w.q.GetPinnedImportModule(w.ctx, sqlc.GetPinnedImportModuleParams{
+		OrgID: w.orgID, RepositoryKey: ref.Key, Revision: ref.Revision, Path: ref.Path,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("%w: module %s at %s (%s) is not cached", ErrNotInlinable, ref.Path, ref.Revision, ref.Key)
+	}
+	module, err := w.inline(row.Content, gitDepth+1, depth+1)
+	if err != nil {
+		return nil, err
+	}
+	start := ast.StartPos(b).Position()
+	indent := strings.Repeat(" ", max(start.Column-1, 0))
+	return &splice{
+		start: start.Offset,
+		end:   ast.EndPos(b).Position().Offset + 1,
+		text: "import.string " + alloysyntax.QuoteString(b.Label) + " {\n" +
+			indent + "  content = " + alloysyntax.QuoteString(module) + "\n" + indent + "}",
+	}, nil
+}
+
+// stringBlock rewrites the content of one import.string whose module text
+// holds an import.git (at any depth): only its content literal is replaced,
+// re-quoted. Content that is not a plain literal is left alone (the served
+// form's bound, validate.ServedFormProblem, refuses it in a strict org).
+func (w *walker) stringBlock(b *ast.BlockStmt, gitDepth, depth int) (*splice, error) {
+	for _, st := range b.Body {
+		a, ok := st.(*ast.AttributeStmt)
+		if !ok || a.Name.Name != "content" {
+			continue
+		}
+		content, ok := validate.PlainStringLiteral(a.Value)
+		if !ok {
+			return nil, nil //nolint:nilnil // nothing this walker can rewrite
+		}
+		inner, err := w.inline(content, gitDepth, depth+1)
+		if err != nil {
+			return nil, err
+		}
+		if inner == content {
+			return nil, nil //nolint:nilnil // unchanged: the bytes stay as written
+		}
+		return &splice{
+			start: ast.StartPos(a.Value).Position().Offset,
+			end:   ast.EndPos(a.Value).Position().Offset + 1,
+			text:  alloysyntax.QuoteString(inner),
+		}, nil
+	}
+	return nil, nil //nolint:nilnil // no content attribute
+}
+
+// collectImports finds the import blocks Alloy loads — import.git and
+// import.string — at the top level and in a declare body, at any declare
+// depth, by their parsed names.
 func collectImports(body ast.Body, out *[]*ast.BlockStmt, nesting int) {
 	if nesting > alloysyntax.MaxNesting {
 		return
@@ -166,7 +231,7 @@ func collectImports(body ast.Body, out *[]*ast.BlockStmt, nesting int) {
 			continue
 		}
 		switch strings.Join(b.Name, ".") {
-		case "import.git":
+		case "import.git", "import.string":
 			*out = append(*out, b)
 		case "declare":
 			collectImports(b.Body, out, nesting+1)

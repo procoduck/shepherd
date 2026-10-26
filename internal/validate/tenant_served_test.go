@@ -51,20 +51,21 @@ var _ = Describe("ValidatePipeline on the served (inlined) form", func() {
 		Expect(errorsOf(r.Diagnostics)).To(ContainElement(ContainSubstring("as served")))
 	})
 
-	It("refuses when the served form cannot be built, and never builds it for text without the import", func() {
+	It("refuses when the served form cannot be built, for any text: the decision is the parse tree's, not a text search", func() {
 		r := v.ValidatePipeline(context.Background(), "p", src, policy(func(context.Context, string) (string, error) {
 			return "", errors.New("module not cached")
 		}))
 		Expect(r.Valid).To(BeFalse())
 		Expect(errorsOf(r.Diagnostics)).To(ContainElement(ContainSubstring("module not cached")))
 
-		called := false
 		r = v.ValidatePipeline(context.Background(), "p", writerModule("acme"), policy(func(context.Context, string) (string, error) {
-			called = true
-			return "", errors.New("unexpected")
+			return "", errors.New("inliner failed")
+		}))
+		Expect(r.Valid).To(BeFalse(), "a strict save always builds its served form")
+		r = v.ValidatePipeline(context.Background(), "p", writerModule("acme"), policy(func(_ context.Context, c string) (string, error) {
+			return c, nil
 		}))
 		Expect(r.Valid).To(BeTrue(), "%v", r.Diagnostics)
-		Expect(called).To(BeFalse())
 	})
 
 	It("lints the served form in WithTenantLint too (the visual builder)", func() {

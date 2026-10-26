@@ -203,34 +203,6 @@ func (q *Queries) ListOrgImportRepositoriesByCredential(ctx context.Context, cre
 	return items, nil
 }
 
-const listOrgsWithImportGitPipelines = `-- name: ListOrgsWithImportGitPipelines :many
-SELECT DISTINCT org_id FROM pipelines
-WHERE enabled AND strpos(contents, 'import.git') > 0
-ORDER BY org_id
-`
-
-// Orgs with an enabled pipeline whose text mentions import.git: the only
-// ones whose served bytes depend on strict tenant mode (#390).
-func (q *Queries) ListOrgsWithImportGitPipelines(ctx context.Context) ([]pgtype.UUID, error) {
-	rows, err := q.db.Query(ctx, listOrgsWithImportGitPipelines)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []pgtype.UUID
-	for rows.Next() {
-		var org_id pgtype.UUID
-		if err := rows.Scan(&org_id); err != nil {
-			return nil, err
-		}
-		items = append(items, org_id)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listPinnedImportModuleKeys = `-- name: ListPinnedImportModuleKeys :many
 SELECT repository_key, revision, path, used_at FROM pinned_import_modules
 WHERE org_id = $1

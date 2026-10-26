@@ -152,7 +152,7 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	// A strict org is served its pinned import.git modules inlined, and
 	// tenants.require_owned may have changed since the last boot: recompute
 	// the orgs that use import.git (and only those) on their next poll.
-	if err := tenancy.MarkPinnedImportOrgsDirty(context.Background(), st.Queries); err != nil {
+	if err := tenancy.MarkPinnedImportOrgsDirty(context.Background(), st.Queries, cfg.Tenants.RequireOwned); err != nil {
 		logger.Error("strict tenants: marking orgs with pinned imports for recompute", "err", err)
 	}
 

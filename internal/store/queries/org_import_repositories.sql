@@ -41,10 +41,3 @@ WHERE org_id = $1 AND repository_key = $2 AND revision = $3 AND path = $4;
 -- name: ListOrgImportRepositoriesByCredential :many
 -- The allowlist entries that fetch with a git credential.
 SELECT * FROM org_import_repositories WHERE credential_id = $1 ORDER BY repository_key;
-
--- name: ListOrgsWithImportGitPipelines :many
--- Orgs with an enabled pipeline whose text mentions import.git: the only
--- ones whose served bytes depend on strict tenant mode (#390).
-SELECT DISTINCT org_id FROM pipelines
-WHERE enabled AND strpos(contents, 'import.git') > 0
-ORDER BY org_id;

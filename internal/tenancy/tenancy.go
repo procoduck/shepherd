@@ -556,18 +556,37 @@ func (r *recordingModules) Allowed(repository string) error {
 	return r.GitModules.Allowed(repository)
 }
 
-// MarkPinnedImportOrgsDirty marks dirty the served configs of every org with
-// an enabled pipeline whose text has import.git: strict tenant mode serves
-// those inlined, and the server-wide tenants.require_owned setting may have
-// changed since they were computed. The server runs it at every boot; it
-// touches no other org, so no other collector's bytes are recomputed.
-func MarkPinnedImportOrgsDirty(ctx context.Context, q *sqlc.Queries) error {
-	orgs, err := q.ListOrgsWithImportGitPipelines(ctx)
+// MarkPinnedImportOrgsDirty marks dirty, at boot, the served configs of
+// every org whose served form may differ from what was computed under the
+// last boot's settings: every org in strict tenant mode now (all of them
+// with requireOwned, tenants.require_owned), and every org with an enabled
+// pipeline that may hold an import.git — decided by parsing
+// (validate.ServedFormProblem), never by searching the text — since it was
+// served inlined if tenants.require_owned was on before. No other org's
+// collectors are recomputed.
+func MarkPinnedImportOrgsDirty(ctx context.Context, q *sqlc.Queries, requireOwned bool) error {
+	orgs, err := q.ListOrgs(ctx)
 	if err != nil {
-		return fmt.Errorf("listing orgs with import.git pipelines: %w", err)
+		return fmt.Errorf("listing orgs: %w", err)
 	}
-	for _, id := range orgs {
-		if err := q.MarkServeCacheDirtyByOrg(ctx, id); err != nil {
+	for i := range orgs {
+		mark := requireOwned || orgs[i].StrictTenants
+		if !mark {
+			pipelines, err := q.ListEnabledPipelinesByOrg(ctx, orgs[i].ID)
+			if err != nil {
+				return fmt.Errorf("listing an org's enabled pipelines: %w", err)
+			}
+			for j := range pipelines {
+				if validate.ServedFormProblem(pipelines[j].Contents) != nil {
+					mark = true
+					break
+				}
+			}
+		}
+		if !mark {
+			continue
+		}
+		if err := q.MarkServeCacheDirtyByOrg(ctx, orgs[i].ID); err != nil {
 			return fmt.Errorf("marking an org's served configs dirty: %w", err)
 		}
 	}

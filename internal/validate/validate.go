@@ -248,25 +248,32 @@ func (v *Validator) ValidatePipeline(ctx context.Context, pipelineName, contents
 // withServedForm adds the served form's findings to r (see ValidatePipeline):
 // stages validates the served text (nil: the tenant lint only).
 func withServedForm(ctx context.Context, r Result, contents string, tenants TenantPolicy, stages func(string) Result) Result {
-	if !r.Valid || !tenants.Strict || tenants.Inline == nil || !strings.Contains(contents, "import.git") {
+	if !r.Valid || !tenants.Strict || tenants.Inline == nil {
+		return r
+	}
+	refuse := func(msg string) Result {
+		r.Valid = false
+		r.Diagnostics = append(r.Diagnostics, Diagnostic{Line: 1, Col: 1, Stage: 1, Message: msg})
 		return r
 	}
 	served, err := tenants.Inline(ctx, contents)
 	if err != nil {
-		r.Valid = false
-		r.Diagnostics = append(r.Diagnostics, Diagnostic{Line: 1, Col: 1, Stage: 1, Message: fmt.Sprintf(
-			"the pipeline cannot be served with its pinned modules inlined, which strict tenant mode serves: %v", err)})
-		return r
+		return refuse(fmt.Sprintf("the pipeline cannot be served with its pinned modules inlined, which strict "+
+			"tenant mode serves: %v", err))
 	}
-	if served == contents {
-		return r
+	// The bound, whatever Inline did: no import.git, however spelt, anywhere
+	// in what is served — top level, declares, import.string contents.
+	if err := ServedFormProblem(served); err != nil {
+		return refuse(fmt.Sprintf("as served (pinned modules inlined): %v", err))
 	}
 	rs := Result{Valid: true}
-	if stages != nil {
+	if stages != nil && served != contents {
 		rs = stages(served)
 	}
+	// The served form is linted with no module source at all: an import.git
+	// left anywhere in it is refused, never fetched.
 	lintPolicy := tenants
-	lintPolicy.Inline = nil
+	lintPolicy.Inline, lintPolicy.Git = nil, nil
 	rs = withTenantLintOnly(ctx, rs, served, lintPolicy)
 	for _, d := range rs.Diagnostics {
 		d.Message = "as served (pinned modules inlined): " + d.Message
