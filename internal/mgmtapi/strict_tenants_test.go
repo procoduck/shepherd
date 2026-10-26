@@ -697,6 +697,12 @@ var _ = Describe("Strict tenant mode", Label("integration"), func() {
 
 				content := served(coll.ID, `declare "pipe_k8smon_`+role+`"`)
 				Expect(drop.FindAllString(content, -1)).To(HaveLen(drops), role)
+				if role == "logs" {
+					// The chart's otelcol.exporter.loki is served through a
+					// loki.process dropping __tenant_id__.
+					Expect(content).To(ContainSubstring("forward_to = [loki.process.shepherd_tenant_drop_loki.receiver]"))
+					Expect(content).To(MatchRegexp(`loki\.process "shepherd_tenant_drop_loki" \{\s*forward_to = \[loki\.write\.loki\.receiver\]\s*stage\.label_drop \{\s*values = \["__tenant_id__"\]`))
+				}
 			}
 			pre := ok(call(appAdmin, "AdminService/TenantPreflight", map[string]any{"orgId": orgA.String()}))
 			Expect(pre).NotTo(HaveKey("violations"))

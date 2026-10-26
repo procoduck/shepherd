@@ -559,11 +559,19 @@ func (r *recordingModules) Allowed(repository string) error {
 // MarkPinnedImportOrgsDirty marks dirty, at boot, the served configs of
 // every org whose served form may differ from what was computed under the
 // last boot's settings: every org in strict tenant mode now (all of them
-// with requireOwned, tenants.require_owned), and every org with an enabled
-// pipeline that may hold an import.git — decided by parsing
-// (validate.ServedFormProblem), never by searching the text — since it was
-// served inlined if tenants.require_owned was on before. No other org's
-// collectors are recomputed.
+// with requireOwned, tenants.require_owned), and every other org with an
+// enabled pipeline whose strict served form differs from its stored text,
+// since it was served in that form if tenants.require_owned was on before.
+// The strict served form differs from the stored text in exactly two ways,
+// both read from the stored text alone by parsing, never by searching it: an
+// import.git inlined (validate.ServedFormProblem) and a __tenant_id__ drop
+// after a labelmap (validate.InsertTenantDrops changes the text, #410). So
+// no record of the last boot's settings is needed, and an org whose
+// pipelines have neither is served the same either way: its collectors are
+// not recomputed.
+//
+// A strict org's own flag cannot change between boots without a write
+// (SetOrgStrictTenants), which marks its served configs dirty itself.
 func MarkPinnedImportOrgsDirty(ctx context.Context, q *sqlc.Queries, requireOwned bool) error {
 	orgs, err := q.ListOrgs(ctx)
 	if err != nil {
@@ -577,7 +585,7 @@ func MarkPinnedImportOrgsDirty(ctx context.Context, q *sqlc.Queries, requireOwne
 				return fmt.Errorf("listing an org's enabled pipelines: %w", err)
 			}
 			for j := range pipelines {
-				if validate.ServedFormProblem(pipelines[j].Contents) != nil {
+				if strictServedFormDiffers(pipelines[j].Contents) {
 					mark = true
 					break
 				}
@@ -591,4 +599,15 @@ func MarkPinnedImportOrgsDirty(ctx context.Context, q *sqlc.Queries, requireOwne
 		}
 	}
 	return nil
+}
+
+// strictServedFormDiffers reports whether contents may be served differently
+// in strict tenant mode (see MarkPinnedImportOrgsDirty). Text either check
+// cannot read counts as differing.
+func strictServedFormDiffers(contents string) bool {
+	if validate.ServedFormProblem(contents) != nil {
+		return true
+	}
+	dropped, err := validate.InsertTenantDrops(contents)
+	return err != nil || dropped != contents
 }

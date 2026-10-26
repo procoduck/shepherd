@@ -642,7 +642,29 @@ Strict mode refuses:
   with no `source_labels`/`regex` or a `labeldrop` of exactly `__tenant_id__` (the value written is
   checked where it is set). A path it cannot follow — a `forward_to` that is not a list of
   receivers of components in the same scope, or any component other than `loki.process`,
-  `loki.relabel`, `loki.write` and `loki.echo` — is refused;
+  `loki.relabel`, `loki.write` and `loki.echo` — is refused. `otelcol.exporter.loki` is checked
+  the same way: it turns the OTLP resource and log attributes its `loki.resource.labels` and
+  `loki.attribute.labels` hints name into Loki labels and keeps a name such as `__tenant_id__`
+  as it is (otel-collector-contrib's loki translator; Alloy v1.21.2's `loki.echo` shows the
+  label), so its every path to a `loki.write` must overwrite or drop `__tenant_id__` first. A
+  strict org's served form routes each one through such a drop (below), so the lint of the stored
+  text leaves the paths to the served form when the gate lints that too; its `forward_to` must be
+  a list of component receivers (`[loki.write.<label>.receiver, …]`), and any other value (a
+  computed one, a declare argument) is refused. `otelcol.exporter.prometheus` is not checked:
+  Mimir reads the tenant only from the header;
+- a **relabel rules attribute that is not a reference to rules the lint checks**: the
+  attributes Alloy takes relabel rules in as a value (`relabel_rules` on `loki.source.api`,
+  `.awsfirehose`, `.azure_event_hubs`, `.docker`, `.gcplog`, `.gelf`, `.heroku`, `.journal`,
+  `.kafka` and `.syslog`), read from every shipped component schema
+  (`validate.RelabelRuleAttributes`: a top-level capsule-typed attribute whose name ends in
+  `rules`; a spec classifies every capsule attribute, so a new kind fails until it is decided),
+  must be a plain `loki.relabel.<label>.rules` or `discovery.relabel.<label>.rules` naming a
+  component in the same scope (the pipeline's top level or the same declare). That component's
+  rule blocks are linted, and the served form drops `__tenant_id__` after its labelmaps (below).
+  Rules written in place (a list or object literal, a function call, a concatenation, a declare
+  argument), another component's export and a component it cannot find in that scope (another
+  pipeline, a module) are refused, with a message to move the rules into a `loki.relabel`
+  component;
 - anything that may set a tenant and cannot be read: a header key, a relabel `target_label` or
   `action` (matched exactly, as Alloy v1.20.1's `relabel.Action.UnmarshalText` does), or an
   `otelcol.auth.bearer` `header` it cannot resolve; a tenant-header bearer with a non-empty
@@ -669,7 +691,8 @@ rule {
 }
 ```
 
-indented to the labelmap's column, with the text's line endings. The relabel rule blocks covered
+indented with the leading whitespace (spaces and tabs, byte for byte) of the line the labelmap
+starts on, with the text's line endings. The relabel rule blocks covered
 are read from every shipped component schema (`validate.RelabelRuleBlocks`: a block named `rule`
 with `action`, `regex`, `replacement`, `source_labels` and `target_label`, so `discovery.relabel`,
 `prometheus.relabel`, `loki.relabel`, `pyroscope.relabel`, `prometheus.operator.*`,
@@ -681,13 +704,37 @@ gets no drop and the lint refuses it. A labelmap with a literal replacement with
 (it names the one label it writes; a drop would only discard a tenant an earlier rule set), and a
 literal `__tenant_id__` replacement stays refused. `prometheus.remote_write`'s
 `write_relabel_config` is not covered: Mimir takes the tenant from the header only. The stored text
-is unchanged. The lint accepts such a labelmap only when the very next `rule` is exactly that drop
+is unchanged. The lint accepts such a labelmap only when the very next block named `rule` (other
+names are passed over) is exactly that drop
 (two plain-literal attributes); for the stored text it leaves the question to the served form when
 the gate lints that too (`ValidatePipeline`, `WithTenantLint`), so the served form decides and a
 served form without the drop is refused. A later rule setting `__tenant_id__` to an owned literal
 still works; one before the labelmap is dropped with the label. Text with no such labelmap, and
 every pipeline of a non-strict org, is served byte for byte as before (no `serve.Format` change);
 the drops count toward the 1 MiB cap.
+
+**`otelcol.exporter.loki` and `__tenant_id__`.** The same served form (`InsertTenantDrops`, so
+at the top level, in declares, in `foreach` templates and in literal `import.string` contents)
+rewrites each `otelcol.exporter.loki "<L>"` whose `forward_to` is a non-empty list of component
+receivers: its `forward_to` becomes `[loki.process.shepherd_tenant_drop_<L>.receiver]`, and right
+after it, indented as its line is, comes
+
+```alloy
+loki.process "shepherd_tenant_drop_<L>" {
+  forward_to = <the original forward_to, verbatim>
+
+  stage.label_drop {
+    values = ["__tenant_id__"]
+  }
+}
+```
+
+(checked against the v1.21.2 schema and `alloy validate`; a v1.21.2 `loki.echo` behind it no
+longer shows a `__tenant_id__` the `loki.resource.labels` hint named). A `loki.process` of that
+name already in the same scope refuses the save: the served form cannot be built. The lint of the
+served form follows the exporter through the inserted drop like any push source, so a served form
+without it is refused. A pipeline without such an exporter, and every pipeline of a non-strict
+org, is served byte for byte as before.
 
 **Pinned `import.git` (0043, #390).** A strict org may use `import.git` when `repository`,
 `revision` and `path` are plain string literals (not expressions or declare arguments), `revision`
@@ -748,9 +795,12 @@ enabling or restoring (`Resolver.Preflight`) use a cached module and fetch an un
 in-transaction lint (`tenancy.LintLocked`), `OrphanedPipelines`, `SetOrgStrictTenants`' check under
 the exclusive lock and the serve paths read the cache only (`pinnedimport.Cached`; the toggle fetches
 first, outside the lock). Turning strict mode on or off for an org marks its served configs dirty
-and recomputes them; at boot, every strict org, and every org with an enabled pipeline that may hold
-an `import.git` (by `validate.ServedFormProblem`), is marked dirty, since `tenants.require_owned`
-may have changed. A strict pipeline's cached modules count towards
+and recomputes them; at boot, every strict org, and every org with an enabled pipeline whose strict
+served form differs from its stored text — one that may hold an `import.git` (by
+`validate.ServedFormProblem`) or that gets a `__tenant_id__` drop (`validate.InsertTenantDrops`
+changes it) — is marked dirty, since `tenants.require_owned` may have changed. Those are the only
+two ways the strict served form differs, both read from the stored text, so no record of the last
+boot's settings is kept and no other org is recomputed. A strict pipeline's cached modules count towards
 `pipeline_tenants` (`validate.TenantLiteralsWith`). `RemoveOrgImportRepository` is refused while the
 rule applies and an enabled pipeline imports from the entry.
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -62,6 +63,27 @@ func RelabelRuleBlocks() (map[string]map[string]bool, error) {
 	return relabelRules, relabelRulesErr
 }
 
+var (
+	relabelAttrsOnce sync.Once
+	relabelAttrs     map[string]map[string]bool
+	relabelAttrsErr  error
+)
+
+// RelabelRuleAttributes is where Alloy takes relabel rules as an attribute
+// value rather than as rule blocks, read from every shipped component schema:
+// component name -> attribute name (loki.source.syslog -> relabel_rules). It
+// is every top-level capsule-typed attribute whose name ends in "rules" — the
+// schema's type for Alloy's relabel.Rules export (tenant_rules_attr_test.go
+// classifies every capsule attribute, so a new kind fails there). Strict
+// tenant mode takes such an attribute only as a reference to rules it lints
+// (rulesReference).
+func RelabelRuleAttributes() (map[string]map[string]bool, error) {
+	relabelAttrsOnce.Do(func() {
+		relabelAttrs, relabelAttrsErr = loadRelabelRuleAttributes(schema.Embedded)
+	})
+	return relabelAttrs, relabelAttrsErr
+}
+
 type schemaBlock struct {
 	Name       string        `json:"name"`
 	Attributes []schemaAttr  `json:"attributes"`
@@ -70,33 +92,64 @@ type schemaBlock struct {
 
 type schemaAttr struct {
 	Name string `json:"name"`
+	Type string `json:"type"`
 }
 
-func loadRelabelRuleBlocks(fsys fs.FS) (map[string]map[string]bool, error) {
+type schemaComponent struct {
+	Attributes []schemaAttr  `json:"attributes"`
+	Blocks     []schemaBlock `json:"blocks"`
+}
+
+// eachSchemaComponent calls fn for every component of every shipped schema.
+func eachSchemaComponent(fsys fs.FS, fn func(name string, c schemaComponent)) error {
 	files, err := fs.Glob(fsys, "artifacts/alloy-v*.json")
 	if err != nil {
-		return nil, fmt.Errorf("listing the component schemas: %w", err)
+		return fmt.Errorf("listing the component schemas: %w", err)
 	}
 	if len(files) == 0 {
-		return nil, errors.New("no component schema is shipped")
+		return errors.New("no component schema is shipped")
 	}
-	out := map[string]map[string]bool{}
 	for _, f := range files {
 		data, err := fs.ReadFile(fsys, f)
 		if err != nil {
-			return nil, fmt.Errorf("reading %s: %w", f, err)
+			return fmt.Errorf("reading %s: %w", f, err)
 		}
 		var art struct {
-			Components map[string]struct {
-				Blocks []schemaBlock `json:"blocks"`
-			} `json:"components"`
+			Components map[string]schemaComponent `json:"components"`
 		}
 		if err := json.Unmarshal(data, &art); err != nil {
-			return nil, fmt.Errorf("parsing %s: %w", f, err)
+			return fmt.Errorf("parsing %s: %w", f, err)
 		}
 		for name, c := range art.Components {
-			collectRelabelRules(name, "", c.Blocks, out)
+			fn(name, c)
 		}
+	}
+	return nil
+}
+
+func loadRelabelRuleBlocks(fsys fs.FS) (map[string]map[string]bool, error) {
+	out := map[string]map[string]bool{}
+	if err := eachSchemaComponent(fsys, func(name string, c schemaComponent) {
+		collectRelabelRules(name, "", c.Blocks, out)
+	}); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func loadRelabelRuleAttributes(fsys fs.FS) (map[string]map[string]bool, error) {
+	out := map[string]map[string]bool{}
+	if err := eachSchemaComponent(fsys, func(name string, c schemaComponent) {
+		for _, a := range c.Attributes {
+			if a.Type == "capsule" && strings.HasSuffix(a.Name, "rules") {
+				if out[name] == nil {
+					out[name] = map[string]bool{}
+				}
+				out[name][a.Name] = true
+			}
+		}
+	}); err != nil {
+		return nil, err
 	}
 	return out, nil
 }
@@ -199,6 +252,11 @@ func (d *dropper) body(stmts ast.Body, component, path string, nesting int) erro
 				return err
 			}
 			continue
+		case component == "" && name == exporterLoki:
+			if err := d.exporterLoki(b, stmts); err != nil {
+				return err
+			}
+			continue
 		case component == "":
 			rules, err := RelabelRuleBlocks()
 			if err != nil {
@@ -235,15 +293,15 @@ func (d *dropper) body(stmts ast.Body, component, path string, nesting int) erro
 }
 
 // insertAfter splices tenantDropRule in right after b's closing brace, on
-// lines of its own at b's indentation.
+// lines of its own, indented with the leading whitespace (spaces and tabs,
+// byte for byte) of the line b starts on — never a column count, which a tab
+// or a multi-byte character before b would throw off.
 func (d *dropper) insertAfter(b *ast.BlockStmt) {
 	start := ast.StartPos(b).Position().Offset
 	end := ast.EndPos(b).Position().Offset + 1
 	lineStart := strings.LastIndexByte(d.text[:start], '\n') + 1
-	indent := d.text[lineStart:start]
-	if strings.TrimLeft(indent, " \t") != "" {
-		indent = strings.Repeat(" ", ast.StartPos(b).Position().Column-1)
-	}
+	line := d.text[lineStart:start]
+	indent := line[:len(line)-len(strings.TrimLeft(line, " \t"))]
 	var sb strings.Builder
 	for _, line := range tenantDropRule {
 		sb.WriteString(d.newline)
@@ -251,6 +309,92 @@ func (d *dropper) insertAfter(b *ast.BlockStmt) {
 		sb.WriteString(line)
 	}
 	d.splices = append(d.splices, dropSplice{start: end, end: end, text: sb.String()})
+}
+
+// exporterLoki is the component the strict served form routes through a
+// __tenant_id__ drop: it may turn OTLP attributes into that label
+// (pushSources).
+const exporterLoki = "otelcol.exporter.loki"
+
+// exporterDropPrefix starts the label of the loki.process the served form
+// inserts after an otelcol.exporter.loki: "<prefix><exporter label>".
+const exporterDropPrefix = "shepherd_tenant_drop_"
+
+// exporterLoki routes otelcol.exporter.loki b through a __tenant_id__ drop:
+// its forward_to becomes [loki.process.<exporterDropPrefix><label>.receiver],
+// and that loki.process — forwarding to the original forward_to, verbatim,
+// with a stage.label_drop of __tenant_id__ — is inserted on lines of its own
+// right after b, indented as b's line is. A forward_to that is absent, empty
+// or not a plain list of receivers (plainReceiverList) is left alone: the
+// lint refuses the last. A component of that name already in scope (stmts)
+// is an error: the served form cannot be built.
+func (d *dropper) exporterLoki(b *ast.BlockStmt, stmts ast.Body) error {
+	var fwd *ast.AttributeStmt
+	for _, st := range b.Body {
+		if a, ok := st.(*ast.AttributeStmt); ok && a.Name.Name == "forward_to" {
+			fwd = a
+		}
+	}
+	if fwd == nil || !plainReceiverList(fwd.Value) {
+		return nil
+	}
+	if arr, ok := unparen(fwd.Value).(*ast.ArrayExpr); !ok || len(arr.Elements) == 0 {
+		return nil
+	}
+	label := exporterDropPrefix + b.Label
+	for _, st := range stmts {
+		if o, ok := st.(*ast.BlockStmt); ok && strings.Join(o.Name, ".") == "loki.process" && o.Label == label {
+			return fmt.Errorf("%w: loki.process %q already exists beside %s %q, so the drop cannot be inserted; "+
+				"rename that component", ErrTenantDrop, label, exporterLoki, b.Label)
+		}
+	}
+	vStart := ast.StartPos(fwd.Value).Position().Offset
+	vEnd := ast.EndPos(fwd.Value).Position().Offset + 1
+	original := d.text[vStart:vEnd]
+	d.splices = append(d.splices, dropSplice{start: vStart, end: vEnd, text: "[loki.process." + label + ".receiver]"})
+
+	start := ast.StartPos(b).Position().Offset
+	end := ast.EndPos(b).Position().Offset + 1
+	lineStart := strings.LastIndexByte(d.text[:start], '\n') + 1
+	line := d.text[lineStart:start]
+	indent := line[:len(line)-len(strings.TrimLeft(line, " \t"))]
+	lines := []string{
+		"",
+		"loki.process " + strconv.Quote(label) + " {",
+		"  forward_to = " + original,
+		"",
+		"  stage.label_drop {",
+		`    values = ["` + tenantLabel + `"]`,
+		"  }",
+		"}",
+	}
+	var sb strings.Builder
+	for _, l := range lines {
+		sb.WriteString(d.newline)
+		if l != "" {
+			sb.WriteString(indent)
+			sb.WriteString(l)
+		}
+	}
+	d.splices = append(d.splices, dropSplice{start: end, end: end, text: sb.String()})
+	return nil
+}
+
+// plainReceiverList reports whether v is a list literal of component
+// receiver references (`<component>.<label>.receiver`), the only forward_to
+// the strict served form routes through a drop.
+func plainReceiverList(v ast.Expr) bool {
+	arr, ok := unparen(v).(*ast.ArrayExpr)
+	if !ok {
+		return false
+	}
+	for _, el := range arr.Elements {
+		parts, ok := accessChain(el)
+		if !ok || len(parts) < 3 || parts[len(parts)-1] != "receiver" || parts[0] == "argument" {
+			return false
+		}
+	}
+	return true
 }
 
 // importString inserts the drops into a literal import.string's module

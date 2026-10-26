@@ -265,8 +265,8 @@ func withServedForm(ctx context.Context, r Result, contents string, tenants Tena
 	}
 	served, err := tenants.Inline(ctx, contents)
 	if err != nil {
-		return refuse(fmt.Sprintf("the pipeline cannot be served with its pinned modules inlined, which strict "+
-			"tenant mode serves: %v", err))
+		return refuse(fmt.Sprintf("the pipeline cannot be built in the form strict tenant mode serves (pinned "+
+			"modules inlined, "+tenantLabel+" dropped after labelmaps and otelcol.exporter.loki): %v", err))
 	}
 	// The bound, whatever Inline did: no import.git, however spelt, anywhere
 	// in what is served — top level, declares, import.string contents.
@@ -278,9 +278,10 @@ func withServedForm(ctx context.Context, r Result, contents string, tenants Tena
 		rs = stages(served)
 	}
 	// The served form is linted with no module source at all: an import.git
-	// left anywhere in it is refused, never fetched.
+	// left anywhere in it is refused, never fetched. tenants is the caller's
+	// policy, never storedTextPolicy's, so a labelmap there needs its drop.
 	lintPolicy := tenants
-	lintPolicy.Inline, lintPolicy.Git, lintPolicy.servedDrops = nil, nil, false
+	lintPolicy.Inline, lintPolicy.Git = nil, nil
 	rs = withTenantLintOnly(ctx, rs, served, lintPolicy)
 	for _, d := range rs.Diagnostics {
 		d.Message = "as served (pinned modules inlined): " + d.Message

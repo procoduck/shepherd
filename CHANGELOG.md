@@ -92,6 +92,26 @@ Categories used here:
 
 ### Fixed
 
+- **Strict tenant mode also checks relabel rule attributes and the labels
+  `otelcol.exporter.loki` makes.** Shipped. In a strict org, a `relabel_rules` attribute (on
+  `loki.source.syslog`, `.journal`, `.kafka` and the other Loki sources that take one, read from
+  the component schemas) must now be a plain reference to a `loki.relabel` or
+  `discovery.relabel` component's `rules` in the same pipeline or declare, whose `rule` blocks
+  the tenant check reads and the served form drops `__tenant_id__` after. Rules written in place
+  (a list or object, a function call, a concatenation), another export, and a component outside
+  that scope are refused, with a message to move the rules into a `loki.relabel` component.
+  `otelcol.exporter.loki`, which turns the OpenTelemetry attributes its `loki.resource.labels` /
+  `loki.attribute.labels` hints name into Loki labels (`__tenant_id__` included), is now served
+  in a strict org through an added `loki.process "shepherd_tenant_drop_<label>"` that drops
+  `__tenant_id__` and forwards to the exporter's original targets, and the tenant check follows
+  every path from it to a `loki.write` through that drop. The grafana/k8s-monitoring chart's
+  logs output is saved and served as written. The exporter's `forward_to` must be a list of
+  component receivers, and a component of the added name must not already exist beside it.
+  The stored text is unchanged, and other orgs and pipelines are served byte for byte as
+  before. At boot, an org whose pipeline gets a
+  `__tenant_id__` drop in the strict served form is also recomputed, in case
+  `tenants.require_owned` changed since the last boot. The inserted drop takes the labelmap
+  line's own leading whitespace (tabs included). The served config format is unchanged.
 - **Reconciliation no longer reports a dropped pipeline as running.** Shipped. A pipeline that
   was served, then disabled, kept its beacon row until the sweeper expired it five minutes later,
   and the Reconciliation tab listed it as running and "never served" all that time. A beacon row

@@ -407,6 +407,37 @@ var _ = Describe("pinned import.git in the preflight", Label("integration"), fun
 		Expect(dirty(otherColl)).To(BeTrue(), "with tenants.require_owned every org is strict")
 	})
 
+	// The strict served form also carries a __tenant_id__ drop after each
+	// labelmap that may write it (#410), so an org with one was served
+	// differently if tenants.require_owned was on at the last boot.
+	It("marks dirty at boot an org whose pipeline gets a labelmap drop in the strict served form", func() {
+		labelmapOrg, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{Name: "boot-labelmap", DisplayName: "L", AdminGroupID: "bl"})
+		Expect(err).NotTo(HaveOccurred())
+		cl, err := st.Queries.UpsertCluster(ctx, "boot-labelmap")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(st.Queries.ClaimCluster(ctx, sqlc.ClaimClusterParams{ID: cl.ID, OrgID: labelmapOrg.ID})).To(Succeed())
+		c, err := st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: cl.ID, Role: "singleton"})
+		Expect(err).NotTo(HaveOccurred())
+		dirty := func() bool {
+			row, err := st.Queries.GetServeCache(ctx, c.ID)
+			return err == nil && row.Dirty
+		}
+		create := func(name, contents string) {
+			GinkgoHelper()
+			_, err := st.Queries.CreatePipeline(ctx, sqlc.CreatePipelineParams{
+				OrgID: labelmapOrg.ID, Name: name, Contents: contents, Matchers: json.RawMessage(`[]`), Source: "ui", Enabled: true,
+			})
+			Expect(err).NotTo(HaveOccurred())
+		}
+		create("literal", "loki.relabel \"r\" {\n  forward_to = []\n  rule {\n    action      = \"labelmap\"\n    regex       = \"x_team\"\n    replacement = \"team\"\n  }\n}\n")
+		Expect(tenancy.MarkPinnedImportOrgsDirty(ctx, st.Queries, false)).To(Succeed())
+		Expect(dirty()).To(BeFalse(), "a labelmap with a literal replacement gets no drop: served the same either way")
+
+		create("labelmap", "loki.relabel \"r\" {\n  forward_to = []\n  rule {\n    action = \"labelmap\"\n    regex  = \"x_(.+)\"\n  }\n}\n")
+		Expect(tenancy.MarkPinnedImportOrgsDirty(ctx, st.Queries, false)).To(Succeed())
+		Expect(dirty()).To(BeTrue(), "tenants.require_owned may have been on at the last boot")
+	})
+
 	It("indexes a pinned module's tenants, so the pipeline is recorded complete", func() {
 		pipeline("indexed", importing("owned.alloy"))
 		tenancy.RebuildPipelineTenants(ctx, st)

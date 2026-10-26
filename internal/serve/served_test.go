@@ -29,8 +29,8 @@ func strictInline(ctx context.Context, contents string) (string, error) {
 func TestStrictLabelmapDropServedThroughComputeServed(t *testing.T) {
 	deps := serve.Deps{Schema: mustSchema(t)}
 	plain := []merge.Pipeline{
-		{ID: "1", Name: "plain", Contents: "logging { level = \"info\" }\n", Matchers: []string{}, Source: "ui"},
-		{ID: "2", Name: "relabel", Contents: "loki.relabel \"r\" {\n  forward_to = []\n  rule {\n    action      = \"labelmap\"\n    regex       = \"x_team\"\n    replacement = \"team\"\n  }\n}\n", Matchers: []string{}, Source: "ui"},
+		{ID: "1", Name: "plain", Contents: "logging { level = \"info\" }\n", Matchers: []string{`cluster="c1"`}, Source: "ui"},
+		{ID: "2", Name: "relabel", Contents: "loki.relabel \"r\" {\n  forward_to = []\n  rule {\n    action      = \"labelmap\"\n    regex       = \"x_team\"\n    replacement = \"team\"\n  }\n}\n", Matchers: []string{`cluster="c1"`}, Source: "ui"},
 	}
 	coll := serve.Collector{ID: "00000000-0000-0000-0000-000000000003", Cluster: "c1", Role: "singleton"}
 	before, err := serve.ComputeServed(context.Background(), deps, coll, plain)
@@ -92,6 +92,50 @@ func TestStrictLabelmapDropServedThroughComputeServed(t *testing.T) {
 		}
 		if res.Hash == raw.Hash {
 			t.Errorf("%s: the strict served form should differ from the stored one", role)
+		}
+		viaDrop := strings.Contains(res.Content, "forward_to = [loki.process.shepherd_tenant_drop_loki.receiver]") &&
+			strings.Contains(res.Content, `loki.process "shepherd_tenant_drop_loki" {`)
+		if viaDrop != (role == "logs") {
+			t.Errorf("%s: otelcol.exporter.loki routed through the drop = %v:\n%s", role, viaDrop, res.Content)
+		}
+	}
+}
+
+// The otelcol.exporter.loki drop changes only a strict org's served form:
+// a non-strict org's pipeline with one, and a strict org's pipelines without
+// one (the OTLP-to-Prometheus bridge included), are served byte-identical.
+func TestStrictExporterLokiDropHashStability(t *testing.T) {
+	deps := serve.Deps{Schema: mustSchema(t)}
+	coll := serve.Collector{ID: "00000000-0000-0000-0000-000000000004", Cluster: "c1", Role: "singleton"}
+	exporter := []merge.Pipeline{{ID: "1", Name: "otlp", Contents: "otelcol.exporter.loki \"x\" {\n  forward_to = [loki.write.w.receiver]\n}\n" +
+		"loki.write \"w\" {\n  endpoint {\n    url = \"https://l.example/push\"\n  }\n}\n", Matchers: []string{`cluster="c1"`}, Source: "ui"}}
+	others := []merge.Pipeline{
+		{ID: "2", Name: "prom", Contents: "otelcol.exporter.prometheus \"p\" {\n  forward_to = []\n}\n", Matchers: []string{`cluster="c1"`}, Source: "ui"},
+		{ID: "3", Name: "plain", Contents: "logging { level = \"info\" }\n", Matchers: []string{`cluster="c1"`}, Source: "ui"},
+	}
+	for name, c := range map[string]struct {
+		p      []merge.Pipeline
+		inline serve.Inliner
+		same   bool
+	}{
+		"non-strict with otelcol.exporter.loki": {exporter, nil, true},
+		"strict without otelcol.exporter.loki":  {others, strictInline, true},
+		"strict with otelcol.exporter.loki":     {exporter, strictInline, false},
+	} {
+		raw, err := serve.ComputeServed(context.Background(), deps, coll, c.p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		served, err := serve.ServedForm(context.Background(), c.inline, c.p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := serve.ComputeServed(context.Background(), deps, coll, served)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if same := got.Hash == raw.Hash && got.Content == raw.Content; same != c.same {
+			t.Errorf("%s: served byte-identical = %v, want %v:\n%s", name, same, c.same, got.Content)
 		}
 	}
 }
