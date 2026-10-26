@@ -56,6 +56,29 @@ Categories used here:
   evicted; the 128 most recently used of the others are kept per org. The preflights, the boot
   check under `tenants.require_owned` and `shepherd admin tenant-preflight` read modules the same
   way. Migration 0043. (#390)
+- **Validation knows each collector's Alloy version.** Shipped. Stage 3 checks each affected
+  collector's merged config against the component schema of every Alloy version its active
+  instances report (seen within `agent.inactive_after`), not only the pinned release. A component,
+  block or attribute that version lacks refuses the save, naming the collector, the version and
+  the item: `otelcol.processor.redaction` on a v1.18.1 collector, or `scrape_classic_histograms`
+  in a `prometheus.operator.*` scrape block. **Saves that passed before can now be refused for a
+  fleet still running an older Alloy.** Schemas ship for v1.18.1, v1.19.2, v1.20.1 and v1.21.2;
+  a release without its own schema is checked against the nearest older one (v1.20.0 against
+  v1.19.2, v1.21.0 against v1.20.1) with a warning that the check is an approximation, and one
+  newer than every shipped schema, a pre-release or none reported against the pinned schema,
+  with a warning. A refusal names the instances reporting the version. A mismatch a collector is
+  already served refuses only a change to the pipeline that holds it: disabling a pipeline,
+  editing another one and destination re-renders go through. A component that is experimental
+  or public preview in a collector's version gets one warning naming the `--stability.level` it
+  needs. The editor's validation shows the same findings as warnings for every version active in
+  the org, and git sync's dry run applies the check under its "only new errors refuse" rule.
+  When an older pod joins after a save, the validated config keeps being served and the
+  collector is flagged instead: `Collector.version_warning` (findings, mismatch, since), a
+  MISMATCH or NOTE marker on the Collectors list and a banner on the collector page, audited
+  once per change as `collector.version_warning`; an agent-reported version that keeps changing
+  is re-checked at most once a minute. Migration 0044 adds the columns.
+  `alloy validate` stays the single pinned binary; the served config and its hash are unchanged.
+  (#375)
 
 ### Fixed
 

@@ -106,7 +106,7 @@ func runAdminRerenderDestinations(cmd *cobra.Command, _ []string) error {
 		run = mgmtapi.RerenderAllWizardPipelines
 	}
 	results, err := run(cmd.Context(), st, validate.New(&cfg.Validate), reg, slog.Default(), dryRun,
-		mgmtapi.WithRequireOwnedTenants(cfg.Tenants.RequireOwned))
+		mgmtapi.WithRequireOwnedTenants(cfg.Tenants.RequireOwned), mgmtapi.WithPipelineInactiveAfter(cfg.Agent.InactiveAfter))
 	failed := printRerenderResults(out, results, dryRun, rerenderDestinationsAll)
 	if err != nil {
 		return err

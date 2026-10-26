@@ -10,6 +10,7 @@ import {
   CollectorRejectionNote,
 } from '@/components/CollectorReconciliation';
 import { CollectorRefusedBanner, RefusedBadge } from '@/components/CollectorRefusal';
+import { CollectorVersionWarningBanner } from '@/components/CollectorVersionWarning';
 import { QueryError } from '@/components/QueryError';
 import { DataTable } from '@/components/ui/DataTable';
 import { Field, Input } from '@/components/ui/Field';
@@ -192,6 +193,7 @@ export function CollectorDetailPage() {
       </div>
 
       {detail && <CollectorRefusedBanner collector={detail} />}
+      {detail && <CollectorVersionWarningBanner collector={detail} />}
 
       {detail?.remoteConfigError && (
         <div className='rounded-lg border border-danger/30 bg-danger-surface px-4 py-3 text-sm text-danger'>

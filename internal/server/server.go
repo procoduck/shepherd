@@ -329,7 +329,8 @@ func newRouter(cfg *config.Config, st *store.Store, enc *crypto.Encryptor, authH
 	// Normal requests always go to the database. A ttl of 0 disables both.
 	tokenVerdicts := agentapi.NewTokenVerdicts(cfg.Agent.OutageCacheTTL, agentapi.DefaultTokenVerdictMax)
 	svc := agentapi.New(st, v, logger, schemaReg, agentapi.WithBeaconBaseline(serve.BeaconBaseline(cfg)),
-		agentapi.WithOutageCache(cfg.Agent.OutageCacheTTL), agentapi.WithRequireOwnedTenants(cfg.Tenants.RequireOwned))
+		agentapi.WithOutageCache(cfg.Agent.OutageCacheTTL), agentapi.WithRequireOwnedTenants(cfg.Tenants.RequireOwned),
+		agentapi.WithInactiveAfter(cfg.Agent.InactiveAfter))
 	// The Bearer branch of the collector gate: a collector's OIDC access token
 	// is verified with the same provider as user login. nil when authHandler
 	// is absent (the route-tree unit test) or OIDC is unconfigured, which
@@ -474,7 +475,8 @@ func (s *Server) Run(ctx context.Context) error {
 		ps := mgmtapi.NewPipelineService(s.store, s.validator, s.schema, s.logger,
 			mgmtapi.WithBeaconBaseline(serve.BeaconBaseline(s.cfg)),
 			mgmtapi.WithRequireOwnedTenants(s.cfg.Tenants.RequireOwned),
-			mgmtapi.WithPinnedImports(pinnedimport.New(s.cfg, s.enc, s.logger)))
+			mgmtapi.WithPinnedImports(pinnedimport.New(s.cfg, s.enc, s.logger)),
+			mgmtapi.WithPipelineInactiveAfter(s.cfg.Agent.InactiveAfter))
 		syncOpts = append(syncOpts, gitsync.WithRecompute(ps.RecomputeCollectorCache))
 		reconciler := gitsync.New(s.store, s.enc, s.validator, s.schema, s.cfg, s.logger, syncOpts...)
 		reconciler.Start(ctx)

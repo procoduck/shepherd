@@ -72,6 +72,30 @@ message Collector {
   // last_refused_at is when that refusal was recorded (refreshed at most once
   // per refusal-log window while refusals continue); unset with the reason.
   google.protobuf.Timestamp last_refused_at = 14;
+  // version_warning is what the agent API's version check of this
+  // collector's served config found (#375), unset when it found nothing.
+  // Stage 3 refuses a save that uses an item missing from any active
+  // instance's Alloy version, but instances change after the save (an older
+  // pod joins) and serving continues then; this is where that shows. Updated
+  // when the served config or the active instances' versions change, and
+  // audited (collector.version_warning) once per change, never per poll.
+  CollectorVersionWarning version_warning = 15;
+}
+
+// CollectorVersionWarning is Collector.version_warning.
+message CollectorVersionWarning {
+  // findings are human-readable, one per finding, each naming the Alloy
+  // version it is about: an item missing from that version's schema, a
+  // version checked against the pinned schema only (no shipped schema covers
+  // it, or none was reported), or a component below general availability
+  // that needs a --stability.level flag on the collector.
+  repeated string findings = 1;
+  // mismatch is true when a finding is a missing item: an instance running
+  // that version will most likely reject the config and keep its last one.
+  // false when every finding is a note.
+  bool mismatch = 2;
+  // since is when these findings were first recorded.
+  google.protobuf.Timestamp since = 3;
 }
 
 message SetCollectorLabelRequest {

@@ -205,6 +205,140 @@ func (q *Queries) GetLatestCollectorInstanceSummary(ctx context.Context, collect
 	return i, err
 }
 
+const listActiveInstanceVersions = `-- name: ListActiveInstanceVersions :many
+SELECT COALESCE(alloy_version, '')::text AS alloy_version,
+       max(last_seen)::timestamptz AS newest_seen
+FROM collector_instances
+WHERE collector_id = $1
+  AND unregistered_at IS NULL
+  AND ($2::timestamptz IS NULL
+       OR last_seen IS NULL
+       OR last_seen >= $2::timestamptz)
+GROUP BY 1
+ORDER BY 1
+`
+
+type ListActiveInstanceVersionsParams struct {
+	CollectorID    pgtype.UUID        `json:"collector_id"`
+	InactiveBefore pgtype.Timestamptz `json:"inactive_before"`
+}
+
+type ListActiveInstanceVersionsRow struct {
+	AlloyVersion string             `json:"alloy_version"`
+	NewestSeen   pgtype.Timestamptz `json:"newest_seen"`
+}
+
+// The distinct Alloy versions a collector's ACTIVE instances report (#375):
+// registered and, when inactive_before is set (now minus
+// agent.inactive_after), seen since — CountActiveInstances' rule. An
+// instance that reported no collector.version reads as ”. newest_seen is
+// the latest last_seen among the instances reporting that version: the
+// version drops out of the set once newest_seen + agent.inactive_after
+// passes.
+func (q *Queries) ListActiveInstanceVersions(ctx context.Context, arg ListActiveInstanceVersionsParams) ([]ListActiveInstanceVersionsRow, error) {
+	rows, err := q.db.Query(ctx, listActiveInstanceVersions, arg.CollectorID, arg.InactiveBefore)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListActiveInstanceVersionsRow
+	for rows.Next() {
+		var i ListActiveInstanceVersionsRow
+		if err := rows.Scan(&i.AlloyVersion, &i.NewestSeen); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listActiveInstanceVersionsByOrg = `-- name: ListActiveInstanceVersionsByOrg :many
+WITH active AS (
+    SELECT ci.collector_id, COALESCE(ci.alloy_version, '') AS alloy_version, ci.name, ci.last_seen
+    FROM collector_instances ci
+    JOIN collectors c ON c.id = ci.collector_id
+    JOIN clusters cl ON cl.id = c.cluster_id
+    WHERE cl.org_id = $2
+      AND ci.unregistered_at IS NULL
+      AND ($3::timestamptz IS NULL
+           OR ci.last_seen IS NULL
+           OR ci.last_seen >= $3::timestamptz)
+),
+versions AS (
+    SELECT collector_id, alloy_version, count(*)::bigint AS instance_count,
+           alloy_version ~ '^v?[0-9]{1,6}\.[0-9]{1,6}\.[0-9]{1,6}$' AS is_release
+    FROM active
+    GROUP BY 1, 2
+),
+ranked AS (
+    SELECT v.collector_id, v.alloy_version, v.instance_count, v.is_release,
+           row_number() OVER (PARTITION BY collector_id ORDER BY
+               is_release DESC,
+               CASE WHEN is_release THEN string_to_array(ltrim(alloy_version, 'v'), '.')::int[] END ASC NULLS LAST,
+               alloy_version) AS rn,
+           count(*) OVER (PARTITION BY collector_id) AS versions_total
+    FROM versions v
+)
+SELECT r.collector_id, r.alloy_version::text AS alloy_version, r.instance_count, r.versions_total::bigint AS versions_total,
+       COALESCE((SELECT array_agg(n.name ORDER BY n.last_seen DESC NULLS LAST)
+                 FROM (SELECT a.name, a.last_seen FROM active a
+                       WHERE a.collector_id = r.collector_id AND a.alloy_version = r.alloy_version
+                       ORDER BY a.last_seen DESC NULLS LAST LIMIT 3) n), '{}')::text[] AS instances
+FROM ranked r
+WHERE r.rn <= $1::bigint
+ORDER BY r.collector_id, r.rn
+`
+
+type ListActiveInstanceVersionsByOrgParams struct {
+	PerCollector   int64              `json:"per_collector"`
+	OrgID          pgtype.UUID        `json:"org_id"`
+	InactiveBefore pgtype.Timestamptz `json:"inactive_before"`
+}
+
+type ListActiveInstanceVersionsByOrgRow struct {
+	CollectorID   pgtype.UUID `json:"collector_id"`
+	AlloyVersion  string      `json:"alloy_version"`
+	InstanceCount int64       `json:"instance_count"`
+	VersionsTotal int64       `json:"versions_total"`
+	Instances     []string    `json:"instances"`
+}
+
+// ListActiveInstanceVersions for every collector of an org in one round trip
+// (Stage 3, internal/mgmtapi stage3CheckSet). Versions and instance names
+// are agent-chosen, so the bounds are PER COLLECTOR — an org-wide cut would
+// leave whole collectors with no versions (#409 re-review): at most
+// per_collector versions each, release versions oldest first, then the
+// rest; versions_total says how many there were. Each row names at most
+// the 3 most recently seen instances reporting it, with instance_count.
+func (q *Queries) ListActiveInstanceVersionsByOrg(ctx context.Context, arg ListActiveInstanceVersionsByOrgParams) ([]ListActiveInstanceVersionsByOrgRow, error) {
+	rows, err := q.db.Query(ctx, listActiveInstanceVersionsByOrg, arg.PerCollector, arg.OrgID, arg.InactiveBefore)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListActiveInstanceVersionsByOrgRow
+	for rows.Next() {
+		var i ListActiveInstanceVersionsByOrgRow
+		if err := rows.Scan(
+			&i.CollectorID,
+			&i.AlloyVersion,
+			&i.InstanceCount,
+			&i.VersionsTotal,
+			&i.Instances,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listCollectorInstancesByCollector = `-- name: ListCollectorInstancesByCollector :many
 SELECT ci.name, ci.alloy_version, ci.os, ci.last_seen, ci.remote_config_status, ci.remote_config_error,
        ci.local_attributes, ci.remote_config_status_hash AS status_hash, sc.hash AS served_hash

@@ -1,0 +1,10 @@
+ALTER TABLE collectors
+    DROP CONSTRAINT collectors_version_mismatch_has_warning,
+    DROP CONSTRAINT collectors_version_warning_pair,
+    DROP COLUMN version_checked_until,
+    DROP COLUMN version_checked_at,
+    DROP COLUMN version_checked_versions,
+    DROP COLUMN version_checked_hash,
+    DROP COLUMN version_mismatch,
+    DROP COLUMN version_warning_at,
+    DROP COLUMN version_warning;

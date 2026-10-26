@@ -487,7 +487,9 @@ func (s *PipelineService) planWizardRerenders(ctx context.Context, q *sqlc.Queri
 		}
 	}
 	if len(enabled) > 0 {
-		if err := s.stage3CheckSet(ctx, orgID, enabled, ""); err != nil {
+		// A re-render regenerates what a wizard wrote: a version failure the
+		// collectors are already served does not refuse it (#375).
+		if err := s.stage3CheckSet(ctx, orgID, enabled, "", stage3OnlyNewVersionFailures); err != nil {
 			failures = append(failures, rerenderFailure{
 				pipelines: enabledNames, ids: enabledIDs, reason: err.Error(),
 				busy: errors.Is(err, validate.ErrLintBusy),

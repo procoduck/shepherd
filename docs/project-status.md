@@ -500,7 +500,13 @@ below ships in v0.19.0 — steps 1–6, 4b–4d and 7a (first in rc.1), the plan
 
 - **Step 7b** — a service-account viewer tier, R14 (#362). **Merged, unreleased** (PR #407,
   migration `0042`); ships in 0.20.
-- **#375** — validation ignores each collector's Alloy version.
+- **#375** — validation ignores each collector's Alloy version. **Built, in review**
+  (PR #409, migration `0044`): Stage 3 and git sync's dry run check each collector's merged
+  config against every active instance's Alloy schema (exact, else nearest older shipped schema
+  with an approximation warning; pinned only for too-new, non-release or missing versions); a
+  mismatch already served refuses only changes to the pipeline holding it. The agent API flags a
+  mismatch that appears after the save on the collector (`Collector.version_warning`). First
+  review round (FIX FIRST) addressed; re-review before merge.
 - **#378, role-enforcement half** — module-based (chart-generated) pipelines' instances count as
   Unknown and the pipeline is dropped from restricted roles. **Fixed on main, unreleased**: an
   instance of a module declared in the pipeline or in a literal `import.string` carries its

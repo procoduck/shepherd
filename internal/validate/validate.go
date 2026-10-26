@@ -38,6 +38,10 @@ type Diagnostic struct {
 	// Warning marks a diagnostic that does not fail validation: today only
 	// TenantLint's notes on a tenant it cannot read.
 	Warning bool `json:"warning,omitempty"`
+	// AlloySchemas, on a CheckAlloyVersions error, names the Alloy schemas
+	// (display form, "v1.18.1") that lack the item — what a caller needs to
+	// name the instances whose versions resolved to them. Not serialised.
+	AlloySchemas []string `json:"-"`
 }
 
 // Result is returned by all validation functions.

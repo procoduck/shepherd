@@ -11,6 +11,16 @@ read a viewer's NULL capability: that viewer's requests fail closed with `unauth
 an old pod, and `ListServiceAccounts` for its org answers `Internal`. **Do not create viewer
 service accounts until every replica runs v0.20.** Nothing else changes during the rollout.
 
+#### Saves checked against your collectors' Alloy versions
+
+Pipeline saves are now also checked against the Alloy version of every active instance of each
+collector they reach (#375). If part of your fleet runs an older Alloy than the pinned v1.21.2, a
+save that uses a component or attribute that release lacks is refused, naming the collector and
+version, where it used to be accepted and then rejected by that collector. Nothing to do at
+upgrade; before relying on newer components, check the Collectors list's Version column and
+upgrade older collectors. Migration `0044` adds nullable columns only, and pods on the old image
+keep working during the rollout.
+
 ## 0.22.x → 0.23.0
 
 Shepherd v0.19.0. A `helm upgrade` with seven migrations (`0035`–`0041`), **agent tokens to bind

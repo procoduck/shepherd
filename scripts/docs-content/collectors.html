@@ -57,6 +57,21 @@
         reports something new. On Kubernetes each Alloy restart registers a new instance, so the
         replaced pod&rsquo;s row turns inactive while the new one carries the status.
       </p>
+
+      <h3 id="version-warnings">Version warnings</h3>
+      <p>
+        A save is checked against the Alloy versions of the collector&rsquo;s active instances
+        (<a href="matchers.html#alloy-versions">Your collectors&rsquo; Alloy versions</a>), but the
+        instances can change afterwards &mdash; an older pod joins. Shepherd keeps serving the
+        validated config and checks it again when it hands it out. When that finds something, the
+        Collectors list marks the version <strong>MISMATCH</strong> (an instance&rsquo;s version lacks
+        part of the config, so that instance will most likely reject it and keep its last config) or
+        <strong>NOTE</strong> (a version checked against an approximate or the pinned schema, or a
+        component that needs a <code>--stability.level</code> flag), and the collector page lists
+        each finding. Each change is recorded once in the audit log as
+        <code>collector.version_warning</code>, and a version that keeps changing is checked at most
+        once a minute. The warning clears on its own soon after the old pod goes inactive.
+      </p>
       <p>
         A collector&rsquo;s page has tabs for its <strong>Served Config</strong> (the exact merged
         config it receives), <strong>Reconciliation</strong> (whether what its role declares, what

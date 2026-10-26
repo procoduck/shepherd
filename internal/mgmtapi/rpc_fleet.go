@@ -230,6 +230,7 @@ func (s *FleetService) ListCollectors(ctx context.Context, req *connect.Request[
 			Labels:             labels,
 		}
 		items[i].LastRefusedReason, items[i].LastRefusedAt = presentRefusal(c, summary.LastSeen)
+		items[i].VersionWarning = presentVersionWarning(c)
 	}
 	return connect.NewResponse(&mgmtv1.ListCollectorsResponse{Items: items, Total: int32(len(items))}), nil //nolint:gosec // org collector counts never approach int32 overflow
 }
@@ -331,6 +332,7 @@ func (s *FleetService) getCollector(ctx context.Context, orgIDStr, idStr string)
 		lastSeen = rows[0].LastSeen
 	}
 	resp.LastRefusedReason, resp.LastRefusedAt = presentRefusal(&c, lastSeen)
+	resp.VersionWarning = presentVersionWarning(&c)
 	if len(instances) > 0 {
 		latest := instances[0]
 		resp.RemoteConfigStatus = latest.RemoteConfigStatus
@@ -356,6 +358,20 @@ func presentRefusal(c *sqlc.Collector, lastSeen pgtype.Timestamptz) (string, *ti
 		return "", nil
 	}
 	return c.LastRefusedReason.String, timestamppb.New(c.LastRefusedAt.Time)
+}
+
+// presentVersionWarning returns the agent API's recorded version check of
+// the collector's served config (#375, migration 0044), or nil when it found
+// nothing. One finding per stored line.
+func presentVersionWarning(c *sqlc.Collector) *mgmtv1.CollectorVersionWarning {
+	if !c.VersionWarning.Valid || c.VersionWarning.String == "" {
+		return nil
+	}
+	return &mgmtv1.CollectorVersionWarning{
+		Findings: strings.Split(c.VersionWarning.String, "\n"),
+		Mismatch: c.VersionMismatch,
+		Since:    timestampFromPg(c.VersionWarningAt),
+	}
 }
 
 func decodeCollectorLabels(raw []byte) (map[string]string, error) {

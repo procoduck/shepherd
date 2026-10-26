@@ -144,6 +144,7 @@ function collectorToWire(c: Obj) {
     labels: c['labels'] ?? {},
     lastRefusedReason: s(c, 'last_refused_reason'),
     lastRefusedAt: c['last_refused_at'],
+    versionWarning: c['version_warning'],
   };
 }
 

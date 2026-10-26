@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"time"
 	"unicode"
 
 	"connectrpc.com/connect"
@@ -57,11 +58,21 @@ type PipelineService struct {
 	// imports fetches strict mode's pinned import.git modules
 	// (WithPinnedImports); nil reads only what is already cached.
 	imports *pinnedimport.Resolver
+	// inactiveAfter is agent.inactive_after (WithPipelineInactiveAfter):
+	// Stage 3 checks the Alloy versions of a collector's instances seen
+	// within it (#375). Zero counts every registered instance.
+	inactiveAfter time.Duration
 }
 
 // PipelineServiceOption configures optional PipelineService behavior. See
 // WithBeaconBaseline.
 type PipelineServiceOption func(*PipelineService)
+
+// WithPipelineInactiveAfter sets agent.inactive_after for Stage 3's version
+// check (#375): only instances seen within it are active.
+func WithPipelineInactiveAfter(d time.Duration) PipelineServiceOption {
+	return func(s *PipelineService) { s.inactiveAfter = d }
+}
 
 // WithBeaconBaseline sets D6's baseline pipeline on the eager recompute path —
 // see internal/agentapi.WithBeaconBaseline, which does the identical thing
@@ -1023,6 +1034,22 @@ func (s *PipelineService) ValidatePipeline(ctx context.Context, req *connect.Req
 		}
 	}
 	result := s.validator.ValidatePipeline(ctx, name, req.Msg.GetContents(), tenants)
+	// The served form: a strict org's pinned import.git modules inlined
+	// (#390) — what role enforcement and the version check see.
+	derived := req.Msg.GetContents()
+	if result.Valid && tenants.Inline != nil {
+		if servedForm, err := tenants.Inline(ctx, derived); err == nil {
+			derived = servedForm
+		}
+	}
+	// #375: what the org's collectors' Alloy versions make of it, as
+	// warnings only (Stage 3 refuses at save for the collectors reached),
+	// on the served form so a pinned module's components are checked too.
+	// Only once Stage 1 passed: its diagnostics are the ones that matter.
+	// Positions in an inlined module are reported at its import block.
+	if orgID := looseUUID(req.Msg.GetOrgId()); orgID.Valid && !hasStage(result.Diagnostics, 1) {
+		result.Diagnostics = append(result.Diagnostics, s.orgVersionWarnings(ctx, orgID, derived)...)
+	}
 
 	resp := &mgmtv1.ValidatePipelineResponse{
 		Valid:         result.Valid,
@@ -1045,13 +1072,8 @@ func (s *PipelineService) ValidatePipeline(ctx context.Context, req *connect.Req
 	//
 	// Derived from the served form: a strict org's pinned import.git
 	// modules inlined, which is what role enforcement sees (an import.git
-	// instance is Unknown, an inlined import.string module is not).
-	derived := req.Msg.GetContents()
-	if result.Valid && tenants.Inline != nil {
-		if servedForm, err := tenants.Inline(ctx, derived); err == nil {
-			derived = servedForm
-		}
-	}
+	// instance is Unknown, an inlined import.string module is not); derived
+	// above.
 	if sig, sigErr := signals.Derive(derived, s.schema); sigErr == nil {
 		resp.Signals = signalStrings(sig.Combined)
 		resp.SignalsProven = sig.Proven()
@@ -1492,7 +1514,13 @@ func (s *PipelineService) stage3Check(ctx context.Context, p sqlc.Pipeline, orgI
 // several pipelines at once (rerenderWizardPipelines), and the merged config
 // a collector would receive has all of them changed together — validating
 // them one at a time would check combinations no collector is ever served.
-func (s *PipelineService) stage3CheckSet(ctx context.Context, orgID pgtype.UUID, candidates []sqlc.Pipeline, excludeID string) (stage3Err error) {
+//
+// opts tune only the Alloy-version half (#375): see stage3OnlyNewVersionFailures.
+func (s *PipelineService) stage3CheckSet(ctx context.Context, orgID pgtype.UUID, candidates []sqlc.Pipeline, excludeID string, opts ...stage3Option) (stage3Err error) {
+	var o stage3Options
+	for _, opt := range opts {
+		opt(&o)
+	}
 	// Stage 3 is the only gate that validates the MERGED config every affected
 	// collector would actually receive, so "did it pass" is the number an
 	// operator wants when a rollout starts failing.
@@ -1515,6 +1543,10 @@ func (s *PipelineService) stage3CheckSet(ctx context.Context, orgID pgtype.UUID,
 
 	// The serve paths' own conversion, so the dry run models what they serve.
 	mergePipelines := serve.PipelinesFromRows(enabledPipelines)
+	// The merge set as it stands, before this change: the version check
+	// refuses a failure the collector is already served only when it is in
+	// a pipeline the change writes (versionGroups.check).
+	currentPipelines := slices.Clone(mergePipelines)
 
 	// changed holds every form of a pipeline this change touches — the stored
 	// (old) row of a replaced or removed pipeline and each candidate (new) —
@@ -1573,6 +1605,12 @@ func (s *PipelineService) stage3CheckSet(ctx context.Context, orgID pgtype.UUID,
 	if mergePipelines, err = serve.ServedForm(ctx, inline, mergePipelines); err != nil {
 		return err
 	}
+	// The version check compares against what is served now, so its
+	// baseline is in served form too. One that cannot be inlined has nothing
+	// "already served" to excuse: every version failure then refuses.
+	if currentPipelines, err = serve.ServedForm(ctx, inline, currentPipelines); err != nil {
+		currentPipelines = nil
+	}
 
 	// One query for every collector with its cluster name (not one
 	// GetClusterByID per collector).
@@ -1582,19 +1620,28 @@ func (s *PipelineService) stage3CheckSet(ctx context.Context, orgID pgtype.UUID,
 	}
 	org, _ := s.store.Queries.GetOrgByID(ctx, orgID) //nolint:errcheck // an org lookup failure degrades to no admin labels below, not a Stage 3 failure
 	localAttrs := localAttrsByOrg(ctx, s.store.Queries, orgID, org.AllowLocalAttributeMatching)
+	// #375: the Alloy versions each collector's active instances report.
+	instanceVersions, err := s.activeVersionsByCollector(ctx, orgID)
+	if err != nil {
+		return err
+	}
 
 	// Assemble merged content for every affected collector and validate each
 	// distinct content once. The content is serve.AssembleForValidation's:
 	// the collector's id and name normalised to a placeholder, which only
 	// ever sits in a comment or a string literal, so the verdict for the
-	// shared bytes is every sharing collector's verdict.
+	// shared bytes is every sharing collector's verdict for Stages 1 and 2.
+	// The version check's verdict also depends on the collector's Alloy
+	// versions, so it is deduplicated by content AND version set
+	// (versionGroups, #375).
 	type mergedEntry struct {
 		content       string
 		collectorKeys []string // "cluster/role" of every collector sharing content, for error messages
+		versionGroups versionGroups
 	}
 	byHash := make(map[string]int) // normalised hash → index in toValidate
 	var toValidate []*mergedEntry
-	var failures []string
+	var failures, warnings []string
 
 	for i := range collectors {
 		c := collectors[i]
@@ -1629,12 +1676,14 @@ func (s *PipelineService) stage3CheckSet(ctx context.Context, orgID pgtype.UUID,
 			s.logger.Debug("stage3Check: pipeline excluded (role/signal mismatch)",
 				"collector_id", c.ID.String(), "role", c.Role, "pipeline", ex.PipelineName, "reason", ex.Reason)
 		}
-		if idx, ok := byHash[result.Hash]; ok {
-			toValidate[idx].collectorKeys = append(toValidate[idx].collectorKeys, key)
-			continue
+		idx, ok := byHash[result.Hash]
+		if !ok {
+			idx = len(toValidate)
+			byHash[result.Hash] = idx
+			toValidate = append(toValidate, &mergedEntry{content: result.Content, versionGroups: versionGroups{}})
 		}
-		byHash[result.Hash] = len(toValidate)
-		toValidate = append(toValidate, &mergedEntry{content: result.Content, collectorKeys: []string{key}})
+		toValidate[idx].collectorKeys = append(toValidate[idx].collectorKeys, key)
+		toValidate[idx].versionGroups.add(key, coll, instanceVersions[c.ID.String()])
 	}
 
 	if len(failures) > 0 {
@@ -1653,9 +1702,24 @@ func (s *PipelineService) stage3CheckSet(ctx context.Context, orgID pgtype.UUID,
 
 	// Validate unique merged contents concurrently (max 4 workers).
 	type result struct {
-		key  string
-		msgs []string
+		key      string
+		msgs     []string
+		versions versionVerdict
 	}
+	// What the version check needs to tell a failure this change brings from
+	// one the collectors are already served (#375).
+	vctx := versionCheckContext{
+		writes:  map[string]bool{},
+		newOnly: o.onlyNewVersionFailures,
+		current: func(coll serve.Collector) (string, bool) {
+			r, err := serve.AssembleForValidation(serve.Deps{Schema: s.schema, BeaconBaseline: s.beaconBaseline}, coll, currentPipelines)
+			return r.Content, err == nil
+		},
+	}
+	for i := range candidates {
+		vctx.writes[merge.DeclareLabel(candidates[i].Name)] = true
+	}
+
 	sem := make(chan struct{}, 4)
 	resultCh := make(chan result, len(toValidate))
 
@@ -1680,7 +1744,10 @@ func (s *PipelineService) stage3CheckSet(ctx context.Context, orgID pgtype.UUID,
 					msgs = append(msgs, fmt.Sprintf("stage2:%d:%d %s", d.Line, d.Col, d.Message))
 				}
 			}
-			resultCh <- result{key: strings.Join(entry.collectorKeys, ", "), msgs: msgs}
+			resultCh <- result{
+				key: strings.Join(entry.collectorKeys, ", "), msgs: msgs,
+				versions: entry.versionGroups.check(entry.content, vctx),
+			}
 		}()
 	}
 
@@ -1693,11 +1760,20 @@ func (s *PipelineService) stage3CheckSet(ctx context.Context, orgID pgtype.UUID,
 			if len(r.msgs) > 0 {
 				failures = append(failures, fmt.Sprintf("%s: %s", r.key, strings.Join(r.msgs, "; ")))
 			}
+			failures = append(failures, r.versions.failures...)
+			warnings = append(warnings, r.versions.warnings...)
 		}
 	}
 
 	if len(failures) > 0 {
 		return fmt.Errorf("merge validation failed on collectors: %s", strings.Join(failures, " | "))
+	}
+	if len(warnings) > 0 {
+		// A warning never refuses. It is logged here; ValidatePipeline
+		// reports the same findings to the author as Diagnostic.warning, and
+		// the collector's own version_warning shows them once served.
+		slices.Sort(warnings)
+		s.logger.Info("stage3: Alloy version notes", "org_id", orgID.String(), "warnings", slices.Compact(warnings))
 	}
 	return nil
 }

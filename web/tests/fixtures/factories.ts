@@ -40,6 +40,8 @@ interface Collector {
   /** 0041: the latest refusal while newer than the last successful poll. */
   last_refused_reason?: 'token_unbound' | 'claim_denied' | 'role_denied';
   last_refused_at?: string;
+  /** 0044 (#375): the served config's version check, in wire (camelCase) form. */
+  version_warning?: { findings: string[]; mismatch: boolean; since?: string };
 }
 interface Pipeline {
   id: string;
