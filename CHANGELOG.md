@@ -26,13 +26,17 @@ Categories used here:
 - **Beacon ingest hardening.** Shipped. A beacon write with no `shepherd_collector_id` label, or
   one that is not a UUID, is now dropped instead of stored unattributed under the writer's
   credential, and counted in the new `shepherd_beacon_dropped_total{reason}`
-  (`collector_id_missing`, `collector_id_invalid`); the writer still gets 204. Every baseline
+  (`collector_id_missing`, `collector_id_invalid`); a write whose series name more than one
+  collector is dropped too (`collector_id_mixed`). The writer still gets 204. Every baseline
   Shepherd has served since v0.19.0 stamps the label, so only writes from an older baseline or
-  from outside the served config are affected. A collector authenticating with OIDC whose client
-  identity has an organisation binding, or whose identity provider asserts its organisation, now
-  gets the same check at the beacon that a bound agent token gets: a write naming a collector
-  outside that org is dropped and counted
-  (`shepherd_agent_refused_total{reason="beacon_denied"}`). (#389)
+  from outside the served config are affected. The beacon now checks a writer's scope the way
+  the agent API does: a collector authenticating with OIDC whose client identity has an
+  organisation binding, or whose identity provider asserts its organisation, gets the same
+  collector-in-org check a bound agent token gets; a cluster allowlist (a token's or binding's
+  `clusters`, or a mode-2 token's `clusters` claim) applies too; and an unbound token's writes are
+  dropped. Denied writes are counted in `shepherd_agent_refused_total` (`beacon_denied`,
+  `token_unbound`). A collector-owner lookup the database cannot answer is now 503 (retried)
+  rather than a denial. (#389)
 - **Rebinding an agent token keeps its cluster-claim right.** Shipped. `BindAgentToken` and
   `shepherd token bind` set `may_claim` only on the first bind of an unbound token (as before,
   so binding legacy tokens after upgrading works unchanged); rebinding a token that is already

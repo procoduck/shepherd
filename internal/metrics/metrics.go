@@ -61,7 +61,7 @@ var (
 	BeaconDroppedTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "shepherd",
 		Name:      "beacon_dropped_total",
-		Help:      "Total beacon writes dropped for carrying no usable collector id, by reason (collector_id_missing, collector_id_invalid).",
+		Help:      "Total beacon writes dropped for carrying no usable collector id, by reason (collector_id_missing, collector_id_invalid, collector_id_mixed).",
 	}, []string{"reason"})
 
 	// SyncTotal counts gitsync reconciliation attempts by result.
@@ -168,6 +168,10 @@ const (
 	// BeaconDroppedCollectorIDInvalid: the shepherd_collector_id label is not
 	// a UUID.
 	BeaconDroppedCollectorIDInvalid = "collector_id_invalid"
+	// BeaconDroppedCollectorIDMixed: the write's series carried more than one
+	// distinct shepherd_collector_id, so it cannot be attributed to one
+	// collector.
+	BeaconDroppedCollectorIDMixed = "collector_id_mixed"
 )
 
 // init publishes the build-info series as soon as the package loads, so

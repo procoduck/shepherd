@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 
 	"github.com/golang/snappy"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -42,6 +43,11 @@ var _ = Describe("BeaconHandler", Label("integration"), func() {
 		server     *httptest.Server
 		authHeader string
 		tokenID    string
+		dbURL      string
+		// homeOrg is the seeded token's org; anyCollector is a collector in a
+		// cluster homeOrg claimed, so the seeded token may report it.
+		homeOrg      sqlc.Org
+		anyCollector string
 	)
 
 	encodeWrite := func(labelSets [][]prompb.Label, value float64) []byte {
@@ -75,9 +81,6 @@ var _ = Describe("BeaconHandler", Label("integration"), func() {
 		}
 		return labels
 	}
-	// anyCollector is a well-formed collector id for writes from an unbound
-	// token or identity, whose collector the beacon does not check.
-	const anyCollector = "6f1c2a4e-0000-4000-8000-000000000001"
 	controllerSeries := func(instance, controllerPath, controllerID, healthType string) []prompb.Label {
 		return collectorSeries(anyCollector, instance, controllerPath, controllerID, healthType)
 	}
@@ -146,17 +149,21 @@ var _ = Describe("BeaconHandler", Label("integration"), func() {
 	BeforeEach(func() {
 		ctx, cancel = context.WithCancel(context.Background())
 
-		dbURL := sharedPG.IsolatedDB(ctx, GinkgoTB())
+		dbURL = sharedPG.IsolatedDB(ctx, GinkgoTB())
 		var err error
 		st, err = store.New(ctx, &config.DatabaseConfig{URL: dbURL, MaxConns: 5})
 		Expect(err).NotTo(HaveOccurred())
+
+		homeOrg, err = st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{Name: "beacon-home", DisplayName: "Home", AdminGroupID: "ghome"})
+		Expect(err).NotTo(HaveOccurred())
+		anyCollector = collectorIn("home-prod", &homeOrg)
 
 		raw := make([]byte, 32)
 		_, _ = rand.Read(raw)
 		secret := base64.URLEncoding.EncodeToString(raw)
 		hash := sha256.Sum256([]byte(secret))
 		tok, err := st.Queries.CreateAgentToken(ctx, sqlc.CreateAgentTokenParams{
-			Name: "beacon-test-token", TokenHash: hash[:], CreatedBy: "test",
+			Name: "beacon-test-token", TokenHash: hash[:], CreatedBy: "test", OrgID: homeOrg.ID,
 		})
 		Expect(err).NotTo(HaveOccurred())
 		tokenID = tok.ID.String()
@@ -463,6 +470,122 @@ var _ = Describe("BeaconHandler", Label("integration"), func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(rows).To(HaveLen(1), "an asserted org that does not exist reports no collector")
 		Expect(denied() - before).To(Equal(2.0))
+	})
+
+	// #389: an unbound token (one from before org binding, or whose org was
+	// deleted) acts for no org, so it may report no collector — every write
+	// is dropped and counted as token_unbound, still 204.
+	It("drops every write from an unbound token", func() {
+		hash := sha256.Sum256([]byte("unbound-secret"))
+		tok, err := st.Queries.CreateAgentToken(ctx, sqlc.CreateAgentTokenParams{Name: "unbound", TokenHash: hash[:], CreatedBy: "test"})
+		Expect(err).NotTo(HaveOccurred())
+		header := "Basic " + base64.StdEncoding.EncodeToString([]byte(tok.ID.String()+":unbound-secret"))
+		before := counter(metrics.AgentRefusedTotal, metrics.AgentRefusedTokenUnbound)
+
+		Expect(postRaw(encodeWrite([][]prompb.Label{healthySeries("10.0.0.12:1", "pipe_u")}, 1), header).StatusCode).To(Equal(http.StatusNoContent))
+		rows, err := st.Queries.ListBeaconInventoryByPrincipal(ctx, tok.ID.String())
+		Expect(err).NotTo(HaveOccurred())
+		Expect(rows).To(BeEmpty())
+		Expect(counter(metrics.AgentRefusedTotal, metrics.AgentRefusedTokenUnbound) - before).To(Equal(1.0))
+	})
+
+	// #389: a cluster allowlist narrows what the caller may report exactly as
+	// it narrows what the agent API serves it: a token's (or binding's)
+	// clusters list, and a mode-2 caller's clusters claim. Empty means any.
+	It("drops a write naming a collector in a cluster outside the caller's allowlist", func() {
+		allowed, other := collectorIn("home-allowed", &homeOrg), collectorIn("home-other", &homeOrg)
+		var id pgtype.UUID
+		Expect(id.Scan(tokenID)).To(Succeed())
+		_, err := st.Queries.BindAgentToken(ctx, sqlc.BindAgentTokenParams{ID: id, OrgID: homeOrg.ID, Clusters: json.RawMessage(`["home-allowed"]`), Roles: json.RawMessage(`[]`)})
+		Expect(err).NotTo(HaveOccurred())
+		write := func(header, collectorID, pipe string) {
+			body := encodeWrite([][]prompb.Label{collectorSeries(collectorID, "10.0.0.13:1", "/remotecfg", pipe+".default", "healthy")}, 1)
+			Expect(postRaw(body, header).StatusCode).To(Equal(http.StatusNoContent))
+		}
+		components := func(principal string) []string {
+			rows, err := st.Queries.ListBeaconInventoryByPrincipal(ctx, principal)
+			Expect(err).NotTo(HaveOccurred())
+			var names []string
+			for _, r := range rows {
+				names = append(names, r.ComponentName)
+			}
+			return names
+		}
+		before := denied()
+		write(authHeader, other, "pipe_other")
+		write(authHeader, allowed, "pipe_allowed")
+		Expect(components(tokenID)).To(ConsistOf("pipe_allowed"))
+		Expect(denied() - before).To(Equal(1.0))
+
+		startServerWithVerifier(beacon.DefaultLimits, func(context.Context, string) (auth.AgentClaims, error) {
+			return auth.AgentClaims{Issuer: "https://idp/", Subject: "m2c", AppID: "m2c", Org: "beacon-home", Clusters: []string{"home-allowed"}}, nil
+		})
+		before = denied()
+		write("Bearer t", other, "pipe_other")
+		write("Bearer t", allowed, "pipe_allowed")
+		Expect(components("oidc:https://idp/|m2c")).To(ConsistOf("pipe_allowed"))
+		Expect(denied() - before).To(Equal(1.0))
+	})
+
+	// #389: a lookup of the named collector's owner that the database cannot
+	// answer is an outage, not a denial: 503, which remote_write retries.
+	It("answers 503 when the collector's owner cannot be looked up", func() {
+		conn, err := pgx.Connect(ctx, dbURL)
+		Expect(err).NotTo(HaveOccurred())
+		defer conn.Close(ctx) //nolint:errcheck // test cleanup
+		// Token auth reads only agent_tokens, so this breaks the ownership
+		// lookup alone.
+		_, err = conn.Exec(ctx, `ALTER TABLE clusters RENAME TO clusters_gone`) // RAW-SQL-OK: fault injection
+		Expect(err).NotTo(HaveOccurred())
+		before := denied()
+
+		resp := postRaw(encodeWrite([][]prompb.Label{healthySeries("10.0.0.14:1", "pipe_x")}, 1), authHeader)
+		Expect(resp.StatusCode).To(Equal(http.StatusServiceUnavailable))
+		Expect(denied() - before).To(BeZero(), "an outage is not counted as a denial")
+	})
+
+	// #389: one batch comes from one Alloy, so every series carries the same
+	// collector id. A batch naming more than one is dropped whole and counted.
+	It("drops a batch whose series carry more than one collector id", func() {
+		second := collectorIn("home-second", &homeOrg)
+		before := counter(metrics.BeaconDroppedTotal, metrics.BeaconDroppedCollectorIDMixed)
+		body := encodeWrite([][]prompb.Label{
+			collectorSeries(anyCollector, "10.0.0.15:1", "/remotecfg", "pipe_a.default", "healthy"),
+			collectorSeries(second, "10.0.0.15:1", "/remotecfg", "pipe_b.default", "healthy"),
+		}, 1)
+		Expect(postRaw(body, authHeader).StatusCode).To(Equal(http.StatusNoContent))
+		rows, err := st.Queries.ListBeaconInventoryByPrincipal(ctx, tokenID)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(rows).To(BeEmpty())
+		Expect(counter(metrics.BeaconDroppedTotal, metrics.BeaconDroppedCollectorIDMixed) - before).To(Equal(1.0))
+	})
+
+	// #389: as in the agent API, a stored binding wins over an org the IdP
+	// asserts.
+	It("checks an OIDC caller against its binding's org, not a different asserted one", func() {
+		orgA, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{Name: "beacon-pa", DisplayName: "PA", AdminGroupID: "gpa"})
+		Expect(err).NotTo(HaveOccurred())
+		orgB, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{Name: "beacon-pb", DisplayName: "PB", AdminGroupID: "gpb"})
+		Expect(err).NotTo(HaveOccurred())
+		inA, inB := collectorIn("pa-prod", &orgA), collectorIn("pb-prod", &orgB)
+		_, err = st.Queries.CreateAgentIdentity(ctx, sqlc.CreateAgentIdentityParams{
+			Issuer: "https://idp/", AppID: "prec-app", OrgID: orgA.ID,
+			Clusters: json.RawMessage(`[]`), Roles: json.RawMessage(`[]`), CreatedBy: "test",
+		})
+		Expect(err).NotTo(HaveOccurred())
+		startServerWithVerifier(beacon.DefaultLimits, func(context.Context, string) (auth.AgentClaims, error) {
+			return auth.AgentClaims{Issuer: "https://idp/", Subject: "prec", AppID: "prec-app", Org: "beacon-pb"}, nil
+		})
+		before := denied()
+		for collectorID, pipe := range map[string]string{inA: "pipe_a", inB: "pipe_b"} {
+			body := encodeWrite([][]prompb.Label{collectorSeries(collectorID, "10.0.0.16:1", "/remotecfg", pipe+".default", "healthy")}, 1)
+			Expect(postRaw(body, "Bearer t").StatusCode).To(Equal(http.StatusNoContent))
+		}
+		rows, err := st.Queries.ListBeaconInventoryByPrincipal(ctx, "oidc:https://idp/|prec")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(rows).To(HaveLen(1))
+		Expect(rows[0].ComponentName).To(Equal("pipe_a"), "the binding's org (A) wins over the asserted org (B)")
+		Expect(denied() - before).To(Equal(1.0))
 	})
 
 	// #378: before the fix every pipeline collapsed onto one "/remotecfg" row

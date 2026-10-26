@@ -30,6 +30,14 @@ SELECT cl.org_id FROM collectors c
 JOIN clusters cl ON c.cluster_id = cl.id
 WHERE c.id = $1;
 
+-- name: GetCollectorOwner :one
+-- The org that claims a collector's cluster (NULL when unclaimed) and the
+-- cluster's name: what the beacon checks a writer's org and cluster
+-- allowlist against.
+SELECT cl.org_id, cl.name AS cluster_name FROM collectors c
+JOIN clusters cl ON c.cluster_id = cl.id
+WHERE c.id = $1;
+
 -- name: SetCollectorLabel :one
 UPDATE collectors
 SET labels = labels || jsonb_build_object(sqlc.arg(label_key)::text, sqlc.arg(label_value)::text),

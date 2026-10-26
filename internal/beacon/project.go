@@ -76,6 +76,12 @@ const managedPipelinePrefix = "pipe_"
 // refuses rather than inventing one.
 var ErrNoInstanceLabel = errors.New("beacon: write request has no instance label on any recognized series")
 
+// ErrMixedCollectorIDs is returned when the series of one write request carry
+// more than one distinct CollectorIDLabel value. One batch comes from one
+// Alloy, whose baseline stamps one id on every series, so a mixed batch
+// cannot be attributed to any single collector (#389).
+var ErrMixedCollectorIDs = errors.New("beacon: write request names more than one collector id")
+
 // pipelineKey maps one loader's (controller_path, controller_id) constant
 // labels to the managed pipeline it runs inside, or "" for a loader that is
 // not inside one.
@@ -121,6 +127,9 @@ func Project(wr *prompb.WriteRequest) (instanceLabel, collectorID string, observ
 	// across the pipeline's loaders, whose buckets ARE additive.
 	type loaderBucket struct{ pipeline, loader, healthType string }
 	latest := make(map[loaderBucket]float64)
+	// Every series' collector id is read, recognized metric or not: the
+	// baseline stamps the same one on all of them.
+	var mixedCollectorIDs bool
 
 	for i := range wr.Timeseries {
 		ts := &wr.Timeseries[i]
@@ -141,8 +150,11 @@ func Project(wr *prompb.WriteRequest) (instanceLabel, collectorID string, observ
 					instanceLabel = l.Value
 				}
 			case CollectorIDLabel:
-				if collectorID == "" {
+				switch {
+				case collectorID == "":
 					collectorID = l.Value
+				case l.Value != "" && l.Value != collectorID:
+					mixedCollectorIDs = true
 				}
 			}
 		}
@@ -161,6 +173,9 @@ func Project(wr *prompb.WriteRequest) (instanceLabel, collectorID string, observ
 		latest[key] = ts.Samples[len(ts.Samples)-1].Value
 	}
 
+	if mixedCollectorIDs {
+		return "", "", nil, ErrMixedCollectorIDs
+	}
 	if instanceLabel == "" {
 		return "", "", nil, ErrNoInstanceLabel
 	}

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -94,8 +95,9 @@ func (h *BeaconHandler) authenticate(ctx context.Context, authz string) (string,
 		return principal, scope, nil
 	}
 	// The beacon keys inventory and its rate limit on the token id. A bound
-	// token (migration 0038) may only report collectors its org claimed —
-	// ServeHTTP drops the rest; an unbound token is accepted as before.
+	// token (migration 0038) may only report collectors its org claimed,
+	// within its cluster allowlist — ServeHTTP drops the rest; an unbound
+	// token acts for no org and may report nothing.
 	tok, err := verifyBasicAuth(ctx, authz, h.store, nil)
 	if err != nil {
 		if connect.CodeOf(err) == connect.CodeUnavailable {
@@ -105,17 +107,39 @@ func (h *BeaconHandler) authenticate(ctx context.Context, authz string) (string,
 	}
 	// The id is a validated UUID, but sanitising here too keeps `principal`
 	// provably free of control characters on every path into the logs.
-	return stripControl(tok.ID.String()), beaconScope{scoped: tok.OrgID.Valid, org: tok.OrgID}, nil
+	principal := stripControl(tok.ID.String())
+	if !tok.OrgID.Valid {
+		return principal, beaconScope{scoped: true, unbound: true}, nil
+	}
+	return principal, beaconScope{scoped: true, org: tok.OrgID, clusters: allowlist(tok.Clusters)}, nil
 }
 
-// beaconScope is the org a beacon writer acts for. A scoped writer may only
-// report collectors whose cluster org claimed; an unscoped one (an unbound
-// token, an OIDC caller with neither a binding nor an asserted org) is not
-// checked. A scoped writer with an invalid org — a mode-2 caller asserting an
-// org that does not exist — covers no collector at all.
+// beaconScope is what a beacon writer acts for, resolved as the agent API
+// resolves it (Service.callerScope). A scoped writer may only report
+// collectors whose cluster org claimed and, when clusters is non-nil, whose
+// cluster is on that allowlist (nil = any, allowlistPermits' semantics). An
+// unscoped writer — an OIDC caller with neither a binding nor an asserted
+// org, whose org the agent API takes from the cluster's claim — is not
+// checked. A scoped writer with an invalid org covers no collector at all:
+// an unbound token (unbound set, counted as token_unbound), or a mode-2
+// caller asserting an org that does not exist.
 type beaconScope struct {
-	scoped bool
-	org    pgtype.UUID
+	scoped   bool
+	unbound  bool
+	org      pgtype.UUID
+	clusters []string
+}
+
+// permits reports whether the scope may report a collector owned by owner in
+// cluster.
+func (sc beaconScope) permits(owner pgtype.UUID, cluster string) bool {
+	if !sc.scoped {
+		return true
+	}
+	if !owner.Valid || owner != sc.org {
+		return false
+	}
+	return sc.clusters == nil || slices.Contains(sc.clusters, cluster)
 }
 
 // oidcScope resolves an OIDC caller's org with the agent API's precedence
@@ -131,7 +155,7 @@ func (h *BeaconHandler) oidcScope(ctx context.Context, claims auth.AgentClaims) 
 	})
 	switch {
 	case err == nil:
-		return beaconScope{scoped: true, org: binding.OrgID}, nil
+		return beaconScope{scoped: true, org: binding.OrgID, clusters: allowlist(binding.Clusters)}, nil
 	case errors.Is(err, pgx.ErrNoRows):
 	default:
 		return beaconScope{}, errAuthUnavailable
@@ -142,7 +166,13 @@ func (h *BeaconHandler) oidcScope(ctx context.Context, claims auth.AgentClaims) 
 	org, err := h.store.Queries.GetOrgByName(ctx, claims.Org)
 	switch {
 	case err == nil:
-		return beaconScope{scoped: true, org: org.ID}, nil
+		// Mode 2 has no Shepherd-side allowlist; the token's own clusters
+		// claim is the only one (resolveClaimOrg). Empty means any.
+		var clusters []string
+		if len(claims.Clusters) > 0 {
+			clusters = claims.Clusters
+		}
+		return beaconScope{scoped: true, org: org.ID, clusters: clusters}, nil
 	case errors.Is(err, pgx.ErrNoRows):
 		// The agent API refuses this caller (claim_denied); here it may
 		// report nothing.
@@ -238,9 +268,24 @@ func (h *BeaconHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	instanceLabel, collectorID, observations, err := beacon.Project(wr)
+	if errors.Is(err, beacon.ErrMixedCollectorIDs) {
+		// One batch is one Alloy's: a batch naming several collectors cannot
+		// be attributed to any of them (#389). Dropped and counted, still 204.
+		metrics.BeaconDroppedTotal.WithLabelValues(metrics.BeaconDroppedCollectorIDMixed).Inc()
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if err != nil {
 		h.logger.Warn("beacon: project failed", "err", err, "principal", principal)
 		http.Error(w, "beacon: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// An unbound token acts for no org, exactly as the agent API refuses it
+	// (token_unbound): every write is dropped and counted, still 204.
+	if scope.unbound {
+		h.refusals.record(h.logger, "BeaconWrite", metrics.AgentRefusedTokenUnbound, instanceLabel, "principal", principal)
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 
@@ -272,8 +317,17 @@ func (h *BeaconHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// org's reconciliation view. The answer is the same 204, so the call
 	// reveals nothing about other orgs' collectors.
 	if scope.scoped {
-		owner, err := h.store.Queries.GetCollectorOrgID(r.Context(), collectorUUID)
-		if err != nil || !owner.Valid || owner != scope.org {
+		owner, err := h.store.Queries.GetCollectorOwner(r.Context(), collectorUUID)
+		switch {
+		case errors.Is(err, pgx.ErrNoRows):
+			// An unknown collector is in no org: denied below.
+		case err != nil:
+			// An outage, not a denial: 503, which remote_write retries.
+			h.logger.Warn("beacon: looking up collector owner failed", "err", err, "principal", principal)
+			http.Error(w, "beacon: database unavailable, retry later", http.StatusServiceUnavailable)
+			return
+		}
+		if !scope.permits(owner.OrgID, owner.ClusterName) {
 			h.refusals.record(h.logger, "BeaconWrite", metrics.AgentRefusedBeaconDenied, instanceLabel,
 				"collector_id", collectorUUID.String(), "principal", principal)
 			w.WriteHeader(http.StatusNoContent)
