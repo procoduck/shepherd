@@ -279,6 +279,13 @@ type PipelineTenant struct {
 	Tenant     string      `json:"tenant"`
 }
 
+type PipelineTenantExclusion struct {
+	PipelineID pgtype.UUID        `json:"pipeline_id"`
+	OrgID      pgtype.UUID        `json:"org_id"`
+	Reason     string             `json:"reason"`
+	ExcludedAt pgtype.Timestamptz `json:"excluded_at"`
+}
+
 type PipelineTenantIndex struct {
 	PipelineID     pgtype.UUID `json:"pipeline_id"`
 	OrgID          pgtype.UUID `json:"org_id"`

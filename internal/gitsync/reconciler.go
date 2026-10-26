@@ -1020,14 +1020,14 @@ func (r *Reconciler) stage3DryRun(ctx context.Context, link sqlc.RepoLink, plans
 
 	// The served form, as the serve paths build it: a strict org's pinned
 	// import.git modules inlined (the commit's own were fetched by planFile).
-	inline, err := serve.OrgInliner(ctx, r.store.Queries, link.OrgID, r.requireOwned)
+	serving, err := serve.OrgServing(ctx, r.store.Queries, link.OrgID, r.requireOwned)
 	if err != nil {
 		return dryRunResult{}, fmt.Errorf("loading the org's serve settings: %w", err)
 	}
-	if current, err = serve.ServedForm(ctx, inline, current); err != nil {
+	if current, err = serving.Form(ctx, current); err != nil {
 		return dryRunResult{}, err
 	}
-	if next, err = serve.ServedForm(ctx, inline, next); err != nil {
+	if next, err = serving.Form(ctx, next); err != nil {
 		return dryRunResult{refusals: []error{err}}, nil
 	}
 

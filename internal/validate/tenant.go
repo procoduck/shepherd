@@ -296,6 +296,9 @@ func runLint(ctx context.Context, content string, p TenantPolicy) (*tenantLinter
 	if _, err := RelabelRuleAttributes(); err != nil {
 		return nil, fmt.Errorf("the tenant check cannot read the component schemas: %w", err)
 	}
+	if _, err := labelMapAttributes(); err != nil {
+		return nil, fmt.Errorf("the tenant check cannot read the component schemas: %w", err)
+	}
 	git := &gitState{fetched: map[GitModule]gitFetch{}}
 	for round := 0; ; round++ {
 		git.needed, git.asked = nil, map[GitModule]bool{}
@@ -505,6 +508,34 @@ type scope struct {
 	// template, a component), declares within it included: an import
 	// block there is refused.
 	nested bool
+	// owner is the component whose body the walk is in (any component, not
+	// only one the lint has rules for), and ownerDepth the path depth of
+	// that body: labelMapKind looks attributes up by them.
+	owner      string
+	ownerDepth int
+	// foreachBody is set directly in a foreach block's body, and template
+	// in its template block's: blocks there are components, as at the top
+	// level.
+	foreachBody, template bool
+}
+
+// ownerBlock is the component the walk is in and the last block of the
+// path inside it ("" for the component's own body).
+func (s scope) ownerBlock() (owner, block string) {
+	owner = s.owner
+	if s.component != "" {
+		owner = s.component
+	}
+	if owner == "" || s.path == nil || s.path.depth <= s.ownerDepth {
+		return owner, ""
+	}
+	return owner, s.path.name
+}
+
+// componentPosition reports whether a block in this scope is a component:
+// at the top level, directly in a declare, or in a foreach template.
+func (s scope) componentPosition() bool {
+	return s.component == "" && (s.path == nil || s.template)
 }
 
 // pathNode is one block of a scope's path, pointing at its parent: a child
@@ -531,7 +562,10 @@ func (s scope) nesting() int {
 }
 
 func (s scope) child(name string) scope {
-	return scope{component: s.component, path: &pathNode{name: name, parent: s.path, depth: s.nesting() + 1}, declare: s.declare, declDepth: s.declDepth, nested: s.nested}
+	return scope{
+		component: s.component, path: &pathNode{name: name, parent: s.path, depth: s.nesting() + 1},
+		declare: s.declare, declDepth: s.declDepth, nested: s.nested, owner: s.owner, ownerDepth: s.ownerDepth,
+	}
 }
 
 // where spells out "<component> <block>… <attr>" for a refusal.
@@ -653,9 +687,18 @@ func (l *tenantLinter) collectDeclaresAt(stmts ast.Body, parent string, external
 
 // collectComponents indexes each scope's top-level component blocks by
 // "<name>.<label>", for following forward_to.
+//
+// Components in a foreach template are indexed into the scope the foreach is
+// in, since Alloy lets them refer to it. A name two components there share
+// (one in a template, one beside it) is indexed as nil, which no lookup
+// follows: a forward_to to it is refused, never guessed.
 func (l *tenantLinter) collectComponents(stmts ast.Body, scopeKey string, nesting int) {
 	m := map[string]*ast.BlockStmt{}
 	l.components[scopeKey] = m
+	l.collectComponentsInto(stmts, scopeKey, m, nesting)
+}
+
+func (l *tenantLinter) collectComponentsInto(stmts ast.Body, scopeKey string, m map[string]*ast.BlockStmt, nesting int) {
 	if nesting > maxNesting {
 		return
 	}
@@ -672,8 +715,21 @@ func (l *tenantLinter) collectComponents(stmts ast.Body, scopeKey string, nestin
 			l.collectComponents(blk.Body, declareKey(scopeKey, blk.Label), nesting+1)
 			continue
 		}
+		if name == "foreach" {
+			for _, inner := range blk.Body {
+				if t, ok := inner.(*ast.BlockStmt); ok && strings.Join(t.Name, ".") == "template" {
+					l.collectComponentsInto(t.Body, scopeKey, m, nesting+2)
+				}
+			}
+			continue
+		}
 		if blk.Label != "" {
-			m[name+"."+blk.Label] = blk
+			key := name + "." + blk.Label
+			if _, dup := m[key]; dup {
+				m[key] = nil
+			} else {
+				m[key] = blk
+			}
 		}
 		if _, ok := pushSources[name]; ok {
 			l.pushes = append(l.pushes, pushSource{block: blk, scope: scopeKey})
@@ -691,11 +747,17 @@ func (l *tenantLinter) body(stmts ast.Body, sc scope) {
 			name := strings.Join(n.Name, ".")
 			atTop := sc.component == "" && sc.path == nil
 			importable := atTop && !sc.nested
+			// A component: at the top level, in a declare, or in a foreach
+			// template, where Alloy runs it like any other.
+			compPos := sc.componentPosition()
 			if sc.nesting() >= maxNesting || sc.declDepth >= maxNesting {
 				l.refuse(n, fmt.Sprintf("blocks nested more than %d deep cannot be verified — strict tenant mode refuses them", maxNesting))
 				continue
 			}
 			l.rulesAttributes(n, name, sc)
+			if compPos {
+				l.enrichLabels(n, name)
+			}
 			switch {
 			case name == "declare":
 				if !l.budget.charge(1 + (len(sc.declare)+len(n.Label))/64) {
@@ -710,11 +772,11 @@ func (l *tenantLinter) body(stmts ast.Body, sc scope) {
 				// top level and a declare body, so any other is refused.
 				l.refuse(n, fmt.Sprintf("%s %q is nested in another block, where strict tenant mode cannot verify "+
 					"what it loads — strict tenant mode refuses it; import at the top level or in a declare", name, n.Label))
-			case atTop && (isTenantComponent(name) || name == "otelcol.auth.headers"):
-				l.body(n.Body, scope{component: name, declare: sc.declare, declDepth: sc.declDepth})
-			case atTop && name == "otelcol.auth.bearer":
+			case compPos && (isTenantComponent(name) || name == "otelcol.auth.headers"):
+				l.body(n.Body, scope{component: name, declare: sc.declare, declDepth: sc.declDepth, nested: sc.nested})
+			case compPos && name == "otelcol.auth.bearer":
 				l.bearer(n, sc)
-				l.body(n.Body, scope{component: name, declare: sc.declare, declDepth: sc.declDepth})
+				l.body(n.Body, scope{component: name, declare: sc.declare, declDepth: sc.declDepth, nested: sc.nested})
 			default:
 				if sc.component == "otelcol.auth.headers" && sc.path == nil && name == "header" {
 					l.authHeader(n, sc)
@@ -722,7 +784,16 @@ func (l *tenantLinter) body(stmts ast.Body, sc scope) {
 				if name == "rule" {
 					l.relabelRule(n, sc, nextRule(stmts, i))
 				}
-				l.body(n.Body, sc.child(name))
+				child := sc.child(name)
+				switch {
+				case compPos && name == "foreach":
+					child.foreachBody = true
+				case sc.foreachBody && name == "template":
+					child.template = true
+				case compPos:
+					child.owner, child.ownerDepth = name, child.nesting()
+				}
+				l.body(n.Body, child)
 			}
 		case *ast.AttributeStmt:
 			l.attribute(n, sc)
@@ -753,6 +824,7 @@ func (l *tenantLinter) attribute(a *ast.AttributeStmt, sc scope) {
 		return
 	}
 	l.labelMaps(a.Value, sc)
+	l.labelMapAttribute(a, sc)
 	if sc.component == "" {
 		return
 	}
@@ -805,7 +877,7 @@ func (l *tenantLinter) rulesAttributes(b *ast.BlockStmt, name string, sc scope) 
 				"and set "+a.Name.Name+" = loki.relabel.<label>.rules")
 			continue
 		}
-		if _, ok := l.components[sc.declare][strings.Join(parts[:3], ".")]; !ok {
+		if l.components[sc.declare][strings.Join(parts[:3], ".")] == nil {
 			l.refuse(a.Value, fmt.Sprintf("%s refers to %s, which is not in the same pipeline or declare, so strict "+
 				"tenant mode cannot check its rules and refuses it; move the rules into a loki.relabel component's "+
 				"rule blocks beside it", where, strings.Join(parts[:3], ".")))
@@ -835,8 +907,16 @@ func (l *tenantLinter) headers(v ast.Expr, sc scope) {
 			l.tenantValue(f.Value, fixed(tenantHeader+" header"), sc)
 		}
 	default:
-		l.refuse(v, "headers set from an expression may carry "+tenantHeader+" and cannot be verified — "+
-			"strict tenant mode refuses it; write the headers as a literal map")
+		// A declare argument: every map it is given, each read the same way.
+		maps, ok := l.foldMaps(v, sc, 0)
+		if !ok {
+			l.refuse(v, "headers set from an expression may carry "+tenantHeader+" and cannot be verified — "+
+				"strict tenant mode refuses it; write the headers as a literal map")
+			return
+		}
+		for _, m := range maps {
+			l.headers(m.obj, m.sc)
+		}
 	}
 }
 
@@ -1360,8 +1440,8 @@ func (l *tenantLinter) receiverTarget(e ast.Expr, scopeKey string) (*ast.BlockSt
 	if !ok || len(parts) < 3 || parts[len(parts)-1] != "receiver" {
 		return nil, false
 	}
-	blk, ok := l.components[scopeKey][strings.Join(parts[:len(parts)-1], ".")]
-	return blk, ok
+	blk := l.components[scopeKey][strings.Join(parts[:len(parts)-1], ".")]
+	return blk, blk != nil
 }
 
 // clearsClientTenant reports whether a loki.process or loki.relabel

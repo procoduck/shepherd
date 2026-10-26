@@ -21,6 +21,31 @@ upgrade; before relying on newer components, check the Collectors list's Version
 upgrade older collectors. Migration `0044` adds nullable columns only, and pods on the old image
 keep working during the rollout.
 
+#### Strict tenant mode checks more, including pipelines already saved
+
+Only for organisations in strict tenant mode (or every org, with `tenants.require_owned`). The
+tenant check now also covers:
+
+- `relabel_rules` attributes given rules in place rather than a `loki.relabel` component's `rules`;
+- `otelcol.exporter.loki`, which is served through an added `__tenant_id__` drop;
+- label and header maps computed at runtime (`external_labels = encoding.from_json(…)`, a source's
+  `labels` from another component's export, and the like), and `loki.enrich` without a
+  `labels_to_copy` list that leaves out `__tenant_id__`;
+- import blocks inside a `foreach` template, and the other components there.
+
+These apply to saves, and **also to pipelines already saved**: each time a strict org's config is
+served, every enabled pipeline is checked again, and one that fails is **left out of every
+collector's served config until it is fixed** — listed in the config's header under *Excluded -
+strict tenant check*, on the pipeline page and in the collector's Reconciliation tab, and audited
+once. It stays saved and enabled; saving a fix serves it again.
+
+Run `shepherd admin tenant-preflight` with the new version **before upgrading** (point it at your
+database with the new image), or right after: it runs the same check and lists exactly the
+pipelines that would be left out, with the reason. With `tenants.require_owned` on, the server
+**refuses to start** while that list is not empty, as it did before, so fix or disable those
+pipelines first. Migration `0045` adds a new table only, and pods on the old image keep working
+during the rollout.
+
 ## 0.22.x → 0.23.0
 
 Shepherd v0.19.0. A `helm upgrade` with seven migrations (`0035`–`0041`), **agent tokens to bind

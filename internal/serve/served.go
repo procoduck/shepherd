@@ -8,6 +8,7 @@ import (
 
 	"shepherd/internal/merge"
 	"shepherd/internal/pinnedimport"
+	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
 	"shepherd/internal/validate"
 )
@@ -75,17 +76,26 @@ func OrgInliner(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, require
 }
 
 // LoadPipelines is the org's enabled pipelines in their served form: the
-// rows of ListEnabledPipelinesForMerge, PipelinesFromRows, then ServedForm
-// with the org's Inliner. Every path that computes, models or describes
-// served bytes loads them here.
-func LoadPipelines(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, requireOwned bool) ([]merge.Pipeline, error) {
-	rows, err := q.ListEnabledPipelinesForMerge(ctx, orgID)
+// rows of ListEnabledPipelinesForMerge, PipelinesFromRows, then the org's
+// Serving.Form — in a strict org, pinned modules inlined and each pipeline
+// the strict tenant check refuses marked (TenantProblem), which both serve
+// paths then leave out; the exclusions are recorded and audited once per
+// change (RecordTenantExclusions). Every serve path loads them here.
+func LoadPipelines(ctx context.Context, st *store.Store, orgID pgtype.UUID, requireOwned bool) ([]merge.Pipeline, error) {
+	rows, err := st.Queries.ListEnabledPipelinesForMerge(ctx, orgID)
 	if err != nil {
 		return nil, fmt.Errorf("listing pipelines: %w", err)
 	}
-	inline, err := OrgInliner(ctx, q, orgID, requireOwned)
+	serving, err := OrgServing(ctx, st.Queries, orgID, requireOwned)
 	if err != nil {
 		return nil, err
 	}
-	return ServedForm(ctx, inline, PipelinesFromRows(rows))
+	out, err := serving.Form(ctx, PipelinesFromRows(rows))
+	if err != nil {
+		return nil, err
+	}
+	if serving != nil {
+		recordTenantExclusionsLogged(ctx, st, orgID, out)
+	}
+	return out, nil
 }

@@ -39,6 +39,13 @@ type Pipeline struct {
 	// RepoLinkCollectorID is set (non-empty) when Source == "git".
 	// Git pipelines match only their target collector, not via matchers.
 	RepoLinkCollectorID string
+	// TenantProblem is set (non-empty) for a strict org's pipeline that
+	// strict tenant mode's check refuses as served (internal/serve sets it
+	// when it loads the org's pipelines): Assemble leaves it out of every
+	// collector it matches and lists it, with this reason, under "Excluded -
+	// strict tenant check" in the header. Empty for every other pipeline,
+	// which keeps every other served config byte-identical.
+	TenantProblem string
 }
 
 // CollectorLabels represents the label set used to match pipelines to a
@@ -169,14 +176,15 @@ func Assemble(collectorID, collectorDisplayName string, cl CollectorLabels, pipe
 	// Pipelines whose matchers could not be parsed. Reported like role
 	// exclusions rather than aborting the assembly -- see below.
 	var unmatchable []Exclusion
-	for _, p := range pipelines {
+	for i := range pipelines {
+		p := &pipelines[i]
 		if p.Source == "git" {
 			if p.RepoLinkCollectorID == cl.CollectorID {
-				selected = append(selected, p)
+				selected = append(selected, *p)
 			}
 			continue
 		}
-		matched, err := MatchesPipeline(p, cl)
+		matched, err := MatchesPipeline(*p, cl)
 		if err != nil {
 			// One unparsable matcher used to abort the whole assembly, which
 			// meant a single bad pipeline froze config serving for every
@@ -193,7 +201,7 @@ func Assemble(collectorID, collectorDisplayName string, cl CollectorLabels, pipe
 			continue
 		}
 		if matched {
-			selected = append(selected, p)
+			selected = append(selected, *p)
 		}
 	}
 
@@ -214,6 +222,19 @@ func Assemble(collectorID, collectorDisplayName string, cl CollectorLabels, pipe
 	// replace — a broken matcher must stay visible in the served header even
 	// when role enforcement is on (which is every production deployment).
 	exclusions := unmatchable
+	// Strict tenant mode's serve-time check: a matched pipeline it refuses is
+	// not served, and says so in the header (before role enforcement, which
+	// then has nothing of it to judge).
+	kept := selected[:0:0]
+	for i := range selected {
+		p := &selected[i]
+		if p.TenantProblem != "" {
+			exclusions = append(exclusions, Exclusion{PipelineName: p.Name, Reason: p.TenantProblem, TenantCheck: true})
+			continue
+		}
+		kept = append(kept, *p)
+	}
+	selected = kept
 	if cfg.registry != nil {
 		var roleExclusions []Exclusion
 		selected, roleExclusions = enforceRoles(selected, cl, cfg.registry)
@@ -233,7 +254,8 @@ func Assemble(collectorID, collectorDisplayName string, cl CollectorLabels, pipe
 
 	// Check for sanitized-name collisions before assembling.
 	seen := make(map[string]string, len(selected)) // blockName → pipeline name
-	for _, p := range selected {
+	for i := range selected {
+		p := &selected[i]
 		blockName := DeclareLabel(p.Name)
 		if existing, ok := seen[blockName]; ok {
 			return AssembleResult{}, fmt.Errorf(
@@ -249,7 +271,8 @@ func Assemble(collectorID, collectorDisplayName string, cl CollectorLabels, pipe
 	// bytes written are unchanged by it.
 	linesWritten := strings.Count(sb.String(), "\n")
 	spans := make([]BlockSpan, 0, len(selected))
-	for i, p := range selected {
+	for i := range selected {
+		p := &selected[i]
 		if i > 0 {
 			sb.WriteString("\n")
 			linesWritten++
@@ -309,13 +332,30 @@ func buildHeader(collectorID, displayName string, pipelines []Pipeline, exclusio
 		sb.WriteString("// No pipelines matched\n")
 	} else {
 		fmt.Fprintf(&sb, "// Pipelines (%d):\n", len(pipelines))
-		for _, p := range pipelines {
+		for i := range pipelines {
+			p := &pipelines[i]
 			fmt.Fprintf(&sb, "//   - %s (rev %d)\n", commentSafe(p.Name), p.Revision)
 		}
 	}
-	if len(exclusions) > 0 {
-		fmt.Fprintf(&sb, "// Excluded (%d) - signal/role mismatch (docs/gateway-tier-plan.md W1, gate G6):\n", len(exclusions))
-		for _, e := range exclusions {
+	// Each section only when it lists something: a config with no strict
+	// tenant exclusion is byte-identical to one served before the check.
+	var roleExcl, tenantExcl []Exclusion
+	for _, e := range exclusions {
+		if e.TenantCheck {
+			tenantExcl = append(tenantExcl, e)
+		} else {
+			roleExcl = append(roleExcl, e)
+		}
+	}
+	if len(roleExcl) > 0 {
+		fmt.Fprintf(&sb, "// Excluded (%d) - signal/role mismatch (docs/gateway-tier-plan.md W1, gate G6):\n", len(roleExcl))
+		for _, e := range roleExcl {
+			fmt.Fprintf(&sb, "//   - %s: %s\n", commentSafe(e.PipelineName), commentSafe(e.Reason))
+		}
+	}
+	if len(tenantExcl) > 0 {
+		fmt.Fprintf(&sb, "// Excluded (%d) - strict tenant check:\n", len(tenantExcl))
+		for _, e := range tenantExcl {
 			fmt.Fprintf(&sb, "//   - %s: %s\n", commentSafe(e.PipelineName), commentSafe(e.Reason))
 		}
 	}

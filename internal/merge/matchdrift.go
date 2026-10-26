@@ -20,7 +20,8 @@ type DiffEntry struct {
 // rather than failing the whole computation.
 func DiffMatches(pipelines []Pipeline, before, after CollectorLabels) []DiffEntry {
 	var out []DiffEntry
-	for _, p := range pipelines {
+	for i := range pipelines {
+		p := pipelines[i]
 		wasMatched, err := MatchesPipeline(p, before)
 		if err != nil {
 			wasMatched = false

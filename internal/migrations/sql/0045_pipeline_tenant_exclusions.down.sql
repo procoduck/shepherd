@@ -1,0 +1,1 @@
+DROP TABLE pipeline_tenant_exclusions;

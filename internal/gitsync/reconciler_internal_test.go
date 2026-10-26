@@ -223,7 +223,7 @@ var _ = Describe("Reconciler.reconcileLink", Label("integration"), func() {
 		// What the collector is served: the module inlined, not the import.
 		// planFile's gate ran Stages 1-2 — the real `alloy validate` here —
 		// on this form too.
-		served, err := serve.LoadPipelines(ctx, st.Queries, link.OrgID, false)
+		served, err := serve.LoadPipelines(ctx, st, link.OrgID, false)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(served).To(ContainElement(HaveField("Contents", And(
 			ContainSubstring(`import.string "m"`), Not(ContainSubstring("import.git")),

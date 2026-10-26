@@ -87,7 +87,8 @@ type pipelineImpact struct {
 // merge.MatchesPipeline as matcher support evolves.
 func auditMatcherImpact(pipelines []merge.Pipeline, collectors []auditCollector) []pipelineImpact {
 	var out []pipelineImpact
-	for _, p := range pipelines {
+	for i := range pipelines {
+		p := pipelines[i]
 		var added, removed []collectorRef
 		for _, c := range collectors {
 			// localAttrs: nil — this tool audits the admin-label rollout gate

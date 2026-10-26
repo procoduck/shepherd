@@ -41,6 +41,10 @@ type Exclusion struct {
 	// parentheses; it is carried separately so operator-facing prose built
 	// from Disallowed never drops it.
 	Unproven string
+	// TenantCheck is set for a pipeline strict tenant mode's serve-time
+	// check excludes (Pipeline.TenantProblem): Reason is what it found, Role
+	// and Disallowed are empty, and the header lists it in its own section.
+	TenantCheck bool
 }
 
 // AssembleOption configures optional Assemble behavior. The zero value (no
@@ -118,12 +122,12 @@ func enforceRoles(selected []Pipeline, cl CollectorLabels, reg *schema.Registry)
 	kept := make([]Pipeline, 0, len(selected))
 	var exclusions []Exclusion
 
-	for _, p := range selected {
-		if ex, excluded := RoleExclusion(p, role, reg); excluded {
+	for i := range selected {
+		if ex, excluded := RoleExclusion(selected[i], role, reg); excluded {
 			exclusions = append(exclusions, ex)
 			continue
 		}
-		kept = append(kept, p)
+		kept = append(kept, selected[i])
 	}
 	return kept, exclusions
 }

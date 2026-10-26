@@ -124,6 +124,42 @@ test('reconciliation tab names a pipeline excluded by role, and does not say "in
   await expect(page.getByTestId('reconciliation-in-sync')).toHaveCount(0);
 });
 
+// Strict tenant mode's serve-time check keeps a stored pipeline out of the
+// served config until a fix is saved; the tab names it like a role exclusion.
+test('reconciliation tab names a pipeline excluded by the strict tenant check', async ({
+  page,
+  api,
+}) => {
+  await api.loginAs(appAdmin);
+  const s = basicScenario();
+  const c = collector({ id: 'col-recon-strict', role: 'logs' });
+  api.seed({
+    orgs: [s.org],
+    collectors: [c],
+    reconciliation: {
+      findings: [
+        {
+          kind: 'strict_tenant_excluded',
+          sources: ['declared', 'served'],
+          summary:
+            'pipeline "old-logs" matches this collector but is excluded from its served config: it fails the strict tenant check (6:21 loki.write external_labels is not a literal map the tenant check can read); saving a fix includes it again',
+          pipeline_name: 'old-logs',
+          stale: false,
+        },
+      ],
+    },
+  });
+
+  await page.goto(`/collectors/${c.id}`);
+  await page.getByRole('button', { name: 'Reconciliation' }).click();
+
+  const findings = page.getByTestId('reconciliation-findings');
+  await expect(findings).toContainText('Matched, excluded by the strict tenant check');
+  await expect(findings).toContainText('"old-logs"');
+  await expect(findings).toContainText('saving a fix includes it again');
+  await expect(page.getByTestId('reconciliation-in-sync')).toHaveCount(0);
+});
+
 test('reconciliation tab does not say "in sync" for a collector that rejected its config (#198)', async ({
   page,
   api,

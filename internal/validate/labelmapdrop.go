@@ -46,28 +46,47 @@ var ErrTenantDrop = errors.New("strict tenant mode cannot drop " + tenantLabel +
 // beyla's payload enrichment) lack it.
 var relabelRuleSignature = []string{"action", "regex", "replacement", "source_labels", "target_label"}
 
+// schemaIndex is what the lint reads from every shipped component schema,
+// read in one pass (once per process): relabel rule blocks, relabel rule
+// attributes, and map-typed and targets attributes (labelmaps.go).
+type schemaIndex struct {
+	relabelRules, relabelAttrs map[string]map[string]bool
+	mapAttrs                   []SchemaMapAttribute
+}
+
 var (
-	relabelRulesOnce sync.Once
-	relabelRules     map[string]map[string]bool
-	relabelRulesErr  error
+	schemaIndexOnce sync.Once
+	schemaIdx       schemaIndex
+	schemaIdxErr    error
 )
+
+func loadedSchemaIndex() (schemaIndex, error) {
+	schemaIndexOnce.Do(func() {
+		idx := schemaIndex{relabelRules: map[string]map[string]bool{}, relabelAttrs: map[string]map[string]bool{}}
+		seen := map[SchemaMapAttribute]bool{}
+		schemaIdxErr = eachSchemaComponent(schema.Embedded, func(name string, c schemaComponent) {
+			collectRelabelRules(name, "", c.Blocks, idx.relabelRules)
+			addRelabelRuleAttributes(name, c, idx.relabelAttrs)
+			collectMapAttributes(name, "", c.Attributes, c.Blocks, func(a SchemaMapAttribute) {
+				if !seen[a] {
+					seen[a] = true
+					idx.mapAttrs = append(idx.mapAttrs, a)
+				}
+			})
+		})
+		schemaIdx = idx
+	})
+	return schemaIdx, schemaIdxErr
+}
 
 // RelabelRuleBlocks is where Alloy takes relabel rule blocks, read from
 // every shipped component schema (not a hand list, so a new component with
 // relabel rules is covered when its schema ships): component name -> the
 // block path inside the component ("rule", "database_instance/rule").
 func RelabelRuleBlocks() (map[string]map[string]bool, error) {
-	relabelRulesOnce.Do(func() {
-		relabelRules, relabelRulesErr = loadRelabelRuleBlocks(schema.Embedded)
-	})
-	return relabelRules, relabelRulesErr
+	idx, err := loadedSchemaIndex()
+	return idx.relabelRules, err
 }
-
-var (
-	relabelAttrsOnce sync.Once
-	relabelAttrs     map[string]map[string]bool
-	relabelAttrsErr  error
-)
 
 // RelabelRuleAttributes is where Alloy takes relabel rules as an attribute
 // value rather than as rule blocks, read from every shipped component schema:
@@ -78,10 +97,8 @@ var (
 // tenant mode takes such an attribute only as a reference to rules it lints
 // (rulesReference).
 func RelabelRuleAttributes() (map[string]map[string]bool, error) {
-	relabelAttrsOnce.Do(func() {
-		relabelAttrs, relabelAttrsErr = loadRelabelRuleAttributes(schema.Embedded)
-	})
-	return relabelAttrs, relabelAttrsErr
+	idx, err := loadedSchemaIndex()
+	return idx.relabelAttrs, err
 }
 
 type schemaBlock struct {
@@ -127,31 +144,17 @@ func eachSchemaComponent(fsys fs.FS, fn func(name string, c schemaComponent)) er
 	return nil
 }
 
-func loadRelabelRuleBlocks(fsys fs.FS) (map[string]map[string]bool, error) {
-	out := map[string]map[string]bool{}
-	if err := eachSchemaComponent(fsys, func(name string, c schemaComponent) {
-		collectRelabelRules(name, "", c.Blocks, out)
-	}); err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func loadRelabelRuleAttributes(fsys fs.FS) (map[string]map[string]bool, error) {
-	out := map[string]map[string]bool{}
-	if err := eachSchemaComponent(fsys, func(name string, c schemaComponent) {
-		for _, a := range c.Attributes {
-			if a.Type == "capsule" && strings.HasSuffix(a.Name, "rules") {
-				if out[name] == nil {
-					out[name] = map[string]bool{}
-				}
-				out[name][a.Name] = true
+// addRelabelRuleAttributes records component name's relabel rule
+// attributes (RelabelRuleAttributes) in out.
+func addRelabelRuleAttributes(name string, c schemaComponent, out map[string]map[string]bool) {
+	for _, a := range c.Attributes {
+		if a.Type == "capsule" && strings.HasSuffix(a.Name, "rules") {
+			if out[name] == nil {
+				out[name] = map[string]bool{}
 			}
+			out[name][a.Name] = true
 		}
-	}); err != nil {
-		return nil, err
 	}
-	return out, nil
 }
 
 func collectRelabelRules(component, prefix string, blocks []schemaBlock, out map[string]map[string]bool) {
