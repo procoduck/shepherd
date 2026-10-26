@@ -80,6 +80,16 @@ func (s Set) Union(other Set) Set {
 	return out
 }
 
+// subsetOf reports whether every member of s is in other.
+func (s Set) subsetOf(other Set) bool {
+	for k := range s {
+		if !other.Has(k) {
+			return false
+		}
+	}
+	return true
+}
+
 // Sorted returns s's members in All's fixed display order.
 func (s Set) Sorted() []Signal {
 	out := make([]Signal, 0, len(s))

@@ -313,6 +313,25 @@ var _ = Describe("Overlay guards", func() {
 		Expect(violations).To(BeEmpty())
 	})
 
+	// #378: "signals" is the curated per-component signal override
+	// internal/signals.Derive reads; a malformed one is ignored there (fail
+	// wide), and refused here so it never ships unnoticed.
+	DescribeTable("red run: a malformed signals override is a violation",
+		func(value any, want string) {
+			reg := doctoredRegistry(func(components map[string]any) {
+				comp := components["otelcol.exporter.prometheus"].(map[string]any) //nolint:errcheck // the shipped overlay always has this component
+				comp["signals"] = value
+			})
+			violations, err := reg.ValidateOverlay()
+			Expect(err).NotTo(HaveOccurred())
+			Expect(violations).To(ContainElement(ContainSubstring(want)))
+		},
+		Entry("not a list", "metrics", `signals on "otelcol.exporter.prometheus" must be a non-empty list`),
+		Entry("empty", []any{}, `signals on "otelcol.exporter.prometheus" must be a non-empty list`),
+		Entry("unknown name", []any{"metrics", "bogus"}, `signals on "otelcol.exporter.prometheus" names unknown signal "bogus"`),
+		Entry("duplicate", []any{"metrics", "metrics"}, `signals on "otelcol.exporter.prometheus" names "metrics" twice`),
+	)
+
 	It("red run: a discovery_stub on a non-Sources component is a violation", func() {
 		// This guard used to be a "discovery."/"loki.source." name-prefix
 		// check, which a Sources-category component with neither prefix

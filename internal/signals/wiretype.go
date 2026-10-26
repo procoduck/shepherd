@@ -71,7 +71,10 @@ const wireTypeTargets = "targets"
 //     within the domain otel.any is actually ambiguous over, and precise
 //     outside it. If a future Alloy version adds an OTel-model profiles
 //     bridge, TestOtelAnyNeverCarriesProfiles is what catches the artifact
-//     changing under this assumption.
+//     changing under this assumption. A component whose Alloy reference says
+//     it only ever handles one signal despite an otel.any input (or a
+//     generic metrics/logs/traces output block) is narrowed per component by
+//     a curated overlay override, not here: see signalOverride (#378).
 //   - "targets" -> {} (present, empty). See wireTypeTargets's doc.
 var wireTypeSignals = map[string]Set{
 	"prom.metrics":       NewSet(Metrics),
