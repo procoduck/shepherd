@@ -36,10 +36,12 @@ Categories used here:
   instance of a module from an `import.string` with literal content. Modules from `import.file`,
   `import.git` and `import.http` still count as every signal. The pipeline editor's derived
   signals, the Reconciliation tab, wizards' role check and the MCP proposal all use the same
-  derivation. The chart's OTLP bridge components (`otelcol.exporter.prometheus`,
-  `otelcol.exporter.loki`) still count as metrics, logs and traces, so a chart config that
-  includes one still stays off `metrics` and `logs` collectors. The served config format is
-  unchanged. (#378)
+  derivation. OpenTelemetry components that only ever carry one signal no longer count as
+  metrics, logs and traces because of a generic OTLP port: a curated list in the schema overlay
+  narrows 24 of them, including the chart's bridges `otelcol.exporter.prometheus` (metrics) and
+  `otelcol.exporter.loki` (logs), and `otelcol.receiver.prometheus` / `otelcol.receiver.loki`.
+  The chart's rendered metrics and logs configs, verbatim, now reach `metrics` and `logs`
+  collectors. The served config format is unchanged. (#378)
 
 ## v0.19.1
 

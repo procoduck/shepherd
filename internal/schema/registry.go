@@ -151,10 +151,58 @@ func (r *Registry) ValidateOverlay() ([]string, error) {
 		}
 	}
 
+	violations = append(violations, validateSignalOverrides(overlayComponents)...)
 	violations = append(violations, validatePortDisplayOrder(artifactComponents, overlayComponents)...)
 	violations = append(violations, validateSimPolicy(artifactComponents, overlayComponents)...)
 
 	return violations, nil
+}
+
+// overrideSignals is the signal vocabulary a component's overlay "signals"
+// override may name: internal/signals' taxonomy (that package imports this
+// one, so the names are restated here).
+var overrideSignals = map[string]bool{"metrics": true, "logs": true, "traces": true, "profiles": true}
+
+// validateSignalOverrides checks each component's overlay "signals": the
+// curated override internal/signals.Derive applies when a component's generic
+// OTel port (otel.any, or a metrics/logs/traces output block) overstates what
+// it carries. It must be a non-empty list of distinct signal names. Derive
+// ignores a malformed one (the component then counts with every signal its
+// ports carry), so without this guard a typo would silently undo the
+// override. Whether an override only narrows the wire-type signals is
+// checked in internal/signals, which owns that classification.
+func validateSignalOverrides(overlayComponents map[string]any) []string {
+	keys := make([]string, 0, len(overlayComponents))
+	for key := range overlayComponents {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	var violations []string
+	for _, key := range keys {
+		comp, _ := overlayComponents[key].(map[string]any) //nolint:errcheck // a non-object entry has no override
+		raw, present := comp["signals"]
+		if !present {
+			continue
+		}
+		list, ok := raw.([]any)
+		if !ok || len(list) == 0 {
+			violations = append(violations, fmt.Sprintf("signals on %q must be a non-empty list of signal names", key))
+			continue
+		}
+		seen := map[string]bool{}
+		for _, item := range list {
+			name, _ := item.(string) //nolint:errcheck // a non-string is reported as an unknown name
+			switch {
+			case !overrideSignals[name]:
+				violations = append(violations, fmt.Sprintf("signals on %q names unknown signal %q", key, fmt.Sprint(item)))
+			case seen[name]:
+				violations = append(violations, fmt.Sprintf("signals on %q names %q twice", key, name))
+			}
+			seen[name] = true
+		}
+	}
+	return violations
 }
 
 // validatePortDisplayOrder checks that a component's overlay port_display_order

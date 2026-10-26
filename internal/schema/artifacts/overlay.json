@@ -1194,6 +1194,9 @@
         "input",
         "forward_to"
       ],
+      "signals": [
+        "logs"
+      ],
       "sim_destination": {
         "endpoint_paths": [],
         "ensure": {},
@@ -1319,6 +1322,9 @@
         "input",
         "forward_to"
       ],
+      "signals": [
+        "metrics"
+      ],
       "sim_destination": {
         "endpoint_paths": [],
         "ensure": {},
@@ -1346,6 +1352,9 @@
       "category": "destinations",
       "doc": "Exports log entries as syslog messages (public-preview).",
       "icon": "logs",
+      "signals": [
+        "logs"
+      ],
       "sim_destination": {
         "endpoint_paths": [
           [
@@ -1459,6 +1468,9 @@
       "category": "transform",
       "doc": "Converts cumulative sum metrics to delta temporality (public-preview).",
       "icon": "transform",
+      "signals": [
+        "metrics"
+      ],
       "sim_keep": {
         "keep_subtree": true,
         "reason": "measured clean: no attribute at any depth is credential-, address-, header- or filesystem-shaped, and the whole body is pipeline semantics the user must still see"
@@ -1469,6 +1481,9 @@
       "category": "transform",
       "doc": "Converts delta metrics to cumulative temporality (experimental).",
       "icon": "transform",
+      "signals": [
+        "metrics"
+      ],
       "sim_keep": {
         "keep_subtree": true,
         "reason": "measured clean: no attribute at any depth is credential-, address-, header- or filesystem-shaped, and the whole body is pipeline semantics the user must still see"
@@ -1479,6 +1494,9 @@
       "category": "transform",
       "doc": "Enriches spans with labels from Prometheus service discovery.",
       "icon": "k8s",
+      "signals": [
+        "traces"
+      ],
       "sim_keep": {
         "paths": [
           {
@@ -1524,6 +1542,9 @@
       "category": "transform",
       "doc": "Aggregates metrics over a configurable interval (experimental).",
       "icon": "transform",
+      "signals": [
+        "metrics"
+      ],
       "sim_keep": {
         "keep_subtree": true,
         "reason": "measured clean: no attribute at any depth is credential-, address-, header- or filesystem-shaped, and the whole body is pipeline semantics the user must still see"
@@ -1581,6 +1602,9 @@
       "category": "transform",
       "doc": "Sets the start timestamp for cumulative metrics.",
       "icon": "transform",
+      "signals": [
+        "metrics"
+      ],
       "sim_keep": {
         "keep_subtree": true,
         "reason": "measured clean: no attribute at any depth is credential-, address-, header- or filesystem-shaped, and the whole body is pipeline semantics the user must still see"
@@ -1644,6 +1668,9 @@
       "category": "transform",
       "doc": "Modifies span names and attributes based on rules.",
       "icon": "transform",
+      "signals": [
+        "traces"
+      ],
       "sim_keep": {
         "paths": [
           "include.match_type",
@@ -1891,6 +1918,9 @@
       "category": "sources",
       "doc": "Receives metrics from AWS CloudWatch (experimental).",
       "icon": "cloud",
+      "signals": [
+        "logs"
+      ],
       "sim_unsupported": "polls the real AWS CloudWatch API for a real region, a required attribute; the capture harness cannot emulate AWS. Availability fix, VB-1 §6.4",
       "terminal_ok": false
     },
@@ -1898,6 +1928,9 @@
       "category": "sources",
       "doc": "Receives metrics from AWS ECS container metadata (experimental).",
       "icon": "cloud",
+      "signals": [
+        "metrics"
+      ],
       "sim_keep": {
         "paths": [],
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
@@ -1915,6 +1948,9 @@
       "category": "sources",
       "doc": "Receives logs from Cloudflare Logpush (experimental).",
       "icon": "cloud",
+      "signals": [
+        "logs"
+      ],
       "sim_keep": {
         "paths": [
           "endpoint"
@@ -1952,6 +1988,9 @@
       "category": "sources",
       "doc": "Emits metrics about files (size, modification time).",
       "icon": "file",
+      "signals": [
+        "metrics"
+      ],
       "sim_keep": {
         "paths": [
           "include"
@@ -1963,6 +2002,9 @@
       "category": "sources",
       "doc": "Reads logs from files using stanza operators (public-preview).",
       "icon": "file",
+      "signals": [
+        "logs"
+      ],
       "sim_keep": {
         "paths": [
           "include"
@@ -1998,6 +2040,9 @@
       "category": "sources",
       "doc": "Receives InfluxDB line protocol metrics.",
       "icon": "metrics",
+      "signals": [
+        "metrics"
+      ],
       "sim_keep": {
         "paths": [],
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
@@ -2008,6 +2053,9 @@
       "category": "sources",
       "doc": "Receives traces in Jaeger format over gRPC, Thrift, or HTTP.",
       "icon": "traces",
+      "signals": [
+        "traces"
+      ],
       "sim_keep": {
         "paths": [],
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
@@ -2025,6 +2073,9 @@
       "category": "sources",
       "doc": "Receives logs in Loki push format and converts to OTLP.",
       "icon": "logs",
+      "signals": [
+        "logs"
+      ],
       "sim_keep": {
         "paths": [],
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
@@ -2035,6 +2086,9 @@
       "category": "sources",
       "doc": "Collects metrics from NGINX (public-preview).",
       "icon": "server",
+      "signals": [
+        "metrics"
+      ],
       "sim_unsupported": "scrapes a real nginx status endpoint via endpoint, a required attribute; the capture harness cannot emulate an nginx server. Availability fix, VB-1 §6.4",
       "terminal_ok": false
     },
@@ -2057,6 +2111,9 @@
       "category": "sources",
       "doc": "Scrapes Prometheus metrics and converts them to OTLP.",
       "icon": "metrics",
+      "signals": [
+        "metrics"
+      ],
       "sim_keep": {
         "paths": [],
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
@@ -2067,6 +2124,9 @@
       "category": "sources",
       "doc": "Receives trace data from Solace messaging.",
       "icon": "server",
+      "signals": [
+        "traces"
+      ],
       "sim_unsupported": "connects to a real Solace PubSub+ broker via queue, a required attribute; the capture harness cannot emulate a Solace broker. Availability fix, VB-1 §6.4",
       "terminal_ok": false
     },
@@ -2084,6 +2144,9 @@
       "category": "sources",
       "doc": "Receives syslog messages over TCP or UDP (public-preview).",
       "icon": "logs",
+      "signals": [
+        "logs"
+      ],
       "sim_keep": {
         "paths": [],
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
@@ -2094,6 +2157,9 @@
       "category": "sources",
       "doc": "Receives log entries over TCP (experimental).",
       "icon": "logs",
+      "signals": [
+        "logs"
+      ],
       "sim_keep": {
         "paths": [
           "listen_address"
@@ -2111,6 +2177,9 @@
       "category": "sources",
       "doc": "Collects metrics from VMware vCenter (experimental).",
       "icon": "server",
+      "signals": [
+        "metrics"
+      ],
       "sim_unsupported": "connects to a real vCenter instance and requires credentials (endpoint, username, and password, a required secret); the capture harness cannot emulate a vCenter API. Availability fix, VB-1 §6.4",
       "terminal_ok": false
     },
@@ -2118,6 +2187,9 @@
       "category": "sources",
       "doc": "Receives traces in Zipkin format.",
       "icon": "traces",
+      "signals": [
+        "traces"
+      ],
       "sim_keep": {
         "paths": [],
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"

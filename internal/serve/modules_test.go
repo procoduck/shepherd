@@ -11,45 +11,30 @@ import (
 	"shepherd/internal/serve"
 )
 
-// chartPipeline reads a grafana/k8s-monitoring-rendered fixture (a feature
-// module inlined as a declare plus its `<name> "feature"` instance) and cuts
-// its OTLP bridge block: the bridge's otel.any input classifies as every
-// OTLP signal, a separate classification internal/signals' fixture test
-// pins, so without the cut no restricted role would accept it regardless of
-// the module instance.
-func chartPipeline(t *testing.T, file, bridge string) string {
-	t.Helper()
-	data, err := os.ReadFile("../signals/testdata/" + file)
-	if err != nil {
-		t.Fatal(err)
-	}
-	src := string(data)
-	start := strings.Index(src, bridge+" {\n")
-	endMarker := "} // " + bridge + "\n"
-	end := strings.Index(src, endMarker)
-	if start < 0 || end < start {
-		t.Fatalf("block %s not found in %s", bridge, file)
-	}
-	return src[:start] + src[end+len(endMarker):]
-}
-
 // TestComputeServed_ModuleInstanceReachesRestrictedRole is #378 through the
-// real serve path (merge with role enforcement, the D6 baseline, Stage 1): a
-// chart-shaped pipeline assigned to a role=metrics or role=logs collector is
-// served, where before its `<name> "feature"` instance was an unknown
-// component, widened to every signal, and excluded. The baseline stays
-// outside every declare.
+// real serve path (merge with role enforcement, the D6 baseline, Stage 1):
+// the verbatim grafana/k8s-monitoring-rendered config (feature modules
+// inlined as declares plus `<name> "feature"` instances, and the
+// destination's OTLP bridge) assigned to a role=metrics or role=logs
+// collector is served. Before, the module instance was an unknown component
+// and the bridge's otel.any input counted as every OTLP signal, so both
+// widened the pipeline and the role excluded it. The baseline stays outside
+// every declare.
 func TestComputeServed_ModuleInstanceReachesRestrictedRole(t *testing.T) {
 	deps := serve.Deps{Schema: mustSchema(t), BeaconBaseline: beacon.NewBaselineConfig("https://shepherd.example.test" + beacon.WritePath)}
 	for _, tc := range []struct {
-		role, file, bridge, instance string
+		role, file, instance string
 	}{
-		{"metrics", "k8smon-metrics.alloy", `otelcol.exporter.prometheus "prom"`, `annotation_autodiscovery "feature"`},
-		{"logs", "k8smon-logs.alloy", `otelcol.exporter.loki "loki"`, `pod_logs_via_loki "feature"`},
+		{"metrics", "k8smon-metrics.alloy", `annotation_autodiscovery "feature"`},
+		{"logs", "k8smon-logs.alloy", `pod_logs_via_loki "feature"`},
 	} {
 		t.Run(tc.role, func(t *testing.T) {
+			data, err := os.ReadFile("../signals/testdata/" + tc.file)
+			if err != nil {
+				t.Fatal(err)
+			}
 			p := merge.Pipeline{
-				ID: "p1", Name: "k8s-monitoring", Contents: chartPipeline(t, tc.file, tc.bridge),
+				ID: "p1", Name: "k8s-monitoring", Contents: string(data),
 				Matchers: []string{`cluster="c1"`}, Source: "ui",
 			}
 			coll := serve.Collector{ID: "coll-1", Cluster: "c1", Role: tc.role}

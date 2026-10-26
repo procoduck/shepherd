@@ -16,60 +16,36 @@ import (
 // TestDerive_K8sMonitoringChart: the grafana/k8s-monitoring chart renders
 // each feature module inline as a declare plus a `<name> "feature"` instance,
 // with no import blocks (testdata/k8smon-*.alloy, from `helm template` of
-// chart 4.5.5). Both must derive a proven set.
-//
-// The chart's destination also renders an OTLP bridge
-// (otelcol.exporter.prometheus / otelcol.exporter.loki) whose `input` port is
-// otel.any, which classifies as metrics+logs+traces (wiretype.go). That is a
-// separate, existing classification and keeps the verbatim chart output off
-// a restricted role; without the bridge, the set is the single signal.
+// chart 4.5.5). Both must derive a proven, single-signal set, verbatim:
+// including the destination's OTLP bridge (otelcol.exporter.prometheus /
+// otelcol.exporter.loki), whose generic otel.any input is narrowed by its
+// curated overlay override (override_test.go).
 func TestDerive_K8sMonitoringChart(t *testing.T) {
 	reg := testRegistry(t)
 	for _, tc := range []struct {
-		file, bridge string
-		want         []Signal
+		file string
+		want []Signal
 	}{
-		{"k8smon-metrics.alloy", `otelcol.exporter.prometheus "prom"`, []Signal{Metrics}},
-		{"k8smon-logs.alloy", `otelcol.exporter.loki "loki"`, []Signal{Logs}},
+		{"k8smon-metrics.alloy", []Signal{Metrics}},
+		{"k8smon-logs.alloy", []Signal{Logs}},
 	} {
 		t.Run(tc.file, func(t *testing.T) {
 			data, err := os.ReadFile(filepath.Join("testdata", tc.file))
 			if err != nil {
 				t.Fatal(err)
 			}
-			for _, v := range []struct {
-				src  string
-				want Set
-			}{
-				{string(data), NewSet(Metrics, Logs, Traces)},
-				{withoutBlock(t, string(data), tc.bridge), NewSet(tc.want...)},
-			} {
-				got, err := Derive(v.src, reg)
-				if err != nil {
-					t.Fatalf("Derive: %v", err)
-				}
-				if !got.Proven() {
-					t.Fatalf("not proven: unknown=%+v unclassified=%v", got.Unknown, got.Unclassified)
-				}
-				if !got.Combined.Equal(v.want) {
-					t.Fatalf("Combined = %s, want %s", got.Combined, v.want)
-				}
+			got, err := Derive(string(data), reg)
+			if err != nil {
+				t.Fatalf("Derive: %v", err)
+			}
+			if !got.Proven() {
+				t.Fatalf("not proven: unknown=%+v unclassified=%v", got.Unknown, got.Unclassified)
+			}
+			if want := NewSet(tc.want...); !got.Combined.Equal(want) {
+				t.Fatalf("Combined = %s, want %s", got.Combined, want)
 			}
 		})
 	}
-}
-
-// withoutBlock cuts the block whose header is `<header> {` and whose closing
-// line is the chart's `} // <header>` marker out of src.
-func withoutBlock(t *testing.T, src, header string) string {
-	t.Helper()
-	start := strings.Index(src, header+" {\n")
-	endMarker := "} // " + header + "\n"
-	end := strings.Index(src, endMarker)
-	if start < 0 || end < start {
-		t.Fatalf("block %s not found", header)
-	}
-	return src[:start] + src[end+len(endMarker):]
 }
 
 // scrapeBody is a metrics-only component body for the module fixtures.

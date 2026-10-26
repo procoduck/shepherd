@@ -152,6 +152,66 @@ func (s Signals) Proven() bool {
 // distinct wire types across its inputs[] and outputs[] ports.
 type componentDef struct {
 	WireTypes []string
+	// Override is the component's curated signal override (the overlay's
+	// "signals" key), nil when it has none or the value is malformed. See
+	// signalOverride.
+	Override Set
+}
+
+// wireSignals classifies a component's wire types into the signals they
+// carry ("targets" carries none), returning any wire type classifyWireType
+// does not recognize separately.
+func wireSignals(wireTypes []string) (Set, []string) {
+	out := Set{}
+	var unclassified []string
+	for _, wt := range wireTypes {
+		if wt == wireTypeTargets {
+			continue
+		}
+		sig, ok := classifyWireType(wt)
+		if !ok {
+			unclassified = append(unclassified, wt)
+			continue
+		}
+		out = out.Union(sig)
+	}
+	return out, unclassified
+}
+
+// signalOverride reads a schema component entry's curated "signals"
+// override (internal/schema/artifacts/overlay.json).
+//
+// Wire types say what a component's ports can carry, and for most components
+// that is what it carries. The exception is OTel's generic plumbing: a
+// component whose `input` is otel.any (otelcol.exporter.prometheus) or whose
+// `output` block offers metrics, logs and traces (otelcol.receiver.loki)
+// classifies as all three even when Alloy's reference says it only ever
+// handles one. The overlay records those, one curated, reviewed entry per
+// component (pinned in override_test.go), because the overlay is where
+// per-component metadata already lives and its keys are CI-checked against
+// the artifact. Derive applies an override only when it narrows the
+// wire-type set; a malformed value (not a non-empty list of known signal
+// names; internal/schema refuses one too) is ignored, which is the wide,
+// fail-safe direction.
+func signalOverride(comp map[string]any) Set {
+	raw, ok := comp["signals"].([]any)
+	if !ok || len(raw) == 0 {
+		return nil
+	}
+	out := Set{}
+	for _, item := range raw {
+		name, _ := item.(string) //nolint:errcheck // a non-string fails the membership check below
+		sig := Signal(name)
+		known := false
+		for _, s := range All {
+			known = known || s == sig
+		}
+		if !known {
+			return nil
+		}
+		out = out.Add(sig)
+	}
+	return out
 }
 
 // Derive parses contents as Alloy syntax, walks its top-level component
@@ -287,17 +347,16 @@ func Derive(contents string, reg *schema.Registry) (Signals, error) {
 				continue
 			}
 
-			contribSig := Set{}
-			for _, wt := range def.WireTypes {
-				if wt == wireTypeTargets {
-					continue
-				}
-				sig, ok := classifyWireType(wt)
-				if !ok {
-					unclassified[wt] = true
-					continue
-				}
-				contribSig = contribSig.Union(sig)
+			contribSig, unknownWires := wireSignals(def.WireTypes)
+			for _, wt := range unknownWires {
+				unclassified[wt] = true
+			}
+			// A curated override narrows an overstated generic OTel port.
+			// It is applied only when it is a non-empty subset of what the
+			// ports carry, so it can never add a signal or empty a
+			// component; otherwise the full wire-type set stands.
+			if !def.Override.Empty() && def.Override.subsetOf(contribSig) {
+				contribSig = def.Override
 			}
 
 			combined = combined.Union(contribSig)
@@ -405,7 +464,7 @@ func loadComponentDefs(reg *schema.Registry) (map[string]componentDef, error) {
 		if !ok {
 			continue
 		}
-		defs[name] = componentDef{WireTypes: wireTypesOf(comp)}
+		defs[name] = componentDef{WireTypes: wireTypesOf(comp), Override: signalOverride(comp)}
 	}
 	return defs, nil
 }

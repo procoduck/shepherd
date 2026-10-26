@@ -49,10 +49,12 @@
         chart renders reach a <code>metrics</code> or <code>logs</code> collector. A module loaded
         with <code>import.file</code>, <code>import.git</code> or <code>import.http</code> is not
         in the text, so a pipeline that uses one counts as carrying every signal and only a
-        <code>singleton</code> collector runs it. An OpenTelemetry component such as
-        <code>otelcol.exporter.prometheus</code> accepts any OpenTelemetry signal, so it counts as
-        metrics, logs and traces and keeps its pipeline off <code>metrics</code> and
-        <code>logs</code> collectors.
+        <code>singleton</code> collector runs it. Most OpenTelemetry (<code>otelcol.*</code>)
+        components count as metrics, logs and traces, because their ports accept any of the three.
+        The ones that only ever handle one signal count as that signal: for example
+        <code>otelcol.exporter.prometheus</code> and <code>otelcol.receiver.prometheus</code> are
+        metrics, <code>otelcol.exporter.loki</code> and <code>otelcol.receiver.filelog</code> are
+        logs, and <code>otelcol.receiver.zipkin</code> is traces.
       </p>
 
       <h2 id="matching-on-labels">Matching on labels and agent attributes</h2>
