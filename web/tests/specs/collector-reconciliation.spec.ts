@@ -67,7 +67,7 @@ test('reconciliation tab lists a drift finding', async ({ page, api }) => {
           kind: 'unserved_component_observed',
           sources: ['served', 'observed'],
           summary:
-            'declared role "singleton"; beacon observed component "pipe_ghost" running that Shepherd never served to this collector',
+            'declared role "singleton"; beacon observed component "pipe_ghost" running (healthy=true) but not currently served to this collector',
           controller_path: 'pipe_ghost',
           stale: false,
         },

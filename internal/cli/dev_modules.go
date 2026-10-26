@@ -29,6 +29,7 @@ import (
 	"shepherd/internal/pinnedimport"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
+	"shepherd/internal/validate"
 )
 
 // The module repository. Its commits are built object by object with a fixed
@@ -230,7 +231,7 @@ func pushSeedModuleRepo(ctx context.Context, repo *git.Repository, url string, o
 // the pipelines that import it. Strict mode stays off: turning it on is a
 // walkthrough step. Best-effort like seedGitOps — the caller only reports an
 // error.
-func seedModuleRepo(ctx context.Context, st *store.Store, orgID pgtype.UUID) error {
+func seedModuleRepo(ctx context.Context, st *store.Store, imports *pinnedimport.Resolver, orgID pgtype.UUID) error {
 	repo, hashes, err := buildSeedModuleRepo()
 	if err != nil {
 		return fmt.Errorf("building the module commits: %w", err)
@@ -254,7 +255,37 @@ func seedModuleRepo(ctx context.Context, st *store.Store, orgID pgtype.UUID) err
 	if err := seedImportAllowlist(ctx, st, orgID); err != nil {
 		return err
 	}
-	if err := seedPipelines(ctx, st, orgID, modulePipelineItems()); err != nil {
+	return seedModulePipelines(ctx, st, orgID, imports.Preflight())
+}
+
+// seedModulePipelines seeds modulePipelineItems once the modules the enabled
+// ones pin are in the pinned-import cache. Recording a pipeline's tenants
+// (tenancy.RecordPipelineTenants, which seedPipelines calls as every API
+// write does) reads that cache only; a save fills it first through its
+// validation, and the seed writes no save. So the modules are fetched here
+// through the same reader — the tenant lint over the pipeline text, with src
+// (pinnedimport.Resolver.Preflight(): cached, or fetched and cached) — before
+// the pipelines exist. Without it the server logged "the pipeline sets a
+// tenant the lint cannot read; recorded as incomplete" until the first save.
+func seedModulePipelines(ctx context.Context, st *store.Store, orgID pgtype.UUID, src pinnedimport.Source) error {
+	items := modulePipelineItems()
+	repos, err := st.Queries.ListOrgImportRepositories(ctx, orgID)
+	if err != nil {
+		return fmt.Errorf("loading the import allowlist: %w", err)
+	}
+	for _, item := range items {
+		if !item.enabled {
+			continue // recorded with no tenants, so nothing reads its module
+		}
+		_, complete, err := validate.TenantLiteralsWith(ctx, item.contents, src.Modules(st.Queries, orgID, repos))
+		// Best effort, like the rest of the module seed: a module that could
+		// not be fetched leaves the pipeline recorded incomplete until its
+		// first save, as before — never a pipeline left unseeded.
+		if err != nil || !complete {
+			fmt.Printf("modules: %s's module is not cached (err=%v); its tenants are recorded incomplete until it is saved\n", item.name, err)
+		}
+	}
+	if err := seedPipelines(ctx, st, orgID, items); err != nil {
 		return fmt.Errorf("seeding module pipelines: %w", err)
 	}
 	return nil

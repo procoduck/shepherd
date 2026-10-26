@@ -330,7 +330,7 @@ func newRouter(cfg *config.Config, st *store.Store, enc *crypto.Encryptor, authH
 	tokenVerdicts := agentapi.NewTokenVerdicts(cfg.Agent.OutageCacheTTL, agentapi.DefaultTokenVerdictMax)
 	svc := agentapi.New(st, v, logger, schemaReg, agentapi.WithBeaconBaseline(serve.BeaconBaseline(cfg)),
 		agentapi.WithOutageCache(cfg.Agent.OutageCacheTTL), agentapi.WithRequireOwnedTenants(cfg.Tenants.RequireOwned),
-		agentapi.WithInactiveAfter(cfg.Agent.InactiveAfter))
+		agentapi.WithInactiveAfter(cfg.Agent.InactiveAfter), agentapi.WithRefusalVisibleFor(cfg.Agent.RefusalVisibleFor))
 	// The Bearer branch of the collector gate: a collector's OIDC access token
 	// is verified with the same provider as user login. nil when authHandler
 	// is absent (the route-tree unit test) or OIDC is unconfigured, which

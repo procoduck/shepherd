@@ -22,6 +22,7 @@ import (
 	mgmtv1 "shepherd/gen/shepherd/mgmt/v1"
 	"shepherd/gen/shepherd/mgmt/v1/mgmtv1connect"
 	"shepherd/internal/chartvalues"
+	"shepherd/internal/config"
 	"shepherd/internal/merge"
 	"shepherd/internal/metrics"
 	"shepherd/internal/schema"
@@ -47,6 +48,9 @@ type FleetService struct {
 	// older than this is presented with status "inactive" (see
 	// presentInstanceStatus). Zero disables it.
 	inactiveAfter time.Duration
+	// refusalVisibleFor is agent.refusal_visible_for: how long after it was
+	// recorded a refused poll is presented on the collector (presentRefusal).
+	refusalVisibleFor time.Duration
 	// now is the clock presentInstanceStatus reads; time.Now outside tests.
 	now func() time.Time
 	// requireOwned is tenants.require_owned: the reconciliation tab reads
@@ -74,6 +78,16 @@ func WithFleetBaseURL(u string) FleetServiceOption {
 // never presents an instance as inactive.
 func WithFleetInactiveAfter(d time.Duration) FleetServiceOption {
 	return func(s *FleetService) { s.inactiveAfter = d }
+}
+
+// WithFleetRefusalVisibleFor sets agent.refusal_visible_for. Zero or negative
+// keeps config.DefaultRefusalVisibleFor.
+func WithFleetRefusalVisibleFor(d time.Duration) FleetServiceOption {
+	return func(s *FleetService) {
+		if d > 0 {
+			s.refusalVisibleFor = d
+		}
+	}
 }
 
 // WithFleetRequireOwnedTenants passes tenants.require_owned.
@@ -132,7 +146,7 @@ func presentInstanceStatus(o instanceOutcome, inactiveAfter time.Duration, now t
 
 // NewFleetService constructs a FleetService.
 func NewFleetService(st *store.Store, logger *slog.Logger, opts ...FleetServiceOption) *FleetService {
-	s := &FleetService{store: st, logger: logger, now: time.Now}
+	s := &FleetService{store: st, logger: logger, now: time.Now, refusalVisibleFor: config.DefaultRefusalVisibleFor}
 	for _, opt := range opts {
 		opt(s)
 	}
@@ -229,7 +243,7 @@ func (s *FleetService) ListCollectors(ctx context.Context, req *connect.Request[
 			AlloyVersion:       summary.AlloyVersion.String,
 			Labels:             labels,
 		}
-		items[i].LastRefusedReason, items[i].LastRefusedAt = presentRefusal(c, summary.LastSeen)
+		items[i].LastRefusedReason, items[i].LastRefusedAt = s.presentRefusal(c)
 		items[i].VersionWarning = presentVersionWarning(c)
 	}
 	return connect.NewResponse(&mgmtv1.ListCollectorsResponse{Items: items, Total: int32(len(items))}), nil //nolint:gosec // org collector counts never approach int32 overflow
@@ -327,11 +341,7 @@ func (s *FleetService) getCollector(ctx context.Context, orgIDStr, idStr string)
 	if err != nil {
 		return nil, err
 	}
-	var lastSeen pgtype.Timestamptz
-	if len(rows) > 0 {
-		lastSeen = rows[0].LastSeen
-	}
-	resp.LastRefusedReason, resp.LastRefusedAt = presentRefusal(&c, lastSeen)
+	resp.LastRefusedReason, resp.LastRefusedAt = s.presentRefusal(&c)
 	resp.VersionWarning = presentVersionWarning(&c)
 	if len(instances) > 0 {
 		latest := instances[0]
@@ -345,16 +355,23 @@ func (s *FleetService) getCollector(ctx context.Context, orgIDStr, idStr string)
 }
 
 // presentRefusal returns the collector's recorded refusal (migration 0041,
-// written by the agent API on a refused poll) while it is newer than the
-// collector's last successful poll — lastSeen, the newest instance's, since a
-// refused poll writes no instance row. The agent API clears the refusal on the
-// next poll that passes, but a pod predating 0041 serving that poll does not:
-// the comparison keeps such a leftover from outliving the recovery.
-func presentRefusal(c *sqlc.Collector, lastSeen pgtype.Timestamptz) (string, *timestamppb.Timestamp) {
+// written by the agent API on a refused poll) while it is younger than
+// agent.refusal_visible_for. It is carried whether or not a poll passed since:
+// a collector is a (cluster, role) shared by every instance polling it, so a
+// healthy sibling's passing poll says nothing about the refused instance (0.20
+// walkthrough). The agent API refreshes a continuing refusal at most once per
+// five minutes and clears an aged-out one on the next passing poll; the age
+// check here retires one no passing poll came to clear.
+//
+// Whether the refusal is the collector's state or a warning beside a healthy
+// status is the client's to tell from the fields it already has: refused when
+// the refusal is newer than last_seen (the newest passing poll, since a
+// refused poll writes no instance row), a sibling's refusal otherwise.
+func (s *FleetService) presentRefusal(c *sqlc.Collector) (string, *timestamppb.Timestamp) {
 	if !c.LastRefusedAt.Valid || !c.LastRefusedReason.Valid {
 		return "", nil
 	}
-	if lastSeen.Valid && !c.LastRefusedAt.Time.After(lastSeen.Time) {
+	if s.now().Sub(c.LastRefusedAt.Time) >= s.refusalVisibleFor {
 		return "", nil
 	}
 	return c.LastRefusedReason.String, timestamppb.New(c.LastRefusedAt.Time)

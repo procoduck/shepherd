@@ -472,12 +472,33 @@ var _ = Describe("Collector instance metadata", Label("integration"), func() {
 			Expect(detail["lastRefusedAt"]).NotTo(BeEmpty())
 		})
 
-		It("omits a refusal older than the last successful poll (one an older binary never cleared)", func() {
+		// 0.20 walkthrough: one pod refused (a token scoped to another
+		// cluster) beside healthy pods of the same collector. A healthy poll
+		// after the refusal no longer hides it: it is carried, with the
+		// healthy instance's status, until it ages out. The SPA shows it as a
+		// warning beside APPLIED, since the newest poll passed.
+		It("carries a recent refusal older than a healthy sibling's last poll", func() {
 			collector := createCollector("refused-then-ok")
 			Expect(st.Queries.RecordCollectorRefusal(ctx, sqlc.RecordCollectorRefusalParams{
 				ID: collector.ID, Reason: "claim_denied",
 			})).To(Succeed())
 			upsertInstance("ok-inst", collector.ID, "ok-inst", "v1.20.1", "linux", `{}`)
+			setStatus("ok-inst", "APPLIED", "")
+
+			item := listItem(collector.ID)
+			Expect(item["lastRefusedReason"]).To(Equal("claim_denied"))
+			Expect(item["remoteConfigStatus"]).To(Equal("APPLIED"))
+			Expect(getCollector(collector.ID)["lastRefusedReason"]).To(Equal("claim_denied"))
+		})
+
+		It("omits a refusal older than agent.refusal_visible_for (one no passing poll cleared)", func() {
+			collector := createCollector("refused-long-ago")
+			Expect(st.Queries.RecordCollectorRefusal(ctx, sqlc.RecordCollectorRefusalParams{
+				ID: collector.ID, Reason: "claim_denied",
+			})).To(Succeed())
+			// RAW-SQL-OK: backdating the refusal past the default 15m window — no sqlc query sets it
+			_, err := st.Pool().Exec(ctx, `UPDATE collectors SET last_refused_at = now() - interval '16 minutes' WHERE id = $1`, collector.ID)
+			Expect(err).NotTo(HaveOccurred())
 
 			Expect(listItem(collector.ID)).NotTo(HaveKey("lastRefusedReason"))
 			Expect(getCollector(collector.ID)).NotTo(HaveKey("lastRefusedReason"))
@@ -489,7 +510,7 @@ var _ = Describe("Collector instance metadata", Label("integration"), func() {
 				ID: collector.ID, Reason: "role_denied",
 			})).To(Succeed())
 			Expect(listItem(collector.ID)["lastRefusedReason"]).To(Equal("role_denied"), "no instance yet: the refusal shows")
-			Expect(st.Queries.ClearCollectorRefusal(ctx, collector.ID)).To(Succeed())
+			Expect(st.Queries.ClearCollectorRefusal(ctx, sqlc.ClearCollectorRefusalParams{ID: collector.ID, RefusedBefore: pgtype.Timestamptz{Time: time.Now().Add(time.Minute), Valid: true}})).To(Succeed())
 			Expect(listItem(collector.ID)).NotTo(HaveKey("lastRefusedReason"))
 		})
 	})

@@ -241,3 +241,43 @@ func TestAgentOutageCacheTTL(t *testing.T) {
 		})
 	}
 }
+
+// TestAgentRefusalVisibleFor: agent.refusal_visible_for (0.20 walkthrough)
+// defaults to 15m and refuses anything shorter than the 5m the agent API
+// takes to re-record a continuing refusal — a shorter window would let a
+// refusal that is still happening flicker out of view between writes.
+func TestAgentRefusalVisibleFor(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		value   string
+		want    time.Duration
+		wantErr bool
+	}{
+		{"default", "", 15 * time.Minute, false},
+		{"override", "1h", time.Hour, false},
+		{"minimum", "5m", 5 * time.Minute, false},
+		{"too short", "1m", 0, true},
+		{"too long", "48h", 0, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("SHEPHERD_DATABASE_URL", "postgres://example")
+			t.Setenv("SHEPHERD_SECURITY_ENCRYPTION_KEY", base64.StdEncoding.EncodeToString(make([]byte, 32)))
+			if tc.value != "" {
+				t.Setenv("SHEPHERD_AGENT_REFUSAL_VISIBLE_FOR", tc.value)
+			}
+			cfg, err := Load("")
+			if tc.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "agent.refusal_visible_for") {
+					t.Fatalf("Load(%q) = %v, want an error naming agent.refusal_visible_for", tc.value, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.Agent.RefusalVisibleFor != tc.want {
+				t.Errorf("refusal_visible_for = %s, want %s", cfg.Agent.RefusalVisibleFor, tc.want)
+			}
+		})
+	}
+}

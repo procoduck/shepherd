@@ -84,6 +84,36 @@ Categories used here:
 
 ### Fixed
 
+- **Reconciliation no longer reports a dropped pipeline as running.** Shipped. A pipeline that
+  was served, then disabled, kept its beacon row until the sweeper expired it five minutes later,
+  and the Reconciliation tab listed it as running and "never served" all that time. A beacon row
+  now counts as running only if the instance's latest report refreshed it (within 15 s of that
+  instance's newest row). An instance that stopped reporting entirely keeps its last report,
+  flagged stale, until the sweeper removes it. The finding now says the component is "not
+  currently served", which holds whether or not it ever was.
+- **A refused instance stays visible beside healthy ones.** Shipped. A collector is a
+  (cluster, role) shared by every instance that polls it, and any passing poll cleared its
+  recorded refusal. One pod with credentials for another cluster, next to healthy pods of the
+  same collector, never showed. A passing poll now clears a refusal only once it is older than
+  the new `agent.refusal_visible_for` (default `15m`, `5m` to `24h`; chart value
+  `config.agent.refusal_visible_for`). That costs one conditional `UPDATE` per aged-out refusal,
+  never one per poll. The management API presents a refusal for that long. The Collectors list
+  and the collector page still show REFUSED when no poll has passed since the refusal. Otherwise
+  they keep the instance status (APPLIED…) and add "An instance using this collector was refused
+  N min ago: <reason>". No proto change.
+- **A refused strict-mode toggle no longer reads as saved.** Shipped. On Admin → Organisations →
+  Edit, Save after a refused Strict tenant mode toggle closed the dialog with "Organisation
+  updated" while strict mode stayed off. The toast is now a warning: "Organisation updated —
+  strict tenant mode was not enabled: N items use a tenant this organisation does not own".
+- **Service-account API calls are documented.** The Roles and access page now has a "Calling the
+  API with a service account" section. It covers Basic auth with the account id and secret, the
+  Connect JSON content type, and the `X-Requested-With: XMLHttpRequest` header every non-GET
+  call needs (without it, a call gets `403 csrf_required`), with a curl example. `shepherd-mcp`
+  already sends the header.
+- **`shepherd dev seed` indexes the pinned-module pipeline's tenants.** Dev only. The seed now
+  fetches the module into the pinned-import cache, through the reader the server uses, before it
+  creates the pipeline. The server no longer logs "recorded as incomplete" for it until its first
+  save.
 - **Strict tenant mode also checks import blocks nested in other blocks.** Shipped. Alloy loads
   an `import.*` block inside a `foreach` template too. Strict tenant mode follows imports at the
   top level and directly in a `declare`, and now refuses an import block anywhere else (a

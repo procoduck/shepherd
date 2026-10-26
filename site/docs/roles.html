@@ -199,6 +199,26 @@
         is <code>propose</code> or <code>apply</code>. An <code>apply</code> account can write any
         pipeline in its org whatever team owns it, so issue it as an org-level credential.
       </p>
+
+      <h3 id="calling-the-api">Calling the API with a service account</h3>
+      <p>
+        The management API is Connect RPC: every procedure is a <code>POST</code> to
+        <code>/shepherd.mgmt.v1.&lt;Service&gt;/&lt;Method&gt;</code> with a JSON body. A service
+        account authenticates with HTTP Basic auth, its id as the user and its one-time secret as the
+        password. Every call must also send <code>X-Requested-With: XMLHttpRequest</code>: the
+        server&rsquo;s CSRF guard applies to every non-GET request, whatever the credential, and a
+        call without the header is refused with <code>403 csrf_required</code>.
+      </p>
+      <pre><code>curl -sS -u "$SA_ID:$SA_SECRET" \
+  -H 'X-Requested-With: XMLHttpRequest' \
+  -H 'Content-Type: application/json' \
+  -d '{"orgId": "&lt;org-uuid&gt;"}' \
+  https://shepherd.example.com/shepherd.mgmt.v1.FleetService/ListCollectors</code></pre>
+      <p>
+        A write from an <code>apply</code> account must also name the human it acts for, in a
+        <code>Shepherd-On-Behalf-Of</code> header. The <a href="mcp.html">MCP agent</a> sets all of
+        these headers itself.
+      </p>
       <p>
         <strong>From a local account.</strong> An app admin creates the account at
         <strong>Admin &rarr; Users</strong> and assigns its role per organisation there. See
@@ -222,6 +242,7 @@
         <li><a href="#the-roles">The roles</a></li>
         <li><a href="#why-there-is-an-editor">Why there is an editor tier</a></li>
         <li><a href="#how-a-role-is-assigned">How a role is assigned</a></li>
+        <li class="sub"><a href="#calling-the-api">Calling the API with a service account</a></li>
       </ul>
     </aside>
   </div>

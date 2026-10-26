@@ -20,6 +20,7 @@ import (
 	"shepherd/gen/collector/v1/collectorv1connect"
 	"shepherd/internal/auth"
 	"shepherd/internal/beacon"
+	"shepherd/internal/config"
 	"shepherd/internal/merge"
 	"shepherd/internal/metrics"
 	"shepherd/internal/schema"
@@ -70,6 +71,10 @@ type Service struct {
 	// the refusal log's window, so a refused fleet costs one UPDATE per
 	// collector per window, not one per poll.
 	refusalWriteWindow time.Duration
+	// refusalVisibleFor is agent.refusal_visible_for (WithRefusalVisibleFor):
+	// a recorded refusal younger than this survives passing polls, so a
+	// refused instance beside healthy siblings stays visible.
+	refusalVisibleFor time.Duration
 	// lastServed is the outage fallback (WithOutageCache); nil = disabled.
 	lastServed *lastServed
 	// identities remembers OIDC callers' agent_identities bindings for the
@@ -84,6 +89,17 @@ type Service struct {
 	// version may trigger one (versions.go).
 	versionRecheck   time.Duration
 	versionNewWindow time.Duration
+}
+
+// WithRefusalVisibleFor sets agent.refusal_visible_for: how long after the
+// last recorded refusal a passing poll leaves it in place. Zero or negative
+// keeps config.DefaultRefusalVisibleFor.
+func WithRefusalVisibleFor(d time.Duration) ServiceOption {
+	return func(s *Service) {
+		if d > 0 {
+			s.refusalVisibleFor = d
+		}
+	}
 }
 
 // WithInactiveAfter sets agent.inactive_after for the served config's
@@ -147,7 +163,8 @@ func New(st *store.Store, v *validate.Validator, logger *slog.Logger, reg *schem
 	s := &Service{
 		store: st, validator: v, logger: logger.With("component", "agentapi"), schema: reg,
 		refusals: newRefusalLog(refusalLogWindow, refusalLogMax), refusalWriteWindow: refusalLogWindow,
-		versionRecheck: versionRecheckWindow, versionNewWindow: versionNewWindow,
+		refusalVisibleFor: config.DefaultRefusalVisibleFor,
+		versionRecheck:    versionRecheckWindow, versionNewWindow: versionNewWindow,
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -688,14 +705,22 @@ func (s *Service) recordCollectorRefusal(ctx context.Context, coll sqlc.Collecto
 	}
 }
 
-// clearCollectorRefusal clears a recorded refusal once a poll for the
-// collector passes the org check. Like recordCollectorRefusal it reads the
-// upserted row, so the common case — nothing recorded — issues no statement.
+// clearCollectorRefusal clears a recorded refusal on a poll for the collector
+// that passes the org check — but only once the refusal is older than
+// refusalVisibleFor. A collector is a (cluster, role), shared by every
+// instance polling it: a passing poll from a healthy sibling says nothing
+// about the instance that was refused, so a recent refusal stays recorded
+// (and visible) until it ages out. Like recordCollectorRefusal it reads the
+// upserted row, so the common cases — nothing recorded, or a recent refusal
+// — issue no statement: one UPDATE per aged-out refusal, never one per poll.
 func (s *Service) clearCollectorRefusal(ctx context.Context, coll sqlc.Collector) {
-	if !coll.LastRefusedAt.Valid {
+	cutoff := time.Now().Add(-s.refusalVisibleFor)
+	if !coll.LastRefusedAt.Valid || !coll.LastRefusedAt.Time.Before(cutoff) {
 		return
 	}
-	if err := s.store.Queries.ClearCollectorRefusal(ctx, coll.ID); err != nil {
+	if err := s.store.Queries.ClearCollectorRefusal(ctx, sqlc.ClearCollectorRefusalParams{
+		ID: coll.ID, RefusedBefore: pgtype.Timestamptz{Time: cutoff, Valid: true},
+	}); err != nil {
 		s.logger.Warn("failed to clear collector refusal", "collector_id", coll.ID.String(), "err", err)
 	}
 }

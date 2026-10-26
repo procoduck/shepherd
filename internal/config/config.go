@@ -278,7 +278,25 @@ type AgentConfig struct {
 	// matters only during an outage — and it bounds how long a token revoked
 	// elsewhere can still be accepted then. 0 disables; at most MaxOutageCacheTTL.
 	OutageCacheTTL time.Duration `mapstructure:"outage_cache_ttl"`
+	// RefusalVisibleFor is how long a refused poll stays visible on its
+	// collector after the last refused poll was recorded, even while other
+	// instances of the same collector poll successfully: one misconfigured
+	// pod beside healthy siblings must not vanish behind them. Between
+	// MinRefusalVisibleFor and MaxRefusalVisibleFor; default
+	// DefaultRefusalVisibleFor.
+	RefusalVisibleFor time.Duration `mapstructure:"refusal_visible_for"`
 }
+
+// DefaultRefusalVisibleFor is agent.refusal_visible_for's default.
+const DefaultRefusalVisibleFor = 15 * time.Minute
+
+// MinRefusalVisibleFor is agent.refusal_visible_for's floor: the agent API
+// re-records a continuing refusal at most once per five minutes, so a shorter
+// window would let a refusal that is still happening drop out of view.
+const MinRefusalVisibleFor = 5 * time.Minute
+
+// MaxRefusalVisibleFor caps agent.refusal_visible_for.
+const MaxRefusalVisibleFor = 24 * time.Hour
 
 // MaxPipelineContentsBytes is the largest pipeline text Shepherd saves
 // (mgmtapi refuses more on every write) and the most the tenant check reads.
@@ -494,6 +512,7 @@ func Load(file string) (*Config, error) {
 	v.SetDefault("graph.base_url", "https://graph.microsoft.com")
 	v.SetDefault("agent.sweep_interval", "5m")
 	v.SetDefault("agent.outage_cache_ttl", "60s")
+	v.SetDefault("agent.refusal_visible_for", DefaultRefusalVisibleFor.String())
 	v.SetDefault("auth.service_account_rate_limit", 20)
 	v.SetDefault("auth.service_account_rate_burst", 40)
 	v.SetDefault("validate.stage3_timeout", "30s")
@@ -589,6 +608,7 @@ func Load(file string) (*Config, error) {
 		{"agent.delete_after", "SHEPHERD_AGENT_DELETE_AFTER"},
 		{"agent.sweep_interval", "SHEPHERD_AGENT_SWEEP_INTERVAL"},
 		{"agent.outage_cache_ttl", "SHEPHERD_AGENT_OUTAGE_CACHE_TTL"},
+		{"agent.refusal_visible_for", "SHEPHERD_AGENT_REFUSAL_VISIBLE_FOR"},
 		{"validate.alloy_binary", "SHEPHERD_VALIDATE_ALLOY_BINARY"},
 		{"validate.stability_level", "SHEPHERD_VALIDATE_STABILITY_LEVEL"},
 		{"validate.timeout", "SHEPHERD_VALIDATE_TIMEOUT"},
@@ -680,6 +700,9 @@ func Load(file string) (*Config, error) {
 	}
 	if ttl := c.Agent.OutageCacheTTL; ttl < 0 || ttl > MaxOutageCacheTTL {
 		return nil, fmt.Errorf("configuration errors:\n  - agent.outage_cache_ttl %s must be between 0 (disabled) and %s", ttl, MaxOutageCacheTTL)
+	}
+	if d := c.Agent.RefusalVisibleFor; d < MinRefusalVisibleFor || d > MaxRefusalVisibleFor {
+		return nil, fmt.Errorf("configuration errors:\n  - agent.refusal_visible_for %s must be between %s and %s", d, MinRefusalVisibleFor, MaxRefusalVisibleFor)
 	}
 	if a := c.Gateway.Routes.Apply; a.Enabled {
 		var errs []string

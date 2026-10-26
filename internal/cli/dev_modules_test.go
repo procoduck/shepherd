@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 
 	git "github.com/go-git/go-git/v6"
 	"github.com/go-git/go-git/v6/plumbing"
+	"github.com/jackc/pgx/v5/pgtype"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
@@ -17,6 +19,7 @@ import (
 	"shepherd/internal/schema"
 	"shepherd/internal/signals"
 	"shepherd/internal/store"
+	"shepherd/internal/store/sqlc"
 	"shepherd/internal/validate"
 	"shepherd/internal/version"
 )
@@ -153,6 +156,73 @@ var _ = Describe("the seeded k8s-monitoring pipelines", func() {
 			Expect(got.Proven()).To(BeTrue(), item.name)
 			Expect(got.Combined.Equal(signals.NewSet(w.sig))).To(BeTrue(), "%s: %s", item.name, got.Combined)
 		}
+	})
+})
+
+// fetchingSource stands in for pinnedimport.Resolver.Preflight() without a
+// network: Fetch caches the module the way the resolver does
+// (PutPinnedImportModule) and returns it.
+type fetchingSource struct {
+	st      *store.Store
+	modules map[string]string // path -> content
+	fetched []string
+}
+
+func (f *fetchingSource) Modules(q *sqlc.Queries, orgID pgtype.UUID, _ []sqlc.OrgImportRepository) validate.GitModules {
+	return &fetchingModules{f: f, q: q, orgID: orgID}
+}
+
+type fetchingModules struct {
+	f     *fetchingSource
+	q     *sqlc.Queries
+	orgID pgtype.UUID
+}
+
+func (m *fetchingModules) Allowed(string) error { return nil }
+
+func (m *fetchingModules) Fetch(ctx context.Context, gm validate.GitModule) (string, string, error) {
+	content, ok := m.f.modules[gm.Path]
+	if !ok {
+		return "", "", fmt.Errorf("no module at %s", gm.Path)
+	}
+	key, err := pinnedimport.NormalizeRepository(gm.Repository)
+	if err != nil {
+		return "", "", err
+	}
+	if err := m.q.PutPinnedImportModule(ctx, sqlc.PutPinnedImportModuleParams{
+		OrgID: m.orgID, RepositoryKey: key, Revision: gm.Revision, Path: gm.Path, Content: content,
+	}); err != nil {
+		return "", "", err
+	}
+	m.f.fetched = append(m.f.fetched, gm.Path)
+	return content, "", nil
+}
+
+// 0.20 walkthrough: the seed created pinned-module before its module was in
+// the pinned-import cache, so recording its tenants (which reads the cache
+// only) logged "the pipeline sets a tenant the lint cannot read; recorded as
+// incomplete" until the first save re-indexed it.
+var _ = Describe("seedModulePipelines", Label("integration"), func() {
+	It("caches the enabled pipelines' modules first, so their tenants are recorded complete", func() {
+		ctx := context.Background()
+		st, err := store.New(ctx, &config.DatabaseConfig{URL: devUsersPG.IsolatedDB(ctx, GinkgoTB()), MaxConns: 5})
+		Expect(err).NotTo(HaveOccurred())
+		DeferCleanup(st.Close)
+		org, err := upsertSeedOrg(ctx, st, seedOrgPlatformID, "platform-org", "Platform Engineering", seedPlatformAdminGroupID, seedPlatformViewerGroupID, "platform-org")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(seedImportAllowlist(ctx, st, org.ID)).To(Succeed())
+
+		src := &fetchingSource{st: st, modules: map[string]string{
+			seedModuleCleanPath: seedModuleClean, seedModuleForeignPath: seedModuleForeign,
+		}}
+		Expect(seedModulePipelines(ctx, st, org.ID, src)).To(Succeed())
+		Expect(src.fetched).To(Equal([]string{seedModuleCleanPath}), "only the enabled pipeline's module is fetched")
+
+		p, err := st.Queries.GetPipelineByOrgAndName(ctx, sqlc.GetPipelineByOrgAndNameParams{OrgID: org.ID, Name: "pinned-module"})
+		Expect(err).NotTo(HaveOccurred())
+		idx, err := st.Queries.GetPipelineTenantIndex(ctx, p.ID)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(idx.Complete).To(BeTrue(), "the module's tenants were readable when the pipeline was recorded")
 	})
 })
 
