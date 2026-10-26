@@ -11,6 +11,16 @@ Categories used here:
 - **RPC only** — the API exists and is callable; there is no UI.
 - **Built, not wired** — the code and tests exist, nothing calls them in production yet.
 
+## Unreleased
+
+### Fixed
+
+- **The visual builder's config preview is bounded.** Shipped. A large or hand-built graph could
+  hang the browser tab: the in-browser renderer had none of the server's output limits. It now
+  stops at 4 MiB of text and 800 diagnostics (the server's are 1 MiB and 200) and refuses a
+  label or component name over 256 bytes, as the server does; past a size limit the Generated
+  config tab says "Too large to render" instead of showing a partial config. (#400)
+
 ## v0.19.0
 
 Chart 0.23.0, released 2026-10-24. **Agent tokens are bound to an organisation, and an unbound
