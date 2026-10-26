@@ -292,6 +292,8 @@ orgs(id, name text UNIQUE, display_name text,
 --   0043 org_import_repositories (an org's allowed import.git repositories, app admin
 --        writes only) and pinned_import_modules (fetched modules by org, repository,
 --        commit, path) — strict mode's pinned import.git (§8 "Pinned import.git")
+--   0045 pipeline_tenant_exclusions (pipeline_id, org_id, reason, excluded_at) — the
+--        pipelines strict mode's serve-time check excludes now (§8 "Serve-time check")
 
 org_tenants(org_id uuid REFERENCES orgs ON DELETE CASCADE,       -- 0039; app admin writes only
            tenant text, kind text CHECK (kind IN ('exact','prefix')),
@@ -665,6 +667,34 @@ Strict mode refuses:
   argument), another component's export and a component it cannot find in that scope (another
   pipeline, a module) are refused, with a message to move the rules into a `loki.relabel`
   component;
+- a **label map the lint cannot read**: every map-typed attribute whose entries become labels,
+  structured metadata or headers — read from every shipped component schema
+  (`validate.ClassifyMapAttribute` over `validate.SchemaMapAttributes`: by default the map
+  attributes of `loki.*`, `prometheus.*`, `pyroscope.*`, `faro.*` and `mimir.*`, such as
+  `external_labels`, a source's `labels` (a `listener`'s included), `stage.static_labels` /
+  `stage.labels` / `stage.structured_metadata` `values` and `faro.receiver`'s
+  `extra_log_labels`; headers by name, as above) — must be an object literal, or a declare
+  argument whose default and every given value fold to object literals (followed through declare
+  levels, each read where it is written). Anything else — `encoding.from_json(…)`, a component
+  export such as `local.file.x.content`, a concatenation, a value an importing text gives a
+  module, an argument with no value — may carry `__tenant_id__` or `X-Scope-OrgID` and is
+  refused. Keys are then checked as above (`__tenant_id__` owned, or refused in `stage.labels`;
+  `X-Scope-OrgID` owned); other keys may have computed values. Maps that label no data and send
+  no header a backend reads a tenant from are excluded, each with a documented reason (OAuth2
+  `endpoint_params`, Kubernetes `match_labels` selectors, scrape `params`, `loki.process`'s
+  extraction maps, the `otelcol.*` maps of OTLP attributes — a Loki label is made from those only
+  by `otelcol.exporter.loki`, which is routed through a drop — and the like); a spec classifies
+  every map-typed and `targets` attribute of every shipped schema, so a new one fails until it
+  is decided (unclassified, the lint treats it as a label map);
+- **targets whose labels reach a Loki entry**: `targets` lists are classified by the component
+  that takes them. `loki.source.file`, `.docker` and `.kubernetes` drop every label starting
+  with `__` from a target before it labels an entry (Alloy v1.21.2:
+  `discovery.Target.NonReservedLabelSet` in `loki/source/file/resolver.go`,
+  `loki/source/docker/tailer.go`, `loki/source/kubernetes/kubetail/target.go`), and metrics and
+  profiles targets carry no tenant (Mimir and Pyroscope read it only from the header), so any
+  value is accepted there (an object literal is still checked). `loki.enrich` copies its targets'
+  labels onto log entries, so it is refused unless `labels_to_copy` is a literal, non-empty list
+  without `__tenant_id__`;
 - anything that may set a tenant and cannot be read: a header key, a relabel `target_label` or
   `action` (matched exactly, as Alloy v1.20.1's `relabel.Action.UnmarshalText` does), or an
   `otelcol.auth.bearer` `header` it cannot resolve; a tenant-header bearer with a non-empty
@@ -676,6 +706,56 @@ Strict mode refuses:
   including the values the importing text gives its declares. Imports are followed only at the
   top level and directly in a declare body; an `import.*` block anywhere else (a `foreach`
   template, which Alloy also loads imports from, or a declare inside one) is refused.
+
+Components in a `foreach` template are checked like those at the top level (Alloy runs them the
+same way): their tenants, label maps and push-source paths, which may lead to components beside
+the `foreach`. A name two components there share is not followed, so a path through it is refused.
+A declare (or module) instantiated inside a template runs once per item with the template's
+variable in scope, so what it gives an argument is unreadable: a tenant, header, label map or
+other value read from that argument is refused.
+
+**Label names from text (v1.21.2 sources).** `stage.regex` and `stage.pattern` with
+`labels_from_groups = true` name a label after each named group; strict mode requires a literal
+`labels_from_groups`, and with `true` a literal expression (folded as above) that parses — Go
+`regexp` for `stage.regex` (its `SubexpNames`), every `<name>` match for `stage.pattern`, wherever
+it starts — with no group named `__tenant_id__`, and with `__tenant_id__` nowhere in its text (a
+group name is literal text, so this holds whatever the expression's own parser reads). `loki.secretfilter`'s `origin_label` (a label it reads) must be a
+literal other than `__tenant_id__`. Checked and needing nothing: the other stages write the
+extracted map (`json`, `logfmt`, `geoip`, `eventlogmessage`, `windowsevent`, `template`,
+`replace`) or structured metadata (`structured_metadata`, its `regex` included), or set fixed
+names (`cri`/`docker` `stream`); `stage.pack` only removes labels; `loki.source.syslog`'s
+`label_structured_data` names labels `__syslog_message_sd_*`; `loki.source.podlogs` and
+`loki.source.kubernetes` drop every reserved label but `__meta_*` (`kubetail.NewTarget`) whatever
+`preserve_discovered_labels` says — PodLogs relabelings run in the cluster, outside this check.
+Metrics and profiles labels (`honor_labels` included) carry no tenant: Mimir and Pyroscope read it
+only from the header. OTLP attributes become Loki labels only through `otelcol.exporter.loki`
+(routed through a drop); an OTLP export to Loki takes the tenant from the header.
+
+**Serve-time check (0045).** A strict org's pipeline saved before a check it now fails is served
+as stored unless something re-checks it. So whenever a strict org's pipelines are loaded to be
+served (`serve.LoadPipelines`, on the eager and the lazy path) or modelled (the Stage 3 dry runs,
+the reconciliation, the pipeline page), each enabled pipeline is checked as a save checks it —
+the tenant lint on the stored text and on the served form (`tenancy.LintPipeline`, the same check
+`shepherd admin tenant-preflight` runs, so the preflight lists exactly what is excluded). One it
+refuses carries the reason in `merge.Pipeline.TenantProblem`; `merge.Assemble` leaves it out of
+every collector it matches and lists it in the header under `// Excluded (N) - strict tenant
+check:` with the first findings. It stays stored and enabled; saving a fix includes it again. A
+check that cannot finish (the lint's wall-clock guard, tried three times) has no verdict: the
+recompute fails for that collector, which keeps its last good config (`serve.RecordFailure`), so
+neither an unchecked pipeline nor a config without it is served; only a refusal excludes. Boot
+recomputes every strict org, so a collector keeps a config from before an upgrade only while the
+check stays unable to finish, and while one pipeline's check cannot finish the org's collectors
+receive no config updates.
+Verdicts are cached in-process by the org's policy and the text, so a steady fleet's polls do not
+re-lint; a pipeline with `import.git` is not cached, since its verdict depends on the module cache.
+Turning strict mode off for an org (`SetOrgStrictTenants`, or `tenants.require_owned` going off
+between boots) clears its rows, auditing each as cleared. `pipeline_tenant_exclusions` records what is excluded, with a
+compare-and-swap on the reason, and only the write that lands is audited
+(`pipeline.tenant_check_excluded` / `pipeline.tenant_check_cleared`): once per change, never per
+recompute. The pipeline page's match preview shows the reason as each matched collector's
+`excluded_reason`, and the collector's reconciliation reports a `strict_tenant_excluded` finding.
+An org not in strict mode is not checked, and a strict org whose pipelines all pass is served the
+same bytes as before.
 
 **`labelmap` and `__tenant_id__` (#410).** A labelmap names every label it writes by its
 replacement, `$1` by default, so one whose replacement is not a literal without `$` may write

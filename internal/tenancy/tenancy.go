@@ -188,7 +188,7 @@ func Preflight(ctx context.Context, q *sqlc.Queries, org sqlc.Org, requireTenant
 		return nil, fmt.Errorf("listing org %q's enabled pipelines: %w", org.Name, err)
 	}
 	for i := range pipelines {
-		msgs, err := lintErrors(ctx, pipelines[i].Contents, p.Validation(q, src))
+		msgs, err := LintPipeline(ctx, q, p, src, pipelines[i].Contents)
 		if err != nil {
 			return nil, err
 		}
@@ -197,8 +197,9 @@ func Preflight(ctx context.Context, q *sqlc.Queries, org sqlc.Org, requireTenant
 		}
 		v := base
 		v.Kind, v.Name = KindPipeline, pipelines[i].Name
-		v.Message = fmt.Sprintf("enabled pipeline %q sets a tenant the organisation does not own (%s); "+
-			"edit or disable the pipeline, or assign the tenant to the organisation",
+		v.Message = fmt.Sprintf("enabled pipeline %q fails the strict tenant check (%s); in strict tenant mode it "+
+			"is left out of every collector's served config until it is fixed — edit or disable the pipeline, "+
+			"or assign the tenant to the organisation",
 			pipelines[i].Name, strings.Join(msgs, "; "))
 		out = append(out, v)
 	}
@@ -298,6 +299,19 @@ func LintLocked(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, require
 		return fmt.Errorf("%w: %s", ErrPipelineNotOwned, strings.Join(failures, " | "))
 	}
 	return nil
+}
+
+// LintPipeline is the strict tenant check of one pipeline's stored text
+// under p, reading pinned import.git modules from src: the tenant lint on
+// the text and on the form a strict org is served (pinned modules inlined,
+// __tenant_id__ dropped after labelmaps and otelcol.exporter.loki). It is the
+// one check a save, Preflight (`shepherd admin tenant-preflight`) and the
+// serve-time check (internal/serve.Serving) run, so the preflight predicts
+// exactly what serving excludes. The result is the refusals as "line:col
+// message"; validate.ErrLintBusy (wrapped) when the lint hit its wall-clock
+// guard.
+func LintPipeline(ctx context.Context, q *sqlc.Queries, p Policy, src pinnedimport.Source, contents string) ([]string, error) {
+	return lintErrors(ctx, contents, p.Validation(q, src))
 }
 
 // lintErrors is TenantLint's refusals in contents, as "line:col message";

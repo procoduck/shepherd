@@ -121,13 +121,27 @@ func servedVsObserved(declared Declared, served []ServedPipeline, observed Obser
 }
 
 // ExclusionFindings reports every pipeline role enforcement excluded from the
-// collector's served config (KindRoleSignalExcluded), one Finding each, in
-// excluded's order. Pure, like Compare: the caller computes excluded with
+// collector's served config (KindRoleSignalExcluded), and every one strict
+// tenant mode's serve-time check excluded (KindStrictTenantExcluded), one
+// Finding each, in excluded's order. Pure, like Compare: the caller computes excluded with
 // internal/merge.RoleExclusion — the same check the served config was
 // assembled with — and this only phrases it.
 func ExclusionFindings(declared Declared, excluded []ExcludedPipeline) []Finding {
 	findings := make([]Finding, 0, len(excluded))
 	for _, ex := range excluded {
+		if ex.TenantCheck {
+			findings = append(findings, Finding{
+				Kind:    KindStrictTenantExcluded,
+				Sources: [2]Source{SourceDeclared, SourceServed},
+				Summary: fmt.Sprintf(
+					"pipeline %q matches this collector but is excluded from its served config: it fails the "+
+						"strict tenant check (%s); saving a fix includes it again",
+					ex.Name, ex.Reason,
+				),
+				PipelineName: ex.Name,
+			})
+			continue
+		}
 		why := ex.Why(declared.Role)
 		findings = append(findings, Finding{
 			Kind:    KindRoleSignalExcluded,

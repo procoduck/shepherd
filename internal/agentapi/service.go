@@ -1085,7 +1085,7 @@ func (s *Service) recomputeServeCache(ctx context.Context, coll sqlc.Collector, 
 	// conversion mgmtapi's eager recompute uses, and a strict org's pinned
 	// import.git modules inlined from the cache. An import that cannot be
 	// inlined fails the recompute: the collector keeps its last good config.
-	mergePipelines, err := serve.LoadPipelines(ctx, s.store.Queries, orgID, s.requireOwned)
+	mergePipelines, err := serve.LoadPipelines(ctx, s.store, orgID, s.requireOwned)
 	if err != nil {
 		return serve.Result{}, err
 	}

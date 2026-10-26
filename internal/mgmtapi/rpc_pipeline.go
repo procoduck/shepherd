@@ -1194,7 +1194,38 @@ func (s *PipelineService) PreviewMatches(ctx context.Context, req *connect.Reque
 	// pipeline's signals (gate G6, finding M2) — merge.RoleExclusion, the
 	// check the served config is assembled with.
 	items := matchedCollectorsProto(s.schema, mp, matched)
+	// Strict tenant mode's serve-time check (serve.Serving), as the serve
+	// paths run it: a pipeline it refuses is left out of every collector it
+	// matches.
+	if problem := s.strictTenantProblem(ctx, orgID, mp); problem != "" {
+		for _, it := range items {
+			it.ExcludedReason = strictTenantExclusionReason(problem)
+		}
+	}
 	return connect.NewResponse(&mgmtv1.PreviewMatchesResponse{Collectors: items}), nil
+}
+
+// strictTenantExclusionReason phrases a serve-time strict tenant exclusion
+// for the match preview's excluded_reason.
+func strictTenantExclusionReason(problem string) string {
+	return "it fails the strict tenant check (" + problem + "); saving a fix includes it again"
+}
+
+// strictTenantProblem is why strict tenant mode's serve-time check leaves p
+// out of what its org's collectors are served, or "" (an org not in strict
+// mode, a pipeline it accepts, or a served form it cannot build, which the
+// serve paths report themselves).
+func (s *PipelineService) strictTenantProblem(ctx context.Context, orgID pgtype.UUID, p merge.Pipeline) string {
+	serving, err := serve.OrgServing(ctx, s.store.Queries, orgID, s.requireOwned)
+	if err != nil {
+		s.logger.Debug("preview matches: load the org's serve settings", "err", err)
+		return ""
+	}
+	served, err := serving.Form(ctx, []merge.Pipeline{p})
+	if err != nil || len(served) != 1 {
+		return ""
+	}
+	return served[0].TenantProblem
 }
 
 // pipelineOwnerTeamID returns p's owner_team_id as a string, or "" for an
@@ -1580,7 +1611,8 @@ func (s *PipelineService) stage3CheckSet(ctx context.Context, orgID pgtype.UUID,
 		// only changes a "(rev N)" comment line. Stage 3 validates merged
 		// config; it never serves it (its header even names env "dev").
 		found := false
-		for j, mp := range mergePipelines {
+		for j := range mergePipelines {
+			mp := mergePipelines[j]
 			if mp.ID == cand.ID {
 				cand.Revision = mp.Revision
 				changed = append(changed, mp)
@@ -1598,17 +1630,17 @@ func (s *PipelineService) stage3CheckSet(ctx context.Context, orgID pgtype.UUID,
 	// The served form: a strict org's pinned import.git modules inlined from
 	// the cache, candidates included (their save just fetched them), so the
 	// dry run validates exactly what the collectors would be served.
-	inline, err := serve.OrgInliner(ctx, s.store.Queries, orgID, s.requireOwned)
+	serving, err := serve.OrgServing(ctx, s.store.Queries, orgID, s.requireOwned)
 	if err != nil {
 		return fmt.Errorf("loading the org's serve settings: %w", err)
 	}
-	if mergePipelines, err = serve.ServedForm(ctx, inline, mergePipelines); err != nil {
+	if mergePipelines, err = serving.Form(ctx, mergePipelines); err != nil {
 		return err
 	}
 	// The version check compares against what is served now, so its
 	// baseline is in served form too. One that cannot be inlined has nothing
 	// "already served" to excuse: every version failure then refuses.
-	if currentPipelines, err = serve.ServedForm(ctx, inline, currentPipelines); err != nil {
+	if currentPipelines, err = serving.Form(ctx, currentPipelines); err != nil {
 		currentPipelines = nil
 	}
 
@@ -1825,8 +1857,8 @@ func (s *PipelineService) stage3TenantLint(ctx context.Context, orgID pgtype.UUI
 // collector's bytes may change.
 func affectedBy(changed []merge.Pipeline, coll serve.Collector) bool {
 	cl := merge.BuildCollectorLabels(coll.ID, coll.Cluster, coll.Role, coll.AdminLabels, coll.LocalAttrs)
-	for _, p := range changed {
-		if ok, err := merge.MatchesPipeline(p, cl); ok || err != nil {
+	for i := range changed {
+		if ok, err := merge.MatchesPipeline(changed[i], cl); ok || err != nil {
 			return true
 		}
 	}

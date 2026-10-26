@@ -7,6 +7,8 @@ import { toneClass } from '@/components/ui/statusTone';
  * role_signal_excluded (M2) is a pipeline whose matchers select this collector
  * but whose signals its role refuses, so the served config leaves it out —
  * enforcement working, but a pipeline the operator aimed here is not running.
+ * strict_tenant_excluded is the same for strict tenant mode's serve-time check:
+ * a stored pipeline that fails the tenant check is left out until a fix is saved.
  */
 function findingLabel(kind: string): string {
   switch (kind) {
@@ -14,6 +16,8 @@ function findingLabel(kind: string): string {
       return 'Running, not served';
     case 'role_signal_excluded':
       return 'Matched, excluded by role';
+    case 'strict_tenant_excluded':
+      return 'Matched, excluded by the strict tenant check';
     case REJECTED_KIND:
       return 'Rejected by collector';
     default:

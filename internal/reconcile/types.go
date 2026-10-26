@@ -142,6 +142,14 @@ const (
 	// in the served config, so reconciliation names it (Declared-then-Served:
 	// the role refused what the matchers selected).
 	KindRoleSignalExcluded Kind = "role_signal_excluded"
+
+	// KindStrictTenantExcluded fires for a pipeline whose matchers select
+	// this collector but which strict tenant mode's serve-time check
+	// (internal/serve.Serving) keeps out of its served config: the org is in
+	// strict tenant mode and the pipeline, as stored, fails the tenant check
+	// a save runs now (it was saved before that check). Saving a fix
+	// includes it again.
+	KindStrictTenantExcluded Kind = "strict_tenant_excluded"
 )
 
 // ExcludedPipeline is one pipeline that matched the collector's labels but
@@ -159,6 +167,10 @@ type ExcludedPipeline struct {
 	// Unproven is merge.Exclusion.Unproven: set when the signal set could not
 	// be proven, so Disallowed is an assumed worst case, not a proof.
 	Unproven string
+	// TenantCheck is set when strict tenant mode's serve-time check, not
+	// role enforcement, left the pipeline out: Reason is what it found
+	// (KindStrictTenantExcluded).
+	TenantCheck bool
 }
 
 // Finding is one contradiction Compare proved between exactly two of the

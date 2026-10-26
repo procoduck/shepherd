@@ -132,7 +132,7 @@ func (s *PipelineService) loadOrgServeInputs(ctx context.Context, orgID pgtype.U
 	// The served form (serve.LoadPipelines), as the lazy path loads it: a
 	// strict org's pinned import.git modules inlined. One that cannot be
 	// inlined fails every collector's recompute (loadErr), never serves raw.
-	pipelines, loadErr := serve.LoadPipelines(ctx, s.store.Queries, orgID, s.requireOwned)
+	pipelines, loadErr := serve.LoadPipelines(ctx, s.store, orgID, s.requireOwned)
 	return &orgServeInputs{
 		loadErr:            loadErr,
 		orgID:              orgID,
@@ -175,6 +175,13 @@ func (s *PipelineService) recomputeCollector(ctx context.Context, in *orgServeIn
 		return
 	}
 	for _, ex := range served.Exclusions {
+		if ex.TenantCheck {
+			// Strict tenant mode's serve-time check; recorded and audited
+			// once per change by serve.LoadPipelines.
+			s.logger.Debug("eager recompute: pipeline excluded (strict tenant check)",
+				"collector_id", c.ID.String(), "pipeline", ex.PipelineName)
+			continue
+		}
 		// Visible per docs/gateway-tier-plan.md §8 rule 2: a pipeline
 		// excluded for a role/signal mismatch is never silent. The
 		// generated header (served.Content) already names it too; this

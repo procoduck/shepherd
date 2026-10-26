@@ -102,6 +102,21 @@
           <code>loki.relabel</code> component and refer to its <code>rules</code>: those are
           checked, and rules written in place (a list or object, a function call, a
           concatenation) are refused;</li>
+        <li>a labels or headers map it cannot read: a value such as <code>external_labels</code>,
+          a source&rsquo;s <code>labels</code>, <code>stage.static_labels</code>&rsquo;
+          <code>values</code> or <code>faro.receiver</code>&rsquo;s
+          <code>extra_log_labels</code> must be written as a map
+          (<code>{ team = "a" }</code>, where a value may be computed) or come from a module
+          argument given such maps. A map computed at runtime &mdash;
+          <code>encoding.from_json(&hellip;)</code>, a file&rsquo;s content, another
+          component&rsquo;s export &mdash; could carry <code>__tenant_id__</code> or
+          <code>X-Scope-OrgID</code> and is refused. Which attributes are label maps is read from
+          the component schemas;</li>
+        <li>a <code>loki.enrich</code> without a <code>labels_to_copy</code> list that leaves out
+          <code>__tenant_id__</code>: it copies its targets&rsquo; labels onto log lines.
+          Discovery targets passed to <code>loki.source.file</code>, <code>.docker</code> or
+          <code>.kubernetes</code> are fine as they are: those drop every label starting with
+          <code>__</code>;</li>
         <li><code>import.file</code> and <code>import.http</code> modules, and an
           <code>import.git</code> module unless it is pinned to a commit of an allowed repository
           (<a href="#pinned-imports">below</a>) &mdash; otherwise inline the module as a
@@ -112,6 +127,21 @@
         <li>anything too large or too deeply nested to work out within the check&rsquo;s limits
           (values built from more than 4 KiB, more than 8 levels of modules).</li>
       </ul>
+      <p>Components inside a <code>foreach</code> template are checked like any other; a module
+        argument given from inside a template cannot be read, so a tenant or label map taken from
+        it is refused. <code>stage.regex</code> and <code>stage.pattern</code> with
+        <code>labels_from_groups = true</code> need a literal expression with no group named
+        <code>__tenant_id__</code>.</p>
+      <p><strong>Pipelines saved before a check was added are checked when they are
+        served.</strong> Every time a strict organisation&rsquo;s collectors are given new config,
+        each enabled pipeline is checked as a save would check it. One that fails is left out of
+        every collector&rsquo;s config and listed in the config&rsquo;s header under
+        <em>Excluded &mdash; strict tenant check</em> with the reason; the pipeline page shows the
+        matched collectors as excluded, and the collector&rsquo;s <em>Reconciliation</em> tab
+        names it. The pipeline stays saved and enabled: save a fix and it is served again. If the
+        check cannot finish in time, the collector keeps the config it had.
+        <code>shepherd admin tenant-preflight</code> lists exactly these pipelines. Each change is
+        recorded once in the audit log.</p>
       <p>This is defence in depth, not the boundary: your backend&rsquo;s own tenant
         authentication is. The check cannot see a tenant a proxy in front of the backend adds, or
         one passed some other way, such as a basic-auth username. What holds regardless is the rule

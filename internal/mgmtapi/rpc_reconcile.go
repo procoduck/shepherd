@@ -178,7 +178,7 @@ func (s *FleetService) reconcileServed(ctx context.Context, orgID pgtype.UUID, c
 	}
 	// Signals are derived from the served form: a strict org's pinned
 	// import.git modules inlined, as the serve paths inline them.
-	inline, err := serve.OrgInliner(ctx, s.store.Queries, orgID, s.requireOwned)
+	serving, err := serve.OrgServing(ctx, s.store.Queries, orgID, s.requireOwned)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -202,12 +202,18 @@ func (s *FleetService) reconcileServed(ctx context.Context, orgID pgtype.UUID, c
 		if matchErr != nil || !matched {
 			continue
 		}
-		if served, err := serve.ServedForm(ctx, inline, []merge.Pipeline{p}); err != nil {
+		if served, err := serving.Form(ctx, []merge.Pipeline{p}); err != nil {
 			// Not served at all: the collector keeps its last good config.
 			excluded = append(excluded, reconcile.ExcludedPipeline{Name: p.Name, Reason: err.Error()})
 			continue
 		} else {
 			p = served[0]
+		}
+		// Strict tenant mode's serve-time check, as the serve paths run it
+		// (serve.Serving): a pipeline it refuses is not served.
+		if p.TenantProblem != "" {
+			excluded = append(excluded, reconcile.ExcludedPipeline{Name: p.Name, Reason: p.TenantProblem, TenantCheck: true})
+			continue
 		}
 		// The enforcement merge.Assemble applies, per pipeline: an excluded
 		// pipeline (signals the role refuses, or signals that could not be

@@ -24,6 +24,7 @@ import (
 	"shepherd/internal/crypto"
 	"shepherd/internal/mgmtapi"
 	"shepherd/internal/pinnedimport"
+	"shepherd/internal/serve"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
 	"shepherd/internal/validate"
@@ -255,6 +256,144 @@ var _ = Describe("Strict tenant mode", Label("integration"), func() {
 			Entry("a tenant nobody owns", "free", false),
 			Entry("another org's tenant", "globex", false),
 		)
+
+		// The serve-time check on the eager path: a pipeline stored before
+		// the check it now fails (inserted straight through sqlc, as an
+		// older version saved it) is excluded from every collector it
+		// matches, named in the header, audited once, shown on the pipeline
+		// page and the collector's reconciliation, listed by the preflight —
+		// and served again once a fix is saved.
+		It("clears the serve-time exclusions, audited once each, when strict mode is turned off by the toggle or at boot", func() {
+			computed := "loki.write \"w\" {\n  endpoint {\n    url       = \"https://l.example/push\"\n    tenant_id = \"acme\"\n  }\n" +
+				"  external_labels = encoding.from_json(\"{}\")\n}\n"
+			old, err := st.Queries.CreatePipeline(ctx, sqlc.CreatePipelineParams{
+				OrgID: orgA, Name: "old", Contents: computed, Matchers: json.RawMessage(`["cluster=\"off-cluster\""]`),
+				Enabled: true, Source: "ui", WizardState: json.RawMessage(`{}`), CreatedBy: "test", UpdatedBy: "test",
+			})
+			Expect(err).NotTo(HaveOccurred())
+			cleared := func() int {
+				rows, err := st.Queries.ListAuditLog(ctx, sqlc.ListAuditLogParams{Column1: orgA, Limit: 100})
+				Expect(err).NotTo(HaveOccurred())
+				n := 0
+				for _, r := range rows {
+					if r.Action == serve.AuditActionTenantCheckCleared && r.ResourceID == old.ID.String() {
+						n++
+					}
+				}
+				return n
+			}
+			exclude := func() {
+				GinkgoHelper()
+				_, err := serve.LoadPipelines(ctx, st, orgA, false)
+				Expect(err).NotTo(HaveOccurred())
+				_, err = st.Queries.GetPipelineTenantExclusion(ctx, old.ID)
+				Expect(err).NotTo(HaveOccurred())
+			}
+
+			exclude()
+			ok(setStrict(orgA, false))
+			_, err = st.Queries.GetPipelineTenantExclusion(ctx, old.ID)
+			Expect(err).To(HaveOccurred(), "the toggle clears the org's exclusions")
+			Expect(cleared()).To(Equal(1))
+
+			// At boot: the flag (or tenants.require_owned) went off without the toggle.
+			makeStrict(orgA)
+			exclude()
+			_, err = st.Queries.SetOrgStrictTenants(ctx, sqlc.SetOrgStrictTenantsParams{ID: orgA, StrictTenants: false})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(serve.ClearNonStrictTenantExclusions(ctx, st, true)).To(Succeed())
+			_, err = st.Queries.GetPipelineTenantExclusion(ctx, old.ID)
+			Expect(err).NotTo(HaveOccurred(), "tenants.require_owned still applies the rule")
+			Expect(serve.ClearNonStrictTenantExclusions(ctx, st, false)).To(Succeed())
+			_, err = st.Queries.GetPipelineTenantExclusion(ctx, old.ID)
+			Expect(err).To(HaveOccurred())
+			Expect(cleared()).To(Equal(2))
+		})
+
+		It("excludes a stored pipeline the serve-time check refuses until a fix is saved", func() {
+			computed := "loki.write \"w\" {\n  endpoint {\n    url       = \"https://l.example/push\"\n    tenant_id = \"acme\"\n  }\n" +
+				"  external_labels = encoding.from_json(\"{\\\"__tenant_id__\\\":\\\"globex\\\"}\")\n}\n"
+			cl, err := st.Queries.UpsertCluster(ctx, "check-cluster")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(st.Queries.ClaimCluster(ctx, sqlc.ClaimClusterParams{ID: cl.ID, OrgID: orgA})).To(Succeed())
+			coll, err := st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: cl.ID, Role: "singleton"})
+			Expect(err).NotTo(HaveOccurred())
+			old, err := st.Queries.CreatePipeline(ctx, sqlc.CreatePipelineParams{
+				OrgID: orgA, Name: "old", Contents: computed, Matchers: json.RawMessage(`["cluster=\"check-cluster\""]`),
+				Enabled: true, Source: "ui", WizardState: json.RawMessage(`{}`), CreatedBy: "test", UpdatedBy: "test",
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			ps := mgmtapi.NewPipelineService(st, validate.New(&cfg.Validate), embeddedSchema(), slog.Default())
+			ps.RecomputeOrgCaches(ctx, orgA)
+			row, err := st.Queries.GetServeCache(ctx, coll.ID)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(row.Content).To(ContainSubstring("// Excluded (1) - strict tenant check:\n//   - old: "))
+			Expect(row.Content).To(ContainSubstring("not a literal map"))
+			Expect(row.Content).NotTo(ContainSubstring(`declare "pipe_old"`))
+			Expect(st.Queries.MarkServeCacheDirtyByOrg(ctx, orgA)).To(Succeed())
+			ps.RecomputeOrgCaches(ctx, orgA)
+			again, err := st.Queries.GetServeCache(ctx, coll.ID)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(again.Content).To(Equal(row.Content))
+			auditCount := func(action string) int {
+				rows, err := st.Queries.ListAuditLog(ctx, sqlc.ListAuditLogParams{Column1: orgA, Limit: 100})
+				Expect(err).NotTo(HaveOccurred())
+				n := 0
+				for _, r := range rows {
+					if r.Action == action && r.ResourceID == old.ID.String() {
+						n++
+					}
+				}
+				return n
+			}
+			Expect(auditCount(serve.AuditActionTenantCheckExcluded)).To(Equal(1))
+
+			// The pipeline page: every matched collector reads excluded.
+			pm := ok(call(adminA, "PipelineService/PreviewMatches", map[string]any{"orgId": orgA.String(), "id": old.ID.String()}))
+			Expect(pm["collectors"]).To(ConsistOf(HaveKeyWithValue("excludedReason", ContainSubstring("strict tenant check"))))
+			// The collector's reconciliation names it.
+			rec := ok(call(adminA, "FleetService/GetReconciliation", map[string]any{"orgId": orgA.String(), "id": coll.ID.String()}))
+			Expect(rec["findings"]).To(ContainElement(And(
+				HaveKeyWithValue("kind", "strict_tenant_excluded"), HaveKeyWithValue("pipelineName", "old"))))
+			// The preflight predicts it.
+			pre := ok(call(appAdmin, "AdminService/TenantPreflight", map[string]any{"orgId": orgA.String()}))
+			Expect(pre["violations"]).To(ContainElement(And(HaveKeyWithValue("kind", "pipeline"), HaveKeyWithValue("name", "old"))))
+
+			// Saving it unchanged is refused at save, as before; a fix is
+			// served.
+			code, out := call(adminA, "PipelineService/UpdatePipeline", map[string]any{
+				"orgId": orgA.String(), "id": old.ID.String(), "name": "old", "contents": computed, "matchers": []string{`cluster="check-cluster"`},
+			})
+			Expect(code).To(Equal(http.StatusBadRequest), "%v", out)
+			fixed := strings.Replace(computed, "encoding.from_json(\"{\\\"__tenant_id__\\\":\\\"globex\\\"}\")", `{ team = "a" }`, 1)
+			ok(call(adminA, "PipelineService/UpdatePipeline", map[string]any{
+				"orgId": orgA.String(), "id": old.ID.String(), "name": "old", "contents": fixed, "matchers": []string{`cluster="check-cluster"`},
+			}))
+			Eventually(func() string {
+				r, err := st.Queries.GetServeCache(ctx, coll.ID)
+				Expect(err).NotTo(HaveOccurred())
+				return r.Content
+			}).WithTimeout(10 * time.Second).Should(And(ContainSubstring(`declare "pipe_old"`), Not(ContainSubstring("strict tenant check"))))
+			Eventually(func() int { return auditCount(serve.AuditActionTenantCheckCleared) }).WithTimeout(10 * time.Second).Should(Equal(1))
+
+			// The same text in an org not in strict mode is served as is.
+			_, err = st.Queries.CreatePipeline(ctx, sqlc.CreatePipelineParams{
+				OrgID: orgB, Name: "old", Contents: strings.ReplaceAll(computed, "acme", "globex"), Matchers: json.RawMessage(`["cluster=\"b-cluster\""]`),
+				Enabled: true, Source: "ui", WizardState: json.RawMessage(`{}`), CreatedBy: "test", UpdatedBy: "test",
+			})
+			Expect(err).NotTo(HaveOccurred())
+			clB, err := st.Queries.UpsertCluster(ctx, "b-cluster")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(st.Queries.ClaimCluster(ctx, sqlc.ClaimClusterParams{ID: clB.ID, OrgID: orgB})).To(Succeed())
+			collB, err := st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: clB.ID, Role: "singleton"})
+			Expect(err).NotTo(HaveOccurred())
+			ps.RecomputeOrgCaches(ctx, orgB)
+			rowB, err := st.Queries.GetServeCache(ctx, collB.ID)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(rowB.Content).To(ContainSubstring(`declare "pipe_old"`))
+			Expect(rowB.Content).NotTo(ContainSubstring("strict tenant check"))
+		})
 
 		It("refuses a destination update and a binding (create and update) onto an unowned tenant", func() {
 			dest := ok(createDest(adminA, orgA, "d", "acme"))

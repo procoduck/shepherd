@@ -155,6 +155,11 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	if err := tenancy.MarkPinnedImportOrgsDirty(context.Background(), st.Queries, cfg.Tenants.RequireOwned); err != nil {
 		logger.Error("strict tenants: marking orgs with pinned imports for recompute", "err", err)
 	}
+	// An org strict mode no longer applies to (its flag, or
+	// tenants.require_owned, went off) is no longer checked when served.
+	if err := serve.ClearNonStrictTenantExclusions(context.Background(), st, cfg.Tenants.RequireOwned); err != nil {
+		logger.Error("strict tenants: clearing serve-time exclusions of orgs no longer strict", "err", err)
+	}
 
 	// Build encryptor for secret-at-rest (may be nil if key not configured yet).
 	var enc *crypto.Encryptor
