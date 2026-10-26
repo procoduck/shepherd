@@ -22,7 +22,7 @@
 > limits (#388), and bounded visual render output (#393) — first published as **v0.19.0-rc.2**
 > (chart 0.23.0-rc.2); and the rc.2 upgrade walkthrough's gaps (#395) and B-BEACON-SCRAPE, the
 > beacon that never reported (#396). Step 7b (#362), #375, #389, #390, the rest of #378 and the
-> in-browser preview caps are open (§4).
+> in-browser preview caps (#400) are open (§4).
 > Completed rounds live in `docs/archive/` — the history this ledger used to carry inline is
 > `docs/archive/completed-2026-09-11.md`. Do not start a second ledger.
 
@@ -32,7 +32,7 @@
 |---|---|
 | `docs/project-status.md` | this ledger — verified baseline, open bugs, unbuilt features, open follow-ups |
 | `docs/spec.md` | authoritative product/build specification (§ numbers referenced below) |
-| `docs/plans/` | dated per-PR implementation plans while their work is unreleased; a plan moves to `docs/archive/plans/` once it has shipped in a tag. Empty between releases. The last shipped, `2026-10-22-review-remediation.md` (the v0.19.0 line, #363–#396), is in `docs/archive/plans/` with every earlier plan |
+| `docs/plans/` | dated per-PR implementation plans while their work is unreleased; a plan moves to `docs/archive/plans/` once it has shipped in a tag. Current: `2026-10-26-v020-queue.md` (0.19.1 and 0.20). The last shipped, `2026-10-22-review-remediation.md` (the v0.19.0 line, #363–#396), is in `docs/archive/plans/` with every earlier plan |
 | `docs/visual-builder-design-VB1.md` | visual builder design — M1–M8 built; §6.4 (S3) is the live spec for the sandbox feature (enabled by default in the Helm chart since v0.0.1) |
 | `docs/reviews/` | **live decision records only**: `canvas-framework-evaluation.md` (the React Flow decision and the controlled-mode contract `CanvasPane` depends on). Closed reviews move to `docs/archive/reviews/` |
 | `docs/dev-guide.md` | running the dev stack |
@@ -484,8 +484,11 @@ below ships in v0.19.0 — steps 1–6, 4b–4d and 7a (first in rc.1), the plan
   Unknown and the pipeline is dropped from restricted roles.
 - **#389** — beacon ingest hardening follow-ups.
 - **#390** — strict tenant mode: allow pinned external module imports.
-- The in-browser visual preview (`web/src/visual/renderTS.ts`) has no label or output cap; the
-  server's diagnostics are authoritative (#393 follow-up).
+- **#400** — the in-browser visual preview (`web/src/visual/renderTS.ts`) has no label or output
+  cap; the server's diagnostics are authoritative (#393 follow-up).
+
+Their order, releases (0.19.1: #389, #400; 0.20: #378, #362, #390, #375) and design decisions are in
+`docs/plans/2026-10-26-v020-queue.md`.
 
 In rough priority order; closed items stay in place, marked with the release that shipped them:
 
