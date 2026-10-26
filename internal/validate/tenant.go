@@ -1287,6 +1287,19 @@ func (l *tenantLinter) pushSourcePaths() {
 	for _, ps := range l.pushes {
 		name := strings.Join(ps.block.Name, ".")
 		where := fmt.Sprintf("%s %q", name, ps.block.Label)
+		if name == exporterLoki {
+			// The strict served form routes it through a __tenant_id__ drop
+			// (InsertTenantDrops), which it can do only for a plain list.
+			if fwd := attrsOf(ps.block)["forward_to"]; fwd != nil && !plainReceiverList(fwd) {
+				l.refuse(fwd, where+" forward_to is not a list of component receivers (such as "+
+					"[loki.write.<label>.receiver]), so strict tenant mode cannot route it through the "+tenantLabel+
+					" drop it serves and refuses it; write forward_to as such a list")
+				continue
+			}
+			if l.policy.servedDrops {
+				continue // the served form, which carries the drop, decides
+			}
+		}
 		if problem := l.followClientTenant(ps.block, ps.scope, map[*ast.BlockStmt]bool{}, 0); problem != "" {
 			l.refuse(ps.block, where+" "+pushSources[name]+" "+problem+" — strict tenant mode refuses it; "+
 				"overwrite "+tenantLabel+" (stage.static_labels) or drop it (stage.label_drop) on every path to the writer")

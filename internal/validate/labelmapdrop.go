@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -251,6 +252,11 @@ func (d *dropper) body(stmts ast.Body, component, path string, nesting int) erro
 				return err
 			}
 			continue
+		case component == "" && name == exporterLoki:
+			if err := d.exporterLoki(b, stmts); err != nil {
+				return err
+			}
+			continue
 		case component == "":
 			rules, err := RelabelRuleBlocks()
 			if err != nil {
@@ -303,6 +309,92 @@ func (d *dropper) insertAfter(b *ast.BlockStmt) {
 		sb.WriteString(line)
 	}
 	d.splices = append(d.splices, dropSplice{start: end, end: end, text: sb.String()})
+}
+
+// exporterLoki is the component the strict served form routes through a
+// __tenant_id__ drop: it may turn OTLP attributes into that label
+// (pushSources).
+const exporterLoki = "otelcol.exporter.loki"
+
+// exporterDropPrefix starts the label of the loki.process the served form
+// inserts after an otelcol.exporter.loki: "<prefix><exporter label>".
+const exporterDropPrefix = "shepherd_tenant_drop_"
+
+// exporterLoki routes otelcol.exporter.loki b through a __tenant_id__ drop:
+// its forward_to becomes [loki.process.<exporterDropPrefix><label>.receiver],
+// and that loki.process — forwarding to the original forward_to, verbatim,
+// with a stage.label_drop of __tenant_id__ — is inserted on lines of its own
+// right after b, indented as b's line is. A forward_to that is absent, empty
+// or not a plain list of receivers (plainReceiverList) is left alone: the
+// lint refuses the last. A component of that name already in scope (stmts)
+// is an error: the served form cannot be built.
+func (d *dropper) exporterLoki(b *ast.BlockStmt, stmts ast.Body) error {
+	var fwd *ast.AttributeStmt
+	for _, st := range b.Body {
+		if a, ok := st.(*ast.AttributeStmt); ok && a.Name.Name == "forward_to" {
+			fwd = a
+		}
+	}
+	if fwd == nil || !plainReceiverList(fwd.Value) {
+		return nil
+	}
+	if arr, ok := unparen(fwd.Value).(*ast.ArrayExpr); !ok || len(arr.Elements) == 0 {
+		return nil
+	}
+	label := exporterDropPrefix + b.Label
+	for _, st := range stmts {
+		if o, ok := st.(*ast.BlockStmt); ok && strings.Join(o.Name, ".") == "loki.process" && o.Label == label {
+			return fmt.Errorf("%w: loki.process %q already exists beside %s %q, so the drop cannot be inserted; "+
+				"rename that component", ErrTenantDrop, label, exporterLoki, b.Label)
+		}
+	}
+	vStart := ast.StartPos(fwd.Value).Position().Offset
+	vEnd := ast.EndPos(fwd.Value).Position().Offset + 1
+	original := d.text[vStart:vEnd]
+	d.splices = append(d.splices, dropSplice{start: vStart, end: vEnd, text: "[loki.process." + label + ".receiver]"})
+
+	start := ast.StartPos(b).Position().Offset
+	end := ast.EndPos(b).Position().Offset + 1
+	lineStart := strings.LastIndexByte(d.text[:start], '\n') + 1
+	line := d.text[lineStart:start]
+	indent := line[:len(line)-len(strings.TrimLeft(line, " \t"))]
+	lines := []string{
+		"",
+		"loki.process " + strconv.Quote(label) + " {",
+		"  forward_to = " + original,
+		"",
+		"  stage.label_drop {",
+		`    values = ["` + tenantLabel + `"]`,
+		"  }",
+		"}",
+	}
+	var sb strings.Builder
+	for _, l := range lines {
+		sb.WriteString(d.newline)
+		if l != "" {
+			sb.WriteString(indent)
+			sb.WriteString(l)
+		}
+	}
+	d.splices = append(d.splices, dropSplice{start: end, end: end, text: sb.String()})
+	return nil
+}
+
+// plainReceiverList reports whether v is a list literal of component
+// receiver references (`<component>.<label>.receiver`), the only forward_to
+// the strict served form routes through a drop.
+func plainReceiverList(v ast.Expr) bool {
+	arr, ok := unparen(v).(*ast.ArrayExpr)
+	if !ok {
+		return false
+	}
+	for _, el := range arr.Elements {
+		parts, ok := accessChain(el)
+		if !ok || len(parts) < 3 || parts[len(parts)-1] != "receiver" || parts[0] == "argument" {
+			return false
+		}
+	}
+	return true
 }
 
 // importString inserts the drops into a literal import.string's module

@@ -43,22 +43,6 @@ func k8smon(name string) string {
 	return string(b)
 }
 
-// k8smonStrict is the k8s-monitoring fixture name, its logs fixture with a
-// loki.process dropping __tenant_id__ between its otelcol.exporter.loki and
-// its loki.write. The chart's output sends the exporter straight to the
-// writer, which strict tenant mode refuses: the exporter may turn OTLP
-// attributes into that label.
-func k8smonStrict(name string) string {
-	src := k8smon(name)
-	if name != "logs" {
-		return src
-	}
-	const exporter = "otelcol.exporter.loki \"loki\" {\n  forward_to = [loki.write.loki.receiver]\n}"
-	Expect(src).To(ContainSubstring(exporter))
-	return strings.Replace(src, exporter, "otelcol.exporter.loki \"loki\" {\n  forward_to = [loki.process.tenant_drop.receiver]\n}", 1) +
-		"\nloki.process \"tenant_drop\" {\n  forward_to = [loki.write.loki.receiver]\n  stage.label_drop {\n    values = [\"__tenant_id__\"]\n  }\n}\n"
-}
-
 func insertDrops(text string) string {
 	out, err := validate.InsertTenantDrops(text)
 	Expect(err).NotTo(HaveOccurred())
@@ -222,18 +206,22 @@ var _ = Describe("the tenant lint on a labelmap (#410)", func() {
 			To(ConsistOf(ContainSubstring(`"victim"`)))
 	})
 
-	It("refuses the chart's logs fixture verbatim for one finding only: its otelcol.exporter.loki path", func() {
-		Expect(errorsOf(validate.TenantLint(insertDrops(k8smon("logs")), ownsAll()))).To(ConsistOf(And(
+	It("routes the chart's logs fixture's otelcol.exporter.loki through the drop", func() {
+		src := k8smon("logs")
+		Expect(errorsOf(validate.TenantLint(src, ownsAll()))).To(ContainElement(And(
 			ContainSubstring(`otelcol.exporter.loki "loki"`),
 			ContainSubstring(`to loki.write "loki" without overwriting or dropping it`),
 		)))
-		Expect(validate.TenantLint(insertDrops(k8smonStrict("logs")), ownsAll())).To(BeEmpty())
+		served := insertDrops(src)
+		Expect(served).To(ContainSubstring("otelcol.exporter.loki \"loki\" {\n  forward_to = [loki.process.shepherd_tenant_drop_loki.receiver]\n}"))
+		Expect(served).To(ContainSubstring("loki.process \"shepherd_tenant_drop_loki\" {\n  forward_to = [loki.write.loki.receiver]\n"))
 	})
 
-	It("finds the chart's labelmaps in both k8s-monitoring fixtures, and none once the drops are in", func() {
+	It("finds the chart's labelmaps and exporter in both k8s-monitoring fixtures, and none once the drops are in", func() {
 		for name, n := range map[string]int{"logs": 1, "metrics": 2} {
-			src := k8smonStrict(name)
-			Expect(errorsOf(validate.TenantLint(src, ownsAll()))).To(HaveLen(n), name)
+			src := k8smon(name)
+			exporters := strings.Count(src, "\notelcol.exporter.loki \"")
+			Expect(errorsOf(validate.TenantLint(src, ownsAll()))).To(HaveLen(n+exporters), name)
 			served := insertDrops(src)
 			Expect(strings.Count(served, "action = \"labeldrop\"\n")).To(Equal(n+strings.Count(src, "action = \"labeldrop\"\n")), name)
 			Expect(validate.TenantLint(served, ownsAll())).To(BeEmpty(), name)
@@ -252,14 +240,14 @@ var _ = Describe("ValidatePipeline in a strict org with a labelmap (#410)", func
 
 	It("saves the k8s-monitoring fixtures verbatim: the served form carries the drops", func() {
 		for _, name := range []string{"logs", "metrics"} {
-			r := v.ValidatePipeline(context.Background(), name, k8smonStrict(name), withInline(drops))
+			r := v.ValidatePipeline(context.Background(), name, k8smon(name), withInline(drops))
 			Expect(r.Valid).To(BeTrue(), "%s: %v", name, r.Diagnostics)
 		}
 	})
 
 	It("fails closed when the served form lacks the drop (insertion stubbed out)", func() {
 		identity := func(_ context.Context, c string) (string, error) { return c, nil }
-		for _, src := range []string{k8smonStrict("logs"), relabel(labelmapDefault)} {
+		for _, src := range []string{k8smon("logs"), relabel(labelmapDefault)} {
 			r := v.ValidatePipeline(context.Background(), "p", src, withInline(identity))
 			Expect(r.Valid).To(BeFalse())
 			Expect(errorsOf(r.Diagnostics)).To(ContainElement(And(ContainSubstring("as served"), ContainSubstring("labelmap"))))
@@ -276,11 +264,11 @@ var _ = Describe("ValidatePipeline in a strict org with a labelmap (#410)", func
 		}
 		real := validate.New(&config.ValidateConfig{AlloyBinary: bin, StabilityLevel: "experimental", Timeout: 2 * time.Minute})
 		for _, name := range []string{"logs", "metrics"} {
-			served := insertDrops(k8smonStrict(name))
+			served := insertDrops(k8smon(name))
 			r := real.Stages12(context.Background(), validate.WrapForValidation(name, served))
 			Expect(r.Valid).To(BeTrue(), "%s: %v", name, r.Diagnostics)
 			Expect(r.Skipped).To(BeEmpty(), name)
-			r = real.ValidatePipeline(context.Background(), name, k8smonStrict(name), withInline(drops))
+			r = real.ValidatePipeline(context.Background(), name, k8smon(name), withInline(drops))
 			Expect(r.Valid).To(BeTrue(), "%s: %v", name, r.Diagnostics)
 		}
 	})

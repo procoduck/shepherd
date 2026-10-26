@@ -101,11 +101,14 @@ Categories used here:
   (a list or object, a function call, a concatenation), another export, and a component outside
   that scope are refused, with a message to move the rules into a `loki.relabel` component.
   `otelcol.exporter.loki`, which turns the OpenTelemetry attributes its `loki.resource.labels` /
-  `loki.attribute.labels` hints name into Loki labels (`__tenant_id__` included), is now checked
-  like `loki.source.api`: every path from it to a `loki.write` must overwrite or drop
-  `__tenant_id__` first. The grafana/k8s-monitoring chart's logs output sends its
-  `otelcol.exporter.loki` straight to `loki.write`, so a strict org saves it only with a
-  `loki.process` dropping `__tenant_id__` on that path. At boot, an org whose pipeline gets a
+  `loki.attribute.labels` hints name into Loki labels (`__tenant_id__` included), is now served
+  in a strict org through an added `loki.process "shepherd_tenant_drop_<label>"` that drops
+  `__tenant_id__` and forwards to the exporter's original targets, and the tenant check follows
+  every path from it to a `loki.write` through that drop. The grafana/k8s-monitoring chart's
+  logs output is saved and served as written. The exporter's `forward_to` must be a list of
+  component receivers, and a component of the added name must not already exist beside it.
+  The stored text is unchanged, and other orgs and pipelines are served byte for byte as
+  before. At boot, an org whose pipeline gets a
   `__tenant_id__` drop in the strict served form is also recomputed, in case
   `tenants.require_owned` changed since the last boot. The inserted drop takes the labelmap
   line's own leading whitespace (tabs included). The served config format is unchanged.

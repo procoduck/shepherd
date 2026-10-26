@@ -684,22 +684,6 @@ var _ = Describe("Strict tenant mode", Label("integration"), func() {
 				coll, err := st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: cl.ID, Role: role})
 				Expect(err).NotTo(HaveOccurred())
 
-				if role == "logs" {
-					// Strict tenant mode also checks the labels
-					// otelcol.exporter.loki makes: the chart sends it straight
-					// to the writer, so the logs output as the chart writes it
-					// is refused for that one finding, and saved once a
-					// loki.process drops __tenant_id__ on that path.
-					v := ok(call(adminA, "PipelineService/ValidatePipeline", map[string]any{"orgId": orgA.String(), "name": "k8smon-logs", "contents": src}))
-					Expect(v).NotTo(HaveKeyWithValue("valid", true), "%v", v)
-					Expect(v["diagnostics"]).To(ConsistOf(HaveKeyWithValue("message", And(
-						ContainSubstring(`otelcol.exporter.loki "loki"`), ContainSubstring(`loki.write "loki"`)))))
-					const exporter = "otelcol.exporter.loki \"loki\" {\n  forward_to = [loki.write.loki.receiver]\n}"
-					Expect(src).To(ContainSubstring(exporter))
-					src = strings.Replace(src, exporter, "otelcol.exporter.loki \"loki\" {\n  forward_to = [loki.process.tenant_drop.receiver]\n}", 1) +
-						"\nloki.process \"tenant_drop\" {\n  forward_to = [loki.write.loki.receiver]\n  stage.label_drop {\n    values = [\"__tenant_id__\"]\n  }\n}\n"
-				}
-
 				v := ok(call(adminA, "PipelineService/ValidatePipeline", map[string]any{"orgId": orgA.String(), "name": "k8smon-" + role, "contents": src}))
 				Expect(v).To(HaveKeyWithValue("valid", true), "%v", v)
 				p := ok(call(adminA, "PipelineService/CreatePipeline", map[string]any{
@@ -713,6 +697,12 @@ var _ = Describe("Strict tenant mode", Label("integration"), func() {
 
 				content := served(coll.ID, `declare "pipe_k8smon_`+role+`"`)
 				Expect(drop.FindAllString(content, -1)).To(HaveLen(drops), role)
+				if role == "logs" {
+					// The chart's otelcol.exporter.loki is served through a
+					// loki.process dropping __tenant_id__.
+					Expect(content).To(ContainSubstring("forward_to = [loki.process.shepherd_tenant_drop_loki.receiver]"))
+					Expect(content).To(MatchRegexp(`loki\.process "shepherd_tenant_drop_loki" \{\s*forward_to = \[loki\.write\.loki\.receiver\]\s*stage\.label_drop \{\s*values = \["__tenant_id__"\]`))
+				}
 			}
 			pre := ok(call(appAdmin, "AdminService/TenantPreflight", map[string]any{"orgId": orgA.String()}))
 			Expect(pre).NotTo(HaveKey("violations"))

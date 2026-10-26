@@ -203,7 +203,6 @@ var _ = Describe("strict tenant mode also checks the labels otelcol.exporter.lok
 		Entry("straight to the writer", "loki.write.w.receiver"),
 		Entry("through a step that keeps it", "loki.process.noop.receiver"),
 		Entry("one safe path and one unsafe", "loki.process.drop.receiver, loki.write.w.receiver"),
-		Entry("a receiver it cannot follow", "argument.out.value"),
 	)
 	DescribeTable("accepts every path setting it to an owned tenant or dropping it first",
 		func(between string) {
@@ -218,5 +217,99 @@ var _ = Describe("strict tenant mode also checks the labels otelcol.exporter.lok
 			"  stage.static_labels {\n    values = { \"__tenant_id__\" = \"globex\" }\n  }\n}\n"
 		Expect(errorsOf(validate.TenantLint(other, strictFor()))).
 			To(ContainElement(ContainSubstring(`tenant "globex" is not one this organisation owns`)))
+	})
+})
+
+// exporterDrop is what the strict served form puts after an
+// otelcol.exporter.loki "x" whose forward_to was fwd, at the top level.
+func exporterDrop(fwd string) string {
+	return "\n\nloki.process \"shepherd_tenant_drop_x\" {\n  forward_to = " + fwd + "\n\n  stage.label_drop {\n" +
+		"    values = [\"__tenant_id__\"]\n  }\n}"
+}
+
+const (
+	exporterDirect  = "otelcol.exporter.loki \"x\" {\n  forward_to = [loki.write.w.receiver]\n}"
+	exporterViaDrop = "otelcol.exporter.loki \"x\" {\n  forward_to = [loki.process.shepherd_tenant_drop_x.receiver]\n}"
+)
+
+var _ = Describe("the strict served form routes otelcol.exporter.loki through a __tenant_id__ drop", func() {
+	v := noBinary()
+	strictWith := func(inline func(context.Context, string) (string, error)) validate.TenantPolicy {
+		p := strictFor()
+		p.Inline = inline
+		return p
+	}
+	drops := func(_ context.Context, c string) (string, error) { return validate.InsertTenantDrops(c) }
+	identity := func(_ context.Context, c string) (string, error) { return c, nil }
+
+	It("forwards the exporter to an inserted loki.process that drops __tenant_id__ and forwards as before", func() {
+		src := otlpToLoki("loki.write.w.receiver")
+		out := insertDrops(src)
+		Expect(out).To(Equal(strings.Replace(src, exporterDirect, exporterViaDrop+exporterDrop("[loki.write.w.receiver]"), 1)))
+		Expect(validate.TenantLint(out, strictFor())).To(BeEmpty())
+
+		// Several targets and a multi-line list are kept verbatim.
+		multi := strings.Replace(src, "[loki.write.w.receiver]\n}\nloki.process \"set\"",
+			"[\n    loki.write.w.receiver,\n    loki.process.noop.receiver,\n  ]\n}\nloki.process \"set\"", 1)
+		Expect(insertDrops(multi)).To(ContainSubstring(exporterViaDrop +
+			exporterDrop("[\n    loki.write.w.receiver,\n    loki.process.noop.receiver,\n  ]")))
+	})
+
+	It("is accepted when saved, and refused when the served form lacks the drop (rewrite stubbed out)", func() {
+		src := otlpToLoki("loki.write.w.receiver")
+		Expect(v.ValidatePipeline(context.Background(), "p", src, strictWith(drops)).Valid).To(BeTrue())
+		r := v.ValidatePipeline(context.Background(), "p", src, strictWith(identity))
+		Expect(r.Valid).To(BeFalse())
+		Expect(errorsOf(r.Diagnostics)).To(ConsistOf(And(ContainSubstring("as served"), ContainSubstring(`otelcol.exporter.loki "x"`))))
+		// With no served form at all the stored text is refused as before.
+		Expect(v.ValidatePipeline(context.Background(), "p", src, strictFor()).Valid).To(BeFalse())
+	})
+
+	It("applies in a declare body and in an import.string module", func() {
+		decl := "declare \"d\" {\n" + indent(otlpToLoki("loki.write.w.receiver")) + "}\n"
+		out := insertDrops(decl)
+		Expect(out).To(ContainSubstring("  " + strings.ReplaceAll(exporterViaDrop, "\n", "\n  ")))
+		Expect(out).To(ContainSubstring("\n  loki.process \"shepherd_tenant_drop_x\" {\n    forward_to = [loki.write.w.receiver]\n"))
+		Expect(validate.TenantLint(out, strictFor())).To(BeEmpty())
+		Expect(v.ValidatePipeline(context.Background(), "p", decl, strictWith(drops)).Valid).To(BeTrue())
+
+		mod := "import.string \"m\" {\n  content = " + strconv.Quote(decl) + "\n}\n"
+		out = insertDrops(mod)
+		Expect(out).To(ContainSubstring("shepherd_tenant_drop_x"))
+		Expect(validate.TenantLint(out, strictFor())).To(BeEmpty())
+		Expect(v.ValidatePipeline(context.Background(), "p", mod, strictWith(drops)).Valid).To(BeTrue())
+	})
+
+	DescribeTable("refuses a forward_to that is not a plain list of receivers, and leaves it unrewritten",
+		func(fwd string) {
+			src := "declare \"d\" {\n  argument \"out\" { }\n  otelcol.exporter.loki \"x\" {\n    forward_to = " + fwd + "\n  }\n}\n"
+			Expect(insertDrops(src)).To(Equal(src))
+			r := v.ValidatePipeline(context.Background(), "p", src, strictWith(drops))
+			Expect(r.Valid).To(BeFalse())
+			Expect(errorsOf(r.Diagnostics)).To(ConsistOf(ContainSubstring("forward_to is not a list of component receivers")))
+		},
+		Entry("a declare argument", "argument.out.value"),
+		Entry("a function call", "array.concat([], argument.out.value)"),
+		Entry("a list holding an argument", "[argument.out.value]"),
+	)
+
+	It("refuses the save when the inserted component's name is already taken in that scope", func() {
+		src := otlpToLoki("loki.write.w.receiver") + "loki.process \"shepherd_tenant_drop_x\" {\n  forward_to = []\n}\n"
+		_, err := validate.InsertTenantDrops(src)
+		Expect(err).To(MatchError(ContainSubstring(`loki.process "shepherd_tenant_drop_x" already exists`)))
+		r := v.ValidatePipeline(context.Background(), "p", src, strictWith(drops))
+		Expect(r.Valid).To(BeFalse())
+		Expect(errorsOf(r.Diagnostics)).To(ContainElement(ContainSubstring("already exists")))
+	})
+
+	It("leaves a pipeline without otelcol.exporter.loki byte-identical", func() {
+		for _, src := range []string{
+			syslogWith("loki.relabel.r.rules", setOwned),
+			"otelcol.exporter.prometheus \"p\" {\n  forward_to = []\n}\n",
+			"otelcol.exporter.loki \"x\" { }\n",
+			"otelcol.exporter.loki \"x\" {\n  forward_to = []\n}\n",
+		} {
+			Expect(insertDrops(src)).To(Equal(src), src)
+		}
 	})
 })

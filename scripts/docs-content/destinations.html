@@ -84,10 +84,15 @@
           on the tenant the sending client names &mdash; unless every path from it to a
           <code>loki.write</code> first overwrites <code>__tenant_id__</code>
           (<code>stage.static_labels</code>, outside <code>stage.match</code>) or drops it
-          (<code>stage.label_drop</code>). The same goes for <code>otelcol.exporter.loki</code>,
-          which turns OpenTelemetry attributes named by the <code>loki.resource.labels</code> and
+          (<code>stage.label_drop</code>). <code>otelcol.exporter.loki</code> turns OpenTelemetry
+          attributes named by the <code>loki.resource.labels</code> and
           <code>loki.attribute.labels</code> hints into Loki labels, <code>__tenant_id__</code>
-          included;</li>
+          included, so Shepherd serves it through an added <code>loki.process
+          "shepherd_tenant_drop_&lt;label&gt;"</code> that drops <code>__tenant_id__</code> before
+          forwarding where you pointed it; the chart&rsquo;s output works as written. Its
+          <code>forward_to</code> must be a list such as
+          <code>[loki.write.&lt;label&gt;.receiver]</code>, and that component name must be
+          free;</li>
         <li>a <code>relabel_rules</code> attribute (on <code>loki.source.syslog</code>,
           <code>loki.source.journal</code>, <code>loki.source.kafka</code> and the other Loki
           sources that take one) that is not a plain reference such as
