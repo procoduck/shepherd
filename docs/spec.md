@@ -628,8 +628,9 @@ Strict mode refuses:
 - tenants taken from the data, which a client can set: `stage.tenant`'s `label`/`source`,
   `stage.labels` setting `__tenant_id__`, a relabel rule writing `__tenant_id__` from a regex
   reference, its default replacement, or `lowercase`/`uppercase`/`hashmod`, a replace rule whose
-  `target_label` contains `$` (Alloy expands it), every `labelmap` whose replacement is not a
-  literal without `$` that is not `__tenant_id__` (the default `$1` included), and
+  `target_label` contains `$` (Alloy expands it), a `labelmap` whose replacement is the literal
+  `__tenant_id__`, every other `labelmap` whose replacement is not a literal without `$` (the
+  default `$1` included) unless the very next rule drops `__tenant_id__` (below), and
   `otelcol.auth.headers`' `from_context`/`from_attribute` for the tenant header;
 - a **push source that forwards the client's tenant**: `loki.source.api`, `loki.source.heroku`,
   `loki.source.awsfirehose` and `loki.source.gcplog` turn the request's `X-Scope-OrgID` into
@@ -653,6 +654,40 @@ Strict mode refuses:
   including the values the importing text gives its declares. Imports are followed only at the
   top level and directly in a declare body; an `import.*` block anywhere else (a `foreach`
   template, which Alloy also loads imports from, or a declare inside one) is refused.
+
+**`labelmap` and `__tenant_id__` (#410).** A labelmap names every label it writes by its
+replacement, `$1` by default, so one whose replacement is not a literal without `$` may write
+`__tenant_id__` from the data (the grafana/k8s-monitoring chart's output has such rules). Rather
+than refuse it, a strict org's served form (built by `pinnedimport.Inline`, so on every path that
+builds the served form) gets this rule directly after each such labelmap
+(`validate.InsertTenantDrops`):
+
+```alloy
+rule {
+  action = "labeldrop"
+  regex  = "__tenant_id__"
+}
+```
+
+indented to the labelmap's column, with the text's line endings. The relabel rule blocks covered
+are read from every shipped component schema (`validate.RelabelRuleBlocks`: a block named `rule`
+with `action`, `regex`, `replacement`, `source_labels` and `target_label`, so `discovery.relabel`,
+`prometheus.relabel`, `loki.relabel`, `pyroscope.relabel`, `prometheus.operator.*`,
+`database_observability.*`'s `database_instance`; sources such as `loki.source.kubernetes` take
+those components' exported rules through `relabel_rules`, drops included). It applies at the top
+level, in declares, in `foreach` templates and in every literal `import.string` content (re-quoted,
+up to 8 levels), and only to a rule whose `action` is the literal `"labelmap"`: a computed action
+gets no drop and the lint refuses it. A labelmap with a literal replacement without `$` gets no drop
+(it names the one label it writes; a drop would only discard a tenant an earlier rule set), and a
+literal `__tenant_id__` replacement stays refused. `prometheus.remote_write`'s
+`write_relabel_config` is not covered: Mimir takes the tenant from the header only. The stored text
+is unchanged. The lint accepts such a labelmap only when the very next `rule` is exactly that drop
+(two plain-literal attributes); for the stored text it leaves the question to the served form when
+the gate lints that too (`ValidatePipeline`, `WithTenantLint`), so the served form decides and a
+served form without the drop is refused. A later rule setting `__tenant_id__` to an owned literal
+still works; one before the labelmap is dropped with the label. Text with no such labelmap, and
+every pipeline of a non-strict org, is served byte for byte as before (no `serve.Format` change);
+the drops count toward the 1 MiB cap.
 
 **Pinned `import.git` (0043, #390).** A strict org may use `import.git` when `repository`,
 `revision` and `path` are plain string literals (not expressions or declare arguments), `revision`

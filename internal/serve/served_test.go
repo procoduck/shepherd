@@ -3,13 +3,98 @@ package serve_test
 import (
 	"context"
 	"errors"
+	"os"
 	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgtype"
+
 	"shepherd/internal/merge"
+	"shepherd/internal/pinnedimport"
 	"shepherd/internal/serve"
 )
+
+// strictInline is the real served form of a strict org for text without an
+// import.git (pinnedimport.Inline reads nothing for such text): only the
+// __tenant_id__ drops after labelmaps (#410).
+func strictInline(ctx context.Context, contents string) (string, error) {
+	return pinnedimport.Inline(ctx, nil, pgtype.UUID{}, nil, contents)
+}
+
+// #410's hash stability: a non-strict org's pipelines, and a strict org's
+// pipelines without a labelmap that may write __tenant_id__, are served
+// byte-identical; the k8s-monitoring chart output reaches the metrics and
+// logs collectors with a drop after each labelmap.
+func TestStrictLabelmapDropServedThroughComputeServed(t *testing.T) {
+	deps := serve.Deps{Schema: mustSchema(t)}
+	plain := []merge.Pipeline{
+		{ID: "1", Name: "plain", Contents: "logging { level = \"info\" }\n", Matchers: []string{}, Source: "ui"},
+		{ID: "2", Name: "relabel", Contents: "loki.relabel \"r\" {\n  forward_to = []\n  rule {\n    action      = \"labelmap\"\n    regex       = \"x_team\"\n    replacement = \"team\"\n  }\n}\n", Matchers: []string{}, Source: "ui"},
+	}
+	coll := serve.Collector{ID: "00000000-0000-0000-0000-000000000003", Cluster: "c1", Role: "singleton"}
+	before, err := serve.ComputeServed(context.Background(), deps, coll, plain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	served, err := serve.ServedForm(context.Background(), strictInline, plain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := serve.ComputeServed(context.Background(), deps, coll, served)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Content != before.Content || after.Hash != before.Hash {
+		t.Errorf("a strict org's pipelines without a labelmap needing the drop changed:\n%s\n---\n%s", before.Content, after.Content)
+	}
+
+	for role, drops := range map[string]int{"metrics": 2, "logs": 1} {
+		data, err := os.ReadFile("../signals/testdata/k8smon-" + role + ".alloy")
+		if err != nil {
+			t.Fatal(err)
+		}
+		p := []merge.Pipeline{{ID: "p1", Name: "k8s-monitoring", Contents: string(data), Matchers: []string{`cluster="c1"`}, Source: "ui"}}
+		coll := serve.Collector{ID: "coll-1", Cluster: "c1", Role: role}
+
+		raw, err := serve.ComputeServed(context.Background(), deps, coll, p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		nonStrict, err := serve.ServedForm(context.Background(), nil, p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ns, err := serve.ComputeServed(context.Background(), deps, coll, nonStrict)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ns.Hash != raw.Hash || strings.Contains(ns.Content, `regex  = "__tenant_id__"`) {
+			t.Errorf("%s: a non-strict org's served bytes must not change", role)
+		}
+
+		strict, err := serve.ServedForm(context.Background(), strictInline, p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if p[0].Contents != string(data) {
+			t.Fatal("the stored text must not be modified")
+		}
+		res, err := serve.ComputeServed(context.Background(), deps, coll, strict)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(res.Exclusions) != 0 {
+			t.Fatalf("%s: excluded: %+v", role, res.Exclusions)
+		}
+		if got := strings.Count(res.Content, `regex  = "__tenant_id__"`); got != drops {
+			t.Errorf("%s: %d drops served, want %d:\n%s", role, got, drops, res.Content)
+		}
+		if res.Hash == raw.Hash {
+			t.Errorf("%s: the strict served form should differ from the stored one", role)
+		}
+	}
+}
 
 // fakeInline rewrites the one import.git block the tests use.
 func fakeInline(_ context.Context, contents string) (string, error) {

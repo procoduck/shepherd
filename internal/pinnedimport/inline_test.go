@@ -148,4 +148,30 @@ var _ = Describe("Inline", Label("integration"), func() {
 		_, err = inline(importing("m", "big.alloy"))
 		Expect(err).To(MatchError(ContainSubstring("more than")))
 	})
+
+	// #410: the served form drops __tenant_id__ after every labelmap that
+	// may write it, in pinned modules too.
+	labelmap := "loki.relabel \"r\" {\n  forward_to = []\n  rule {\n    action = \"labelmap\"\n    regex  = \"x_(.+)\"\n  }\n}\n"
+	dropped := "loki.relabel \"r\" {\n  forward_to = []\n  rule {\n    action = \"labelmap\"\n    regex  = \"x_(.+)\"\n  }\n" +
+		"  rule {\n    action = \"labeldrop\"\n    regex  = \"__tenant_id__\"\n  }\n}\n"
+
+	It("drops __tenant_id__ after a labelmap in the pipeline and inside an inlined module", func() {
+		Expect(inline(labelmap)).To(Equal(dropped))
+
+		cache("lm.alloy", "declare \"lm\" {\n"+labelmap+"}\n")
+		got, err := inline(importing("mods", "lm.alloy"))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(moduleOf(got, "mods")).To(Equal("declare \"lm\" {\n" + dropped + "}\n"))
+		Expect(validate.ServedFormProblem(got)).To(Succeed())
+		Expect(validate.TenantLint(got, validate.TenantPolicy{Strict: true, Owns: func(string) bool { return true }})).To(BeEmpty())
+	})
+
+	It("refuses a pipeline the drops push past the size cap", func() {
+		pad := "// " + strings.Repeat("x", validate.MaxContentBytes-len(labelmap)-10) + "\n"
+		src := pad + labelmap
+		Expect(len(src)).To(BeNumerically("<=", validate.MaxContentBytes))
+		_, err := inline(src)
+		Expect(err).To(MatchError(pinnedimport.ErrNotInlinable))
+		Expect(err).To(MatchError(ContainSubstring("more than")))
+	})
 })

@@ -237,11 +237,14 @@ func (v *Validator) Stages12(ctx context.Context, content string) Result {
 // block is also validated as it will be served — its pinned modules inlined
 // (TenantPolicy.Inline): Stages 1-2 and the tenant lint on that text, each
 // finding prefixed "as served". A served form that cannot be built refuses
-// the pipeline: a strict org is never served an import.git.
+// the pipeline: a strict org is never served an import.git. The served form
+// also carries a __tenant_id__ drop after each labelmap that may write it
+// (InsertTenantDrops, #410), so such a labelmap is judged there: the stored
+// text's lint leaves it to the served form (storedTextPolicy).
 func (v *Validator) ValidatePipeline(ctx context.Context, pipelineName, contents string, tenants TenantPolicy) Result {
 	r := v.Stages12(ctx, WrapForValidation(pipelineName, contents))
 	r.Diagnostics = UnwrapDiagnostics(contents, r.Diagnostics)
-	r = withTenantLintOnly(ctx, r, contents, tenants)
+	r = withTenantLintOnly(ctx, r, contents, storedTextPolicy(tenants))
 	return withServedForm(ctx, r, contents, tenants, func(served string) Result {
 		rs := v.Stages12(ctx, WrapForValidation(pipelineName, served))
 		rs.Diagnostics = UnwrapDiagnostics(served, rs.Diagnostics)
@@ -277,7 +280,7 @@ func withServedForm(ctx context.Context, r Result, contents string, tenants Tena
 	// The served form is linted with no module source at all: an import.git
 	// left anywhere in it is refused, never fetched.
 	lintPolicy := tenants
-	lintPolicy.Inline, lintPolicy.Git = nil, nil
+	lintPolicy.Inline, lintPolicy.Git, lintPolicy.servedDrops = nil, nil, false
 	rs = withTenantLintOnly(ctx, rs, served, lintPolicy)
 	for _, d := range rs.Diagnostics {
 		d.Message = "as served (pinned modules inlined): " + d.Message
@@ -303,7 +306,7 @@ func withServedForm(ctx context.Context, r Result, contents string, tenants Tena
 //
 // With tenants.Inline it lints the served form too (withServedForm).
 func WithTenantLint(ctx context.Context, r Result, contents string, tenants TenantPolicy) Result {
-	return withServedForm(ctx, withTenantLintOnly(ctx, r, contents, tenants), contents, tenants, nil)
+	return withServedForm(ctx, withTenantLintOnly(ctx, r, contents, storedTextPolicy(tenants)), contents, tenants, nil)
 }
 
 // withTenantLintOnly is WithTenantLint without the served form.

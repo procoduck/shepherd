@@ -9,6 +9,8 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -665,6 +667,39 @@ var _ = Describe("Strict tenant mode", Label("integration"), func() {
 			served(collector, `import.git "m"`)
 			ok(setStrict(orgA, true))
 			served(collector, `import.string "m"`)
+		})
+
+		// #410: the grafana/k8s-monitoring chart's labelmaps may write
+		// __tenant_id__; a strict org saves the chart output verbatim and is
+		// served it with a __tenant_id__ drop after each one.
+		It("saves the k8s-monitoring chart output verbatim and serves it with __tenant_id__ dropped after each labelmap", func() {
+			cl, err := st.Queries.UpsertCluster(ctx, "pinned-cluster")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(st.Queries.ClaimCluster(ctx, sqlc.ClaimClusterParams{ID: cl.ID, OrgID: orgA})).To(Succeed())
+			drop := regexp.MustCompile(`\n\s*rule \{\n\s*action = "labeldrop"\n\s*regex  = "__tenant_id__"\n\s*\}\n`)
+			for role, drops := range map[string]int{"metrics": 2, "logs": 1} {
+				raw, err := os.ReadFile("../signals/testdata/k8smon-" + role + ".alloy")
+				Expect(err).NotTo(HaveOccurred())
+				src := string(raw)
+				coll, err := st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: cl.ID, Role: role})
+				Expect(err).NotTo(HaveOccurred())
+
+				v := ok(call(adminA, "PipelineService/ValidatePipeline", map[string]any{"orgId": orgA.String(), "name": "k8smon-" + role, "contents": src}))
+				Expect(v).To(HaveKeyWithValue("valid", true), "%v", v)
+				p := ok(call(adminA, "PipelineService/CreatePipeline", map[string]any{
+					"orgId": orgA.String(), "name": "k8smon-" + role, "contents": src,
+					"matchers": []string{`cluster="pinned-cluster"`, `role="` + role + `"`},
+				}))
+				ok(call(adminA, "PipelineService/EnablePipeline", map[string]any{"orgId": orgA.String(), "id": p["id"]}))
+				stored, err := st.Queries.GetPipelineByOrgAndName(ctx, sqlc.GetPipelineByOrgAndNameParams{OrgID: orgA, Name: "k8smon-" + role})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(stored.Contents).To(Equal(src), "the stored text is the chart output as written")
+
+				content := served(coll.ID, `declare "pipe_k8smon_`+role+`"`)
+				Expect(drop.FindAllString(content, -1)).To(HaveLen(drops), role)
+			}
+			pre := ok(call(appAdmin, "AdminService/TenantPreflight", map[string]any{"orgId": orgA.String()}))
+			Expect(pre).NotTo(HaveKey("violations"))
 		})
 
 		It("refuses deleting a git credential an allowlist entry uses, naming the entry", func() {

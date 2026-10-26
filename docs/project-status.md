@@ -516,6 +516,12 @@ below ships in v0.19.0 — steps 1–6, 4b–4d and 7a (first in rc.1), the plan
   output reaches `metrics`/`logs` collectors.
 - **#389** — beacon ingest hardening follow-ups. **Shipped in v0.19.1** (PR #402).
 - **#390** — strict tenant mode: allow pinned external module imports.
+- **#410** — strict tenant mode refused the grafana/k8s-monitoring chart's `labelmap` rules (1 in
+  the logs output, 2 in metrics). **Fixed on main, unreleased**: a strict org's served form drops
+  `__tenant_id__` right after every labelmap that may write it (`validate.InsertTenantDrops`, inside
+  `pinnedimport.Inline`); the lint accepts such a labelmap only when that drop follows it. The
+  stored text is unchanged; non-strict orgs and pipelines without such a rule serve byte-identical.
+  `pipeline_tenants` still records chart pipelines as incomplete (the index reads the stored text).
 - **#400** — the in-browser visual preview (`web/src/visual/renderTS.ts`) has no label or output
   cap; the server's diagnostics are authoritative (#393 follow-up). **Shipped in v0.19.1** (PR #403).
 

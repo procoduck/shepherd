@@ -1793,12 +1793,14 @@ func (s *PipelineService) stage3TenantLint(ctx context.Context, orgID pgtype.UUI
 	}
 	var failures []string
 	for i := range candidates {
-		diags, err := validate.TenantLintChecked(ctx, candidates[i].Contents, tenants)
-		if err != nil {
-			return fmt.Errorf("pipeline %s: %w", candidates[i].Name, err) // ErrLintBusy: no verdict
+		// WithTenantLint lints the served form too (tenants.Inline): a
+		// labelmap is checked there, with its __tenant_id__ drop (#410).
+		r := validate.WithTenantLint(ctx, validate.Result{Valid: true}, candidates[i].Contents, tenants)
+		if r.Busy {
+			return fmt.Errorf("pipeline %s: %w", candidates[i].Name, validate.ErrLintBusy) // no verdict
 		}
 		var msgs []string
-		for _, d := range diags {
+		for _, d := range r.Diagnostics {
 			if !d.Warning {
 				msgs = append(msgs, fmt.Sprintf("%d:%d %s", d.Line, d.Col, d.Message))
 			}

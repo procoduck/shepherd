@@ -38,6 +38,20 @@ type TenantPolicy struct {
 	// that form too. Nil: no served form is checked (a non-strict policy, or
 	// a caller with nothing to inline from).
 	Inline func(ctx context.Context, contents string) (string, error)
+	// servedDrops is set by ValidatePipeline and WithTenantLint, and only
+	// there, on the policy they lint the stored text with when they lint the
+	// served form too (Strict and Inline set): a labelmap that may write
+	// __tenant_id__ is then left to the served form, where Inline inserts
+	// the drop after it (InsertTenantDrops) and the lint, without this flag,
+	// refuses it unless the drop is there (#410).
+	servedDrops bool
+}
+
+// storedTextPolicy is tenants as ValidatePipeline and WithTenantLint lint the
+// stored text with (servedDrops).
+func storedTextPolicy(tenants TenantPolicy) TenantPolicy {
+	tenants.servedDrops = tenants.Strict && tenants.Inline != nil
+	return tenants
 }
 
 // GitModule is one import.git module: its repository, revision and path as
@@ -644,7 +658,7 @@ func (l *tenantLinter) collectComponents(stmts ast.Body, scopeKey string, nestin
 }
 
 func (l *tenantLinter) body(stmts ast.Body, sc scope) {
-	for _, st := range stmts {
+	for i, st := range stmts {
 		if !l.budget.take() {
 			return
 		}
@@ -681,7 +695,7 @@ func (l *tenantLinter) body(stmts ast.Body, sc scope) {
 					l.authHeader(n, sc)
 				}
 				if name == "rule" {
-					l.relabelRule(n, sc)
+					l.relabelRule(n, sc, nextRule(stmts, i))
 				}
 				l.body(n.Body, sc.child(name))
 			}
@@ -787,7 +801,7 @@ func (l *tenantLinter) labelMapsAt(v ast.Expr, sc scope, nesting int) {
 // whose replacement names every label it writes — is checked: a readable
 // replacement without a regex reference is a tenant; anything else comes
 // from the data and is refused.
-func (l *tenantLinter) relabelRule(b *ast.BlockStmt, sc scope) {
+func (l *tenantLinter) relabelRule(b *ast.BlockStmt, sc scope, next *ast.BlockStmt) {
 	attrs := attrsOf(b)
 	target, replacement, action := attrs["target_label"], attrs["replacement"], attrs["action"]
 	act := "replace"
@@ -803,26 +817,7 @@ func (l *tenantLinter) relabelRule(b *ast.BlockStmt, sc scope) {
 		"can set — strict tenant mode refuses it"
 	switch act {
 	case "labelmap":
-		// Every label a labelmap writes is named by its replacement (default
-		// "$1", a capture of an existing label name): only a literal without
-		// a reference that is not __tenant_id__ is known not to write it.
-		if replacement == nil {
-			l.refuse(b, "a labelmap with the default replacement ($1) may write "+tenantLabel+
-				" — strict tenant mode refuses it; give it a literal replacement")
-			return
-		}
-		reps, ok := l.resolve(replacement, sc, 0)
-		if !ok {
-			l.refuse(replacement, "a labelmap replacement cannot be verified — strict tenant mode refuses it")
-			return
-		}
-		for _, r := range reps {
-			if strings.Contains(r, "$") || r == tenantLabel {
-				l.refuse(replacement, "a labelmap replacement that is "+tenantLabel+" or expands a regex reference "+
-					"may write "+tenantLabel+" — strict tenant mode refuses it")
-				return
-			}
-		}
+		l.labelmapRule(b, replacement, sc, next)
 		return
 	case "replace", "lowercase", "uppercase", "hashmod":
 	default:
@@ -862,6 +857,50 @@ func (l *tenantLinter) relabelRule(b *ast.BlockStmt, sc scope) {
 		}
 	}
 	l.tenantValue(replacement, fixed("relabel rule "+tenantLabel), sc)
+}
+
+// labelmapRule checks a labelmap rule. Every label a labelmap writes is
+// named by its replacement (default "$1", a capture of an existing label
+// name). A literal replacement of __tenant_id__ is refused whatever
+// follows. A literal without a reference names one other label: allowed.
+// Any other replacement (the default, a reference, a value the lint cannot
+// read) may write __tenant_id__ from the data, so the rule is allowed only
+// when the very next rule drops __tenant_id__ (isTenantDrop) — what the
+// served form of a strict org inserts there (InsertTenantDrops, #410) — or,
+// in the stored text, when the caller lints the served form as well
+// (TenantPolicy.servedDrops), which then decides.
+func (l *tenantLinter) labelmapRule(b *ast.BlockStmt, replacement ast.Expr, sc scope, next *ast.BlockStmt) {
+	dropped := isTenantDrop(next) || l.policy.servedDrops
+	if replacement == nil {
+		if !dropped {
+			l.refuse(b, "a labelmap with the default replacement ($1) may write "+tenantLabel+
+				" and is not followed by a rule dropping it — strict tenant mode refuses it; give it a literal "+
+				"replacement, or follow it with a labeldrop of "+tenantLabel)
+		}
+		return
+	}
+	reps, ok := l.resolve(replacement, sc, 0)
+	if !ok {
+		if !dropped {
+			l.refuse(replacement, "a labelmap replacement cannot be verified and is not followed by a rule dropping "+
+				tenantLabel+" — strict tenant mode refuses it")
+		}
+		return
+	}
+	for _, r := range reps {
+		if r == tenantLabel {
+			l.refuse(replacement, "a labelmap replacement that is "+tenantLabel+" writes it from the data — strict "+
+				"tenant mode refuses it")
+			return
+		}
+	}
+	for _, r := range reps {
+		if strings.Contains(r, "$") && !dropped {
+			l.refuse(replacement, "a labelmap replacement that expands a regex reference may write "+tenantLabel+
+				" and is not followed by a rule dropping it — strict tenant mode refuses it")
+			return
+		}
+	}
 }
 
 // authHeader checks one otelcol.auth.headers `header` block: when its key
