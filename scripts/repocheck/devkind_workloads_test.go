@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -23,6 +24,8 @@ import (
 // plus dev/docker-compose.dev.yaml, and checks the shapes the kind dev-stack plan's §K4
 // pins down: three Alloy Deployments with the placeholder image and matching ConfigMap
 // mounts, and a Gitea PVC/Deployment/Service whose env and image equal compose's.
+// A fourth Deployment, alloy-singleton (role=singleton, kind-only), came with the
+// 0.20 walkthrough seed: the pinned-module pipeline the seed creates matches it.
 
 // kindDoc is the subset of any Kubernetes manifest document these specs need to route on.
 type kindDoc struct {
@@ -177,11 +180,11 @@ var _ = Describe("dev/kind/alloy.yaml", func() {
 		}
 	})
 
-	It("defines exactly three Deployments", func() {
-		Expect(deployments).To(HaveLen(3))
+	It("defines exactly four Deployments", func() {
+		Expect(deployments).To(HaveLen(4))
 	})
 
-	It("names the three Deployments after dev/alloy-*.alloy's basenames", func() {
+	It("names the four Deployments after dev/alloy-*.alloy's basenames", func() {
 		root := repoRoot()
 		entries, err := os.ReadDir(filepath.Join(root, "dev"))
 		Expect(err).NotTo(HaveOccurred())
@@ -246,6 +249,37 @@ var _ = Describe("dev/kind/alloy.yaml", func() {
 			_, _, found := d.mountPathVolumeName("/tmp")
 			Expect(found).To(BeTrue(), d.Metadata.Name)
 		}
+	})
+
+	// The script's three per-agent steps (ConfigMaps, the rollout wait, the
+	// status report) each hardcoded the three original names, so a fourth
+	// Deployment would have been applied with no ConfigMap and never waited
+	// for or reported. They now share ALLOY_AGENTS, which must name exactly
+	// the manifest's Deployments.
+	It("is the agent set scripts/dev-kind.sh's ALLOY_AGENTS names, and every per-agent step uses that list", func() {
+		script := readRepoFile(devKindScriptRel)
+		m := regexp.MustCompile(`(?m)^ALLOY_AGENTS=\(([^)]*)\)`).FindStringSubmatch(script)
+		Expect(m).NotTo(BeNil(), "scripts/dev-kind.sh defines no ALLOY_AGENTS=(...) array")
+		listed := strings.Fields(m[1])
+		var names []string
+		for _, d := range deployments {
+			names = append(names, d.Metadata.Name)
+		}
+		Expect(listed).To(ConsistOf(names))
+		for _, fn := range []string{"apply_secret_and_configmaps", "apply_alloy_agents", "cmd_status"} {
+			body := funcBody(script, fn)
+			Expect(body).To(ContainSubstring(`"${ALLOY_AGENTS[@]`), fn)
+			for _, name := range names {
+				Expect(body).NotTo(ContainSubstring(name), "%s names %s instead of using ALLOY_AGENTS", fn, name)
+			}
+		}
+	})
+
+	It("runs alloy-singleton as cluster=prod-eu-1 role=singleton, the collector the dev seed's pinned-module pipeline matches", func() {
+		cfg := readRepoFile("dev/alloy-singleton.alloy")
+		Expect(cfg).To(MatchRegexp(`cluster\s*=\s*"prod-eu-1"`))
+		Expect(cfg).To(MatchRegexp(`role\s*=\s*"singleton"`))
+		Expect(readRepoFile("internal/cli/dev_modules.go")).To(ContainSubstring(`role="singleton"`))
 	})
 })
 

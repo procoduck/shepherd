@@ -332,8 +332,8 @@ right place for agent-protocol and GitOps coverage.
 ## 11. Reusable dev stack (`make dev-kind`)
 
 `make dev-kind` brings up a single-node kind cluster named `shepherd-dev` running the real Helm
-chart — CloudNativePG, Gateway API + NGINX Gateway Fabric, Calico, the existing dev seed, three
-Alloy agents (`dev/*.alloy`), Gitea, and the navikt mock OIDC provider — everything reachable on
+chart — CloudNativePG, Gateway API + NGINX Gateway Fabric, Calico, the existing dev seed, four
+Alloy agents (`dev/alloy-*.alloy`), Gitea, and the navikt mock OIDC provider — everything reachable on
 host port 80 under `*.localtest.me`. It is the **Kubernetes flavour of `make dev`**, not a second
 copy of this suite: it exists so a developer or reviewer can see the chart, the routing and the
 containment policy behave the way they will in production, without standing up the isolation and
@@ -508,7 +508,43 @@ verify.
 | `dev/kind/routes.yaml` | the `oidc` and `gitea` `HTTPRoute`s |
 | `dev/kind/oidc.yaml` | the mock OIDC Deployment/Service |
 | `dev/kind/gitea.yaml` | the Gitea Deployment/Service/PVC |
-| `dev/kind/alloy.yaml` | the three Alloy agent Deployments |
+| `dev/kind/alloy.yaml` | the four Alloy agent Deployments (`alloy-metrics`, `alloy-logs`, `alloy-staging`, and the kind-only `alloy-singleton`) |
+
+### Seed objects for the 0.20 walkthrough
+
+The seed and the manifests carry what the 0.20 walkthrough exercises (#378, #390/#408), so it
+starts from fixed objects instead of hand-built ones:
+
+- **`alloy-singleton`** — a fourth agent Deployment (`dev/alloy-singleton.alloy`:
+  `cluster=prod-eu-1`, `role=singleton`, the same bound `alloy-agent-token` and beacon env as the
+  other three). Compose has no singleton agent. `scripts/dev-kind.sh`'s `ALLOY_AGENTS` list drives
+  its ConfigMap, the rollout wait and the status line.
+- **Gitea repo `shepherd-admin/shepherd-modules`** — created empty (no `auto_init`) and given two
+  commits built object by object with a fixed author, committer and timestamp, so the SHAs never
+  change between runs: `b42fd3c75d02ff44e7dbd89f83bc22f8d15eb410` adds `platform-metrics.alloy` (a `declare` whose
+  remote_write sends `X-Scope-OrgID: platform-org`, a tenant platform-org owns), and
+  `5c48c5d49ac7f34d79fd55b36c648687a4307350` adds `foreign-tenant.alloy` (the same, under data-eng's tenant). The seed
+  prints both. `internal/cli/dev_modules_test.go` pins them.
+- **Import allowlist** — platform-org allows `http://gitea:3000/shepherd-admin/shepherd-modules.git`
+  (the in-cluster URL the Shepherd pod fetches from; no credential, the repo is public).
+  **Strict mode stays off**: turning it on is a walkthrough step.
+- **Pipelines** — `pinned-module` (enabled; `import.git` of `platform-metrics.alloy` at the first
+  SHA, matched to `prod-eu-1/singleton`) and `pinned-module-foreign` (disabled; the foreign module
+  at the second SHA). Both are seeded only after the push succeeds. While the org is not strict, the
+  singleton is served the `import.git` as written and Alloy fetches the module itself; the
+  signal-unrestricted singleton role is why it is served at all, since a metrics/logs collector
+  excludes a module the serve path cannot classify. Once strict, the module is served inlined and
+  classified, so it could reach a metrics collector too. The singleton keeps the demo clean.
+- **`k8smon-metrics` / `k8smon-logs`** — disabled, matched to `prod-eu-1/metrics` and
+  `prod-eu-1/logs`: the chart-shaped k8s-monitoring fixtures (`internal/signals/testdata/k8smon-*.alloy`,
+  copied byte for byte into `internal/cli/seedfixtures/`), with their destination URLs rewritten to
+  `prom-prod`'s and `loki-prod`'s. Enable them to see #378's module signals.
+- **`make dev-kind-status`** now also counts `beacon_inventory` rows per instance (and how many are
+  healthy), read with `psql` on the CNPG primary through `kc exec`. No rows while the agents read
+  `ok` means the beacon never authenticated.
+
+The walkthrough does these by hand, and the seed leaves them out on purpose: an old-Alloy agent
+Deployment, and a viewer service account.
 
 ### Agents do not run kind
 

@@ -3,8 +3,8 @@
 #
 # Brings up a single-node kind cluster named shepherd-dev running the real
 # Helm chart (CloudNativePG, Gateway API + NGINX Gateway Fabric, Calico),
-# the existing dev seed, Gitea, the navikt mock OIDC provider, and the three
-# dev/*.alloy agents — everything reachable on host port 80 under
+# the existing dev seed, Gitea, the navikt mock OIDC provider, and the four
+# dev/alloy-*.alloy agents — everything reachable on host port 80 under
 # *.localtest.me. See docs/kind-test-environment-plan.md §11 for the design
 # and docs/archive/plans/2026-09-14-kind-dev-stack.md for how this was built.
 #
@@ -23,6 +23,18 @@ CLUSTER="shepherd-dev"
 CTX="kind-shepherd-dev"
 NAMESPACE="shepherd-dev"
 RELEASE="shepherd"
+
+# ALLOY_AGENTS: the Alloy Deployments dev/kind/alloy.yaml defines, each with a
+# ConfigMap of the same name built from dev/<name>.alloy. One list for the
+# ConfigMap loop, the rollout wait and the status report (a repocheck spec
+# keeps it equal to the manifest's Deployments).
+ALLOY_AGENTS=(alloy-metrics alloy-logs alloy-staging alloy-singleton)
+
+# DB_CLUSTER: the chart's CloudNativePG Cluster (shepherd.cnpgClusterName:
+# <release>-db) and DB_NAME its database (cnpg.database), for the status
+# report's direct psql reads.
+DB_CLUSTER="${RELEASE}-db"
+DB_NAME="shepherd"
 
 # shellcheck source=/dev/null
 source "${REPO_ROOT}/deploy/versions.env"
@@ -203,7 +215,7 @@ apply_secret_and_configmaps() {
 		-n "$NAMESPACE" --dry-run=client -o yaml | kc apply -f -
 
 	local name
-	for name in alloy-metrics alloy-logs alloy-staging; do
+	for name in "${ALLOY_AGENTS[@]}"; do
 		kc create configmap "$name" \
 			--from-file=config.alloy="${REPO_ROOT}/dev/${name}.alloy" \
 			-n "$NAMESPACE" --dry-run=client -o yaml | kc apply -f -
@@ -245,7 +257,7 @@ apply_alloy_agents() {
 	sed "s|__ALLOY_IMAGE__|${ALLOY_IMAGE}|g" "${REPO_ROOT}/dev/kind/alloy.yaml" \
 		| kc -n "$NAMESPACE" apply -f -
 	kc -n "$NAMESPACE" wait --for=condition=Available \
-		deploy/alloy-metrics deploy/alloy-logs deploy/alloy-staging --timeout=3m
+		"${ALLOY_AGENTS[@]/#/deploy/}" --timeout=3m
 }
 
 # bootstrap_gitea_admin creates the Gitea admin user the seed's gitops push
@@ -352,6 +364,39 @@ alloy_log_verdict() {
 	fi
 }
 
+# db_psql runs one read-only query on the CloudNativePG primary as the
+# postgres superuser over the pod's local socket (CNPG's peer auth), printing
+# unaligned tuples-only rows. Empty output with a non-zero status means the
+# database could not be reached.
+db_psql() {
+	local pod
+	pod=$(kc -n "$NAMESPACE" get pods -l "cnpg.io/cluster=${DB_CLUSTER},cnpg.io/instanceRole=primary" \
+		--field-selector=status.phase=Running -o name | head -1)
+	if [ -z "$pod" ]; then
+		return 1
+	fi
+	kc -n "$NAMESPACE" exec "$pod" -c postgres -- psql -U postgres -d "$DB_NAME" -XAtF ' ' -c "$1"
+}
+
+# beacon_status reports what the beacon ingest projection (beacon_inventory,
+# D6) holds: rows per Alloy instance, and how many of them are healthy. No
+# rows while the agents read ok means their beacon never authenticated.
+beacon_status() {
+	local rows
+	if ! rows=$(db_psql "SELECT instance_label, count(*), count(*) FILTER (WHERE healthy) FROM beacon_inventory GROUP BY instance_label ORDER BY instance_label" 2>/dev/null); then
+		echo "beacon_inventory: database unreachable (no running ${DB_CLUSTER} primary)"
+		return
+	fi
+	if [ -z "$rows" ]; then
+		echo "beacon_inventory: 0 rows — no beacon has reported yet"
+		return
+	fi
+	local instance total healthy
+	while read -r instance total healthy; do
+		echo "beacon_inventory: ${instance}: ${total} components (${healthy} healthy)"
+	done <<<"$rows"
+}
+
 cmd_status() {
 	kc -n "$NAMESPACE" get pods,svc,pvc,gateway,httproute
 	hm -n "$NAMESPACE" status "$RELEASE"
@@ -361,7 +406,7 @@ cmd_status() {
 	# /readyz also fails while a migration is pending or the DB is unreachable.
 	curl -sf http://shepherd.localtest.me/readyz >/dev/null && echo "shepherd ready: ok" || echo "shepherd ready: NOT READY"
 	local a
-	for a in alloy-metrics alloy-logs alloy-staging; do
+	for a in "${ALLOY_AGENTS[@]}"; do
 		case "$(kc -n "$NAMESPACE" logs "deploy/${a}" --since=2m 2>/dev/null | alloy_log_verdict)" in
 		refused) echo "${a}: refused by Shepherd (token unbound / cluster or role not allowed — see the Collectors page; logs: kc -n ${NAMESPACE} logs deploy/${a})" ;;
 		unreachable) echo "${a}: cannot fetch its config (kc -n ${NAMESPACE} logs deploy/${a})" ;;
@@ -369,6 +414,7 @@ cmd_status() {
 		*) echo "${a}: ok" ;;
 		esac
 	done
+	beacon_status
 	curl -sf http://oidc.localtest.me/default/.well-known/openid-configuration >/dev/null && echo "oidc: ok" || echo "oidc: unreachable"
 	curl -sf http://gitea.localtest.me/api/healthz >/dev/null && echo "gitea: ok" || echo "gitea: unreachable"
 }

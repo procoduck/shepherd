@@ -1,0 +1,20 @@
+// Alloy instance: cluster=prod-eu-1, role=singleton
+// Kind stack only (dev/kind/alloy.yaml's alloy-singleton): compose runs no
+// singleton agent. The dev seed's pinned-module pipeline (an import.git pinned
+// to a commit of the seeded shepherd-modules Gitea repository) matches it.
+remotecfg {
+  url = "http://shepherd:8080"
+  // The dev seed's agent token (shepherd dev seed), from the environment —
+  // the same two vars the beacon baseline Shepherd appends reads, so both
+  // authenticate with one token, set from the alloy-agent-token Secret
+  // (dev/kind/alloy.yaml).
+  basic_auth {
+    username = sys.env("SHEPHERD_AGENT_TOKEN_ID")
+    password = sys.env("SHEPHERD_AGENT_TOKEN_SECRET")
+  }
+  attributes = {
+    cluster = "prod-eu-1",
+    role    = "singleton",
+  }
+  poll_frequency = "10s"
+}

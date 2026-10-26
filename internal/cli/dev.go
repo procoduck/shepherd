@@ -240,8 +240,9 @@ func runDevSeed(cmd *cobra.Command, _ []string) error {
 	// registrations come from the compose stack's alloy-metrics/alloy-logs/
 	// alloy-staging containers; seeding fake instances here used to sit
 	// alongside them and confuse status (R3-H2). The "singleton" collector
-	// has no compose container backing it, so it will show zero instances
-	// until something registers against it — that's expected, not stale.
+	// has no compose container backing it, so on `make dev` it shows zero
+	// instances — that's expected, not stale; on `make dev-kind` the
+	// alloy-singleton Deployment registers against it.
 	var prodMetricsCollector sqlc.Collector
 	for _, role := range []string{"metrics", "logs", "singleton"} {
 		c, err := st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: prod.ID, Role: role})
@@ -277,6 +278,12 @@ func runDevSeed(cmd *cobra.Command, _ []string) error {
 		// seeding should die over — a Gitea hiccup here must not stop
 		// shepherd itself from starting.
 		fmt.Printf("gitops seed: skipped (%v)\n", err)
+	}
+	if err := seedModuleRepo(ctx, st, platform.ID); err != nil {
+		// Best-effort for the same reason: the module repository lives in
+		// Gitea too. Its pipelines are seeded only once the push succeeded,
+		// so a missing repository never reaches a collector.
+		fmt.Printf("module repo seed: skipped (%v)\n", err)
 	}
 	if err := seedAgentToken(ctx, st, platform.ID); err != nil {
 		return fmt.Errorf("seeding agent token: %w", err)
@@ -427,7 +434,11 @@ func platformPipelineItems() ([]seedPipelineItem, error) {
 	if err != nil {
 		return nil, err
 	}
-	return []seedPipelineItem{
+	k8smon, err := k8smonPipelineItems()
+	if err != nil {
+		return nil, err
+	}
+	return append([]seedPipelineItem{
 		{
 			name:     "base-metrics",
 			contents: fmt.Sprintf(baseMetricsTemplate, seedClusterPlatformName, seedDestProdPromURL),
@@ -479,7 +490,7 @@ func platformPipelineItems() ([]seedPipelineItem, error) {
 			matchers: nil,
 			enabled:  false,
 		},
-	}, nil
+	}, k8smon...), nil
 }
 
 // dataEngPipelineItems returns the pipelines seeded for the data-eng org, so
@@ -636,7 +647,7 @@ func seedGitOps(ctx context.Context, st *store.Store, cfg *config.Config, orgID,
 		}
 	}
 
-	branch, repoURL, err := seedGiteaCreateRepo(ctx, seedGitRepoName)
+	branch, repoURL, err := seedGiteaCreateRepo(ctx, seedGitRepoName, true)
 	if err != nil {
 		return fmt.Errorf("creating gitea repo: %w", err)
 	}
@@ -702,7 +713,7 @@ func seedGiteaAPI(ctx context.Context, method, path string, body []byte, out any
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 2048)) //nolint:errcheck // best-effort diagnostic
-		return fmt.Errorf("%s %s: status %d: %s", method, path, resp.StatusCode, string(respBody))
+		return &giteaStatusError{method: method, path: path, status: resp.StatusCode, body: string(respBody)}
 	}
 	if out == nil {
 		return nil
@@ -710,11 +721,12 @@ func seedGiteaAPI(ctx context.Context, method, path string, body []byte, out any
 	return json.NewDecoder(resp.Body).Decode(out)
 }
 
-// seedGiteaCreateRepo creates repoName (owned by the admin user) with an
-// initial commit (auto_init), returning its default branch and clone URL.
-func seedGiteaCreateRepo(ctx context.Context, repoName string) (branch, cloneURL string, err error) {
+// seedGiteaCreateRepo creates repoName (owned by the admin user), with an
+// initial commit when autoInit is set, returning its default branch and
+// clone URL.
+func seedGiteaCreateRepo(ctx context.Context, repoName string, autoInit bool) (branch, cloneURL string, err error) {
 	body, err := json.Marshal(map[string]any{
-		"name": repoName, "private": false, "auto_init": true,
+		"name": repoName, "private": false, "auto_init": autoInit,
 		"default_branch": "main", "description": "shepherd dev seed fixture",
 	})
 	if err != nil {

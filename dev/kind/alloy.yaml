@@ -1,9 +1,13 @@
 # DEV ONLY — kind dev stack (make dev-kind, scripts/dev-kind.sh). Not for production.
 #
-# Three Alloy agents, one Deployment each, mirroring dev/docker-compose.dev.yaml's
+# Four Alloy agents, one Deployment each. Three mirror dev/docker-compose.dev.yaml's
 # alloy-metrics / alloy-logs / alloy-staging services (cluster=prod-eu-1 role=metrics,
-# cluster=prod-eu-1 role=logs, cluster=staging-eu-1 role=metrics) — now separate pods
-# instead of separate compose services, so all three listen on the same in-pod port
+# cluster=prod-eu-1 role=logs, cluster=staging-eu-1 role=metrics); the fourth,
+# alloy-singleton (cluster=prod-eu-1 role=singleton), is kind-only and runs the dev
+# seed's pinned-module pipeline — an import.git pinned to a commit of the seeded
+# shepherd-modules Gitea repository, which the signal-unrestricted singleton role is
+# served even while its module cannot be classified (non-strict org). Separate pods
+# instead of separate compose services, so all four listen on the same in-pod port
 # 12345 and use the same /tmp/alloy storage path; nothing collides because each has its
 # own pod network namespace and filesystem.
 #
@@ -12,7 +16,7 @@
 # apply time, so the pin is restated in exactly one place (AGENTS.md's image table).
 #
 # Config: each Deployment mounts a ConfigMap named after itself (alloy-metrics,
-# alloy-logs, alloy-staging — created by the script from dev/alloy-<name>.alloy, key
+# alloy-logs, alloy-staging, alloy-singleton — created by the script from dev/alloy-<name>.alloy, key
 # config.alloy) read-only at /etc/alloy, matching compose's read-only bind mount of the
 # same file. An emptyDir at /tmp gives Alloy's WAL/cache a writable, ephemeral home.
 #
@@ -265,5 +269,60 @@ spec:
         - name: alloy-staging
           configMap:
             name: alloy-staging
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alloy-singleton
+  labels:
+    app: alloy-singleton
+    shepherd.dev/component: alloy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: alloy-singleton
+  template:
+    metadata:
+      labels:
+        app: alloy-singleton
+        shepherd.dev/component: alloy
+    spec:
+      serviceAccountName: alloy
+      containers:
+        - name: alloy
+          image: __ALLOY_IMAGE__
+          args:
+            - run
+            - /etc/alloy/config.alloy
+            - --storage.path=/tmp/alloy
+            - --server.http.listen-addr=0.0.0.0:12345
+            - --disable-reporting
+          env:
+            - name: SHEPHERD_AGENT_TOKEN_ID
+              valueFrom:
+                secretKeyRef:
+                  name: alloy-agent-token
+                  key: SHEPHERD_AGENT_TOKEN_ID
+            - name: SHEPHERD_AGENT_TOKEN_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: alloy-agent-token
+                  key: SHEPHERD_AGENT_TOKEN_SECRET
+          ports:
+            - name: http
+              containerPort: 12345
+          volumeMounts:
+            - name: alloy-singleton
+              mountPath: /etc/alloy
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: alloy-singleton
+          configMap:
+            name: alloy-singleton
         - name: tmp
           emptyDir: {}

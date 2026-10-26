@@ -78,7 +78,7 @@ var _ = Describe("dev and e2e Alloy agents carry the beacon's token env", func()
 		Expect(secret).NotTo(BeNil(), "dev/kind/alloy.yaml defines no alloy-agent-token Secret")
 		Expect(secret.StringData).To(HaveKey(beaconTokenIDEnv))
 		Expect(secret.StringData).To(HaveKey(beaconTokenSecretEnv))
-		Expect(deployments).To(HaveLen(3))
+		Expect(deployments).To(HaveLen(4))
 		for _, d := range deployments {
 			refs := map[string]string{}
 			for _, c := range d.Spec.Template.Spec.Containers {
