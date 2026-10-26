@@ -22,7 +22,14 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { shippedSchema } from '../../tests/fixtures/schema-fixture';
-import { renderTS } from './renderTS';
+import {
+  MAX_COMPONENT_BYTES,
+  MAX_DIAGNOSTIC_BYTES,
+  MAX_DIAGNOSTICS,
+  MAX_LABEL_BYTES,
+  MAX_RENDER_BYTES,
+  renderTS,
+} from './renderTS';
 import type { GraphDocument } from './types';
 
 const goCorpusDir = join(__dirname, '../../../internal/visual/testdata/corpus');
@@ -715,5 +722,204 @@ describe('$raw (graph-view source text)', () => {
     );
     expect(r.content).not.toContain('$raw');
     expect(r.diagnostics.map((d) => d.message).join('\n')).not.toContain('$raw');
+  });
+});
+
+// #400: the browser copy of #393's output bounds. The browser's size limits are
+// looser than the server's (4 MiB of text and 800 diagnostics, against 1 MiB
+// and 200): a preview of a graph the server would refuse is still useful up
+// to the point it would hang the tab. The name limits are the server's 256
+// bytes, because the server refuses a longer name and previewing one would
+// mislead.
+describe('output bounds (#400)', () => {
+  const unknownNodes = (count: number, id = (i: number) => `n${i}`): TestNode[] =>
+    Array.from({ length: count }, (_, i) => ({
+      id: id(i),
+      component: 'nonexistent.component',
+      label: `x${i}`,
+    }));
+
+  it('refuses a graph whose text would pass 4 MiB, with no partial content', () => {
+    // 15,000 × -1.79e308 is 105 KB of JSON and 4.6 MB of Alloy: the value is
+    // refused while it is serialized, never built whole first.
+    const r = renderTS(
+      makeDoc([
+        {
+          id: 'n1',
+          component: 'nonexistent.component',
+          label: 'big',
+          props: { values: Array.from({ length: 15_000 }, () => -1.79e308) },
+        },
+      ]),
+      shippedSchema,
+    );
+    expect(MAX_RENDER_BYTES).toBe(4 << 20);
+    expect(r.content).toBe('');
+    expect(r.nodeMap).toEqual({});
+    const over = r.diagnostics.find((d) => d.code === 'output_too_large');
+    expect(over?.severity).toBe('error');
+    expect(over?.message).toBe(
+      'the rendered pipeline would exceed 4194304 bytes (4 MiB), the most the preview renders',
+    );
+  });
+
+  it('refuses a graph whose many small nodes add up past 4 MiB', () => {
+    const r = renderTS(
+      makeDoc(
+        Array.from({ length: 20_000 }, (_, i) => ({
+          id: `n${i}`,
+          component: 'prometheus.relabel',
+          label: `${'l'.repeat(200)}${i}`,
+        })),
+      ),
+      shippedSchema,
+    );
+    expect(r.content).toBe('');
+    expect(codes(r)).toEqual(['output_too_large']);
+  });
+
+  it('counts the cap in UTF-8 bytes, as render.go does', () => {
+    // 1.5M × "€" is 1.5M UTF-16 units but 4.5 MB of UTF-8.
+    const r = renderTS(
+      makeDoc([
+        {
+          id: 'n1',
+          component: 'nonexistent.component',
+          label: 'big',
+          props: { s: '€'.repeat(1_500_000) },
+        },
+      ]),
+      shippedSchema,
+    );
+    expect(codes(r)).toEqual(['unknown_component', 'output_too_large']);
+    expect(r.content).toBe('');
+  });
+
+  it('still renders a graph under the cap', () => {
+    const r = renderTS(
+      makeDoc([
+        {
+          id: 'n1',
+          component: 'nonexistent.component',
+          label: 'big',
+          props: { s: 'a'.repeat(3 << 20) },
+        },
+      ]),
+      shippedSchema,
+    );
+    expect(codes(r)).toEqual(['unknown_component']);
+    expect(r.content.length).toBeGreaterThan(3 << 20);
+    expect(r.nodeMap.n1).toEqual({ startLine: 3, endLine: 5 });
+  });
+
+  it('refuses a label over 256 bytes, measured in UTF-8', () => {
+    const r = renderTS(
+      makeDoc([
+        { id: 'ok', component: 'prometheus.scrape', label: 'a'.repeat(256) },
+        // 86 × "€" is 86 UTF-16 units and 258 bytes.
+        { id: 'wide', component: 'prometheus.scrape', label: '€'.repeat(86) },
+        { id: 'long', component: 'prometheus.scrape', label: 'b'.repeat(257), disabled: true },
+      ]),
+      shippedSchema,
+    );
+    expect(MAX_LABEL_BYTES).toBe(256);
+    expect(r.content).toBe('');
+    expect(r.diagnostics.map((d) => [d.code, d.severity, d.node_id])).toEqual([
+      ['label_too_long', 'error', 'wide'],
+      ['label_too_long', 'error', 'long'],
+    ]);
+    expect(r.diagnostics[0].message).toBe('the label is 258 bytes; the limit is 256');
+  });
+
+  it('refuses a component name over 256 bytes', () => {
+    const r = renderTS(
+      makeDoc([{ id: 'n1', component: `x.${'y'.repeat(256)}`, label: 'a' }]),
+      shippedSchema,
+    );
+    expect(MAX_COMPONENT_BYTES).toBe(256);
+    expect(r.content).toBe('');
+    expect(codes(r)).toEqual(['component_too_long']);
+    expect(r.diagnostics[0].message).toBe('the component name is 258 bytes; the limit is 256');
+  });
+
+  it('keeps 800 diagnostics and counts the rest into one error', () => {
+    const r = renderTS(makeDoc(unknownNodes(1000)), shippedSchema);
+    expect(MAX_DIAGNOSTICS).toBe(800);
+    expect(r.diagnostics).toHaveLength(801);
+    const last = r.diagnostics[800];
+    expect(last.code).toBe('too_many_diagnostics');
+    expect(last.severity).toBe('error');
+    expect(last.message).toBe(
+      '200 more diagnostics were not reported (at most 800, 262144 bytes, are)',
+    );
+  });
+
+  it('caps the diagnostic list at 256 KiB', () => {
+    // A node id is not clipped (it is the diagnostic's address), so ten
+    // 30 KB ids pass 256 KiB of diagnostics long before 800 entries.
+    const r = renderTS(
+      makeDoc(unknownNodes(10, (i) => `${i}${'i'.repeat(30_000)}`)),
+      shippedSchema,
+    );
+    expect(MAX_DIAGNOSTIC_BYTES).toBe(256 << 10);
+    expect(codes(r)).toEqual([...Array(8).fill('unknown_component'), 'too_many_diagnostics']);
+    expect(r.diagnostics[8].message).toMatch(/^2 more diagnostics/);
+  });
+
+  it('reports a list of dropped warnings as a warning', () => {
+    const r = renderTS(
+      makeDoc([
+        {
+          id: 'n1',
+          component: 'prometheus.scrape',
+          label: 'app',
+          props: Object.fromEntries(Array.from({ length: 900 }, (_, i) => [`p${i}`, 1])),
+        },
+      ]),
+      shippedSchema,
+    );
+    expect(r.diagnostics.at(-1)).toMatchObject({
+      code: 'too_many_diagnostics',
+      severity: 'warning',
+    });
+    expect(r.content).toContain('prometheus.scrape "app" {');
+  });
+
+  it("names at most ten of a cycle's components", () => {
+    const nodes: TestNode[] = Array.from({ length: 15 }, (_, i) => ({
+      id: `n${i}`,
+      component: 'prometheus.relabel',
+      label: `r${String(i).padStart(2, '0')}`,
+    }));
+    const edges: TestEdge[] = nodes.map((n, i) => ({
+      id: `e${i}`,
+      from: [n.id, 'forward_to'],
+      to: [nodes[(i + 1) % nodes.length].id, 'receiver'],
+    }));
+    const cycle = renderTS(makeDoc(nodes, edges), shippedSchema).diagnostics.find(
+      (d) => d.code === 'cycle',
+    );
+    const named = nodes.slice(0, 10).map((n) => `prometheus.relabel "${n.label}"`);
+    expect(cycle?.message).toBe(
+      `graph has a cycle through ${named.join(', ')}, 5 more; the emission order of those components is arbitrary`,
+    );
+  });
+
+  it('clips a client-supplied string a message quotes to 64 bytes', () => {
+    const r = renderTS(
+      makeDoc(
+        [
+          { id: 'n1', component: 'prometheus.scrape', label: 'a' },
+          { id: 'n2', component: 'prometheus.scrape', label: 'b' },
+        ],
+        [{ id: `e${'€'.repeat(100)}`, from: ['n1', 'nope'], to: ['n2', 'p'.repeat(500)] }],
+      ),
+      shippedSchema,
+    );
+    const msg = r.diagnostics.find((d) => d.code === 'edge_unresolved')?.message;
+    // "e" + 20 × "€" is 61 bytes; the ellipsis (3 bytes) takes the clip to 64.
+    expect(msg).toBe(
+      `edge e${'€'.repeat(20)}…: prometheus.scrape.nope → prometheus.scrape.${'p'.repeat(61)}… does not connect an argument to a matching export; the reference was not emitted`,
+    );
   });
 });

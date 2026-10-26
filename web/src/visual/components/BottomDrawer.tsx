@@ -14,7 +14,13 @@ import {
 } from '../../components/ui/unavailable';
 import { useOrgId } from '../../hooks/useOrg';
 import { errorText } from '../../lib/formError';
-import { renderTS } from '../renderTS';
+import {
+  CODE_OUTPUT_TOO_LARGE,
+  CODE_TOO_MANY_DIAGNOSTICS,
+  MAX_DIAGNOSTICS,
+  type RenderTSResult,
+  renderTS,
+} from '../renderTS';
 import { useVisualStore } from '../store';
 import { useDebouncedValue } from '../useDebouncedValue';
 import { READ_ONLY_REASON, useSimulateDisabledReason } from './Toolbar';
@@ -29,6 +35,20 @@ function tabClass(selected: boolean, text?: string): string {
   const base = selected ? 'border-accent bg-card' : 'border-transparent';
   const colour = text ?? (selected ? 'text-zinc-100' : 'text-muted hover:text-zinc-200');
   return `${base} ${colour}`;
+}
+
+/** #400: why the preview declined to show a config, or null when it did not.
+ *  Past its output bound the preview has no content; past its diagnostics
+ *  bound the config it has belongs to a graph it could not fully check. Either
+ *  way it says so rather than show a partial render. */
+function tooLargeReason(rendered: RenderTSResult | null): string | null {
+  if (!rendered) return null;
+  const codes = new Set(rendered.diagnostics.map((d) => d.code));
+  if (codes.has(CODE_OUTPUT_TOO_LARGE))
+    return 'Too large to render: the generated config would pass 4 MiB.';
+  if (codes.has(CODE_TOO_MANY_DIAGNOSTICS))
+    return `Too large to render: the graph has more problems than the preview reports (${MAX_DIAGNOSTICS}).`;
+  return null;
 }
 
 export function BottomDrawer() {
@@ -82,6 +102,7 @@ export function BottomDrawer() {
   // — it's a one-off click, not a per-keystroke recompute).
   const debouncedDoc = useDebouncedValue(doc, 300);
   const rendered = schema ? renderTS(debouncedDoc, schema) : null;
+  const tooLarge = tooLargeReason(rendered);
   // The collapsed bar's three labels double as tab affordances: clicking one
   // both selects that tab and expands the drawer to show it.
   const selectTab = (t: DrawerTab) => {
@@ -353,7 +374,15 @@ export function BottomDrawer() {
                       : 'Server render matches'}
                 </div>
               )}
-              <pre className='font-mono text-xs whitespace-pre-wrap'>{rendered?.content ?? ''}</pre>
+              {tooLarge ? (
+                <p data-testid='code-too-large' role='status' className='text-xs text-muted'>
+                  {tooLarge}
+                </p>
+              ) : (
+                <pre className='font-mono text-xs whitespace-pre-wrap'>
+                  {rendered?.content ?? ''}
+                </pre>
+              )}
             </div>
           ) : (
             <div data-testid='simulate-panel'>

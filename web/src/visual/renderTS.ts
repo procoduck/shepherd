@@ -28,6 +28,75 @@ function orderBlocks<T extends { name: string }>(blocks: T[], order?: string[]):
   return out;
 }
 
+/**
+ * The preview's output bounds (#400), the browser copy of #393's in
+ * internal/visual/render.go. Every size is UTF-8 bytes, as Go's len() counts
+ * them, never UTF-16 code units.
+ *
+ * The SIZE limits are looser than the server's — 4× its MaxRenderBytes (1 MiB),
+ * MaxDiagnostics (200) and MaxDiagnosticBytes (64 KiB). A preview of a graph
+ * the server would refuse for size is still worth showing; what these stop is
+ * a graph that would hang the tab. The diagnostic-byte cap was not set by the
+ * owner's decision: it is 4 × 64 KiB so it scales with the other two.
+ *
+ * The NAME limits are the server's own MaxLabelBytes / MaxComponentBytes: the
+ * server refuses a longer name, so previewing one would mislead.
+ *
+ * Below every limit the two renderers agree byte for byte (the shared corpus
+ * proves it); a graph between the server's caps and these renders here and is
+ * refused there.
+ */
+export const MAX_RENDER_BYTES = 4 << 20;
+export const MAX_LABEL_BYTES = 256;
+export const MAX_COMPONENT_BYTES = 256;
+export const MAX_DIAGNOSTICS = 800;
+export const MAX_DIAGNOSTIC_BYTES = 256 << 10;
+/** How many of a cycle's components its diagnostic names (render.go maxCycleNames). */
+const MAX_CYCLE_NAMES = 10;
+/** How much of one client-supplied string a message quotes (render.go maxMessageField). */
+const MAX_MESSAGE_FIELD = 64;
+/** A render refused because its text would pass MAX_RENDER_BYTES; content is empty. */
+export const CODE_OUTPUT_TOO_LARGE = 'output_too_large';
+/** The count of diagnostics past MAX_DIAGNOSTICS / MAX_DIAGNOSTIC_BYTES. */
+export const CODE_TOO_MANY_DIAGNOSTICS = 'too_many_diagnostics';
+
+/** The UTF-8 length of `s` — Go's len(s). A lone surrogate counts as U+FFFD
+ *  (3 bytes), which is what Go's JSON decoder turns one into. */
+function utf8Length(s: string): number {
+  let n = 0;
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c < 0x80) n += 1;
+    else if (c < 0x800) n += 2;
+    else if (c >= 0xd800 && c <= 0xdbff && i + 1 < s.length) {
+      const d = s.charCodeAt(i + 1);
+      if (d >= 0xdc00 && d <= 0xdfff) {
+        n += 4;
+        i++;
+      } else n += 3;
+    } else n += 3;
+  }
+  return n;
+}
+
+/** Shorten a client-supplied string for a diagnostic message: at most `n`
+ *  UTF-8 bytes, ending in an ellipsis when cut, never inside a code point
+ *  (render.go clipTo). */
+function clipTo(s: string, n: number): string {
+  if (s.length * 3 <= n || utf8Length(s) <= n) return s;
+  const room = n - utf8Length('…');
+  let bytes = 0;
+  let end = 0;
+  for (const ch of s) {
+    const size = utf8Length(ch);
+    if (bytes + size > room) break;
+    bytes += size;
+    end += ch.length;
+  }
+  return `${s.slice(0, end)}…`;
+}
+const clip = (s: string) => clipTo(s, MAX_MESSAGE_FIELD);
+
 export interface RenderDiagnostic {
   layer: 'L1';
   severity?: 'error' | 'warning';
@@ -178,22 +247,206 @@ function jsonKind(value: unknown): string {
   return 'unsupported';
 }
 
-/** Serialize by JSON shape, for list elements, map values and untyped attributes. */
-function serializeNatural(value: unknown): string {
-  if (value === null || value === undefined) return 'null';
-  if (typeof value === 'string') return quote(value);
-  if (typeof value === 'boolean') return String(value);
-  if (typeof value === 'number') return formatNumber(value);
-  if (Array.isArray(value)) return `[${value.map(serializeNatural).join(', ')}]`;
-  if (isPlainObject(value)) {
-    const expr = rawExpr(value);
-    if (expr !== null) return expr;
-    return `{${Object.keys(value)
-      .sort(compareBytes)
-      .map((k) => `${IDENT_RE.test(k) ? k : quote(k)} = ${serializeNatural(value[k])}`)
-      .join(', ')}}`;
+/** Text accumulated piece by piece that stops — `over` — at the first piece
+ *  that would take it past `room` UTF-8 bytes; nothing after that is kept.
+ *  render.go's boundedBuilder. */
+class BoundedBuilder {
+  private parts: string[] = [];
+  bytes = 0;
+  over = false;
+  constructor(readonly room: number) {}
+
+  put(s: string) {
+    if (this.over) return;
+    const n = utf8Length(s);
+    if (this.bytes + n > this.room) {
+      this.over = true;
+      return;
+    }
+    this.parts.push(s);
+    this.bytes += n;
   }
-  return quote(String(value));
+
+  text(): string {
+    return this.parts.join('');
+  }
+}
+
+/** Serialize by JSON shape, for list elements, map values and untyped
+ *  attributes, piece by piece so a bounded builder stops early (render.go
+ *  writeNatural). */
+function writeNatural(b: BoundedBuilder, value: unknown) {
+  if (b.over) return;
+  if (value === null || value === undefined) b.put('null');
+  else if (typeof value === 'string') b.put(quote(value));
+  else if (typeof value === 'boolean') b.put(String(value));
+  else if (typeof value === 'number') b.put(formatNumber(value));
+  else if (Array.isArray(value)) {
+    b.put('[');
+    for (let i = 0; i < value.length; i++) {
+      if (b.over) return;
+      if (i > 0) b.put(', ');
+      writeNatural(b, value[i]);
+    }
+    b.put(']');
+  } else if (isPlainObject(value)) {
+    const expr = rawExpr(value);
+    if (expr !== null) {
+      b.put(expr);
+      return;
+    }
+    const keys = Object.keys(value).sort(compareBytes);
+    b.put('{');
+    for (let i = 0; i < keys.length; i++) {
+      if (b.over) return;
+      if (i > 0) b.put(', ');
+      b.put(IDENT_RE.test(keys[i]) ? keys[i] : quote(keys[i]));
+      b.put(' = ');
+      writeNatural(b, value[keys[i]]);
+    }
+    b.put('}');
+  } else b.put(quote(String(value)));
+}
+
+/** writeNatural's text, or null as soon as it passes `room` bytes — a value is
+ *  never built whole only to be refused (render.go serializeNaturalWithin). */
+function serializeNaturalWithin(value: unknown, room: number): string | null {
+  const b = new BoundedBuilder(room);
+  writeNatural(b, value);
+  return b.over ? null : b.text();
+}
+
+/** The rendered text, with a running line count, that stops writing at the
+ *  first write that would take it past `limit` bytes and reports that in
+ *  `over` (render.go lineWriter). Kept as chunks and joined once, so neither
+ *  the text nor a line count is rebuilt per node. */
+class LineWriter {
+  private chunks: string[] = [];
+  bytes = 0;
+  lines = 0;
+  over = false;
+  constructor(readonly limit: number) {}
+
+  write(s: string) {
+    if (this.over) return;
+    const n = utf8Length(s);
+    if (this.bytes + n > this.limit) {
+      this.over = true;
+      return;
+    }
+    this.chunks.push(s);
+    this.bytes += n;
+    for (let i = s.indexOf('\n'); i !== -1; i = s.indexOf('\n', i + 1)) this.lines++;
+  }
+
+  currentLine(): number {
+    return this.lines + 1;
+  }
+
+  /** A value serialized by JSON shape within the room left; one that cannot
+   *  fit marks the writer over and is not emitted. */
+  natural(value: unknown): string | null {
+    const text = serializeNaturalWithin(value, this.limit - this.bytes);
+    if (text === null) this.over = true;
+    return text;
+  }
+
+  text(): string {
+    return this.chunks.join('');
+  }
+}
+
+const diagSize = (d: RenderDiagnostic) =>
+  utf8Length(d.layer) +
+  utf8Length(d.severity ?? '') +
+  utf8Length(d.code) +
+  utf8Length(d.node_id ?? '') +
+  utf8Length(d.node_id2 ?? '') +
+  utf8Length(d.message);
+
+/** Diagnostics up to MAX_DIAGNOSTICS / MAX_DIAGNOSTIC_BYTES; the rest are
+ *  counted into one too_many_diagnostics entry, an error when any dropped one
+ *  was, so a refusal is never lost to the cap (render.go diagSink). */
+class DiagSink {
+  private out: RenderDiagnostic[] = [];
+  private bytes = 0;
+  private dropped = 0;
+  private droppedErr = false;
+
+  add(d: RenderDiagnostic) {
+    const size = diagSize(d);
+    if (
+      this.dropped > 0 ||
+      this.out.length >= MAX_DIAGNOSTICS ||
+      this.bytes + size > MAX_DIAGNOSTIC_BYTES
+    ) {
+      this.dropped++;
+      this.droppedErr ||= d.severity === 'error';
+      return;
+    }
+    this.out.push(d);
+    this.bytes += size;
+  }
+
+  list(): RenderDiagnostic[] {
+    if (this.dropped === 0) return this.out;
+    return [
+      ...this.out,
+      {
+        layer: 'L1',
+        severity: this.droppedErr ? 'error' : 'warning',
+        code: CODE_TOO_MANY_DIAGNOSTICS,
+        message: `${this.dropped} more diagnostics were not reported (at most ${MAX_DIAGNOSTICS}, ${MAX_DIAGNOSTIC_BYTES} bytes, are)`,
+      },
+    ];
+  }
+}
+
+/** A min-heap over `compare` — the topological sort's ready set. `compare`
+ *  is a strict total order over the active nodes (two with the same component
+ *  and label are a collision, refused first), so popping the least yields the
+ *  same sequence as the re-sorted queue it replaced, without re-sorting after
+ *  every push (render.go readyQueue). */
+class MinHeap {
+  private items: string[] = [];
+  constructor(private compare: (a: string, b: string) => number) {}
+
+  get size(): number {
+    return this.items.length;
+  }
+
+  push(id: string) {
+    const h = this.items;
+    h.push(id);
+    let i = h.length - 1;
+    while (i > 0) {
+      const parent = (i - 1) >> 1;
+      if (this.compare(h[i], h[parent]) >= 0) break;
+      [h[i], h[parent]] = [h[parent], h[i]];
+      i = parent;
+    }
+  }
+
+  pop(): string {
+    const h = this.items;
+    const top = h[0];
+    const last = h.pop() as string;
+    if (h.length > 0) {
+      h[0] = last;
+      let i = 0;
+      for (;;) {
+        const l = 2 * i + 1;
+        const r = l + 1;
+        let least = i;
+        if (l < h.length && this.compare(h[l], h[least]) < 0) least = l;
+        if (r < h.length && this.compare(h[r], h[least]) < 0) least = r;
+        if (least === i) break;
+        [h[i], h[least]] = [h[least], h[i]];
+        i = least;
+      }
+    }
+    return top;
+  }
 }
 
 interface LevelRef {
@@ -202,17 +455,29 @@ interface LevelRef {
 }
 
 class Renderer {
-  diagnostics: RenderDiagnostic[] = [];
+  sink = new DiagSink();
+
+  add(d: RenderDiagnostic) {
+    this.sink.add(d);
+  }
 
   diag(code: string, severity: 'error' | 'warning', nodeId: string, message: string) {
-    this.diagnostics.push({ layer: 'L1', severity, code, node_id: nodeId, message });
+    this.add({ layer: 'L1', severity, code, node_id: nodeId, message });
   }
 
   /**
    * Serialize one value according to its declared schema type. Returns null
    * when nothing should be emitted; the reason is reported as a diagnostic.
+   * A list, map or untyped value is serialized within the room `lw` has
+   * left, and one that cannot fit marks it over.
    */
-  serializeTyped(nodeId: string, name: string, value: unknown, type: string): string | null {
+  serializeTyped(
+    lw: LineWriter,
+    nodeId: string,
+    name: string,
+    value: unknown,
+    type: string,
+  ): string | null {
     if (value === null || value === undefined) return null;
     const expr = rawExpr(value);
     if (expr !== null) return expr;
@@ -221,7 +486,7 @@ class Renderer {
         'prop_type_mismatch',
         'error',
         nodeId,
-        `"${name}" is declared ${want} in the schema but the value is ${jsonKind(value)}; it was not emitted`,
+        `"${clip(name)}" is declared ${want} in the schema but the value is ${jsonKind(value)}; it was not emitted`,
       );
       return null;
     };
@@ -231,7 +496,7 @@ class Renderer {
           'secret_by_value',
           'error',
           nodeId,
-          `"${name}" is a secret: supply it as an expression (a binding or {"$expr": ...}), never as a literal`,
+          `"${clip(name)}" is a secret: supply it as an expression (a binding or {"$expr": ...}), never as a literal`,
         );
         return null;
       case 'duration': {
@@ -244,7 +509,7 @@ class Renderer {
             'invalid_duration',
             'error',
             nodeId,
-            `"${name}" = "${s}" is not a duration (expected a unit such as 30s, 5m, 1h)`,
+            `"${clip(name)}" = "${clip(s)}" is not a duration (expected a unit such as 30s, 5m, 1h)`,
           );
         return quote(s);
       }
@@ -267,10 +532,10 @@ class Renderer {
         if (value === 'true' || value === 'false') return value;
         return mismatch('a bool');
       case 'list':
-        if (Array.isArray(value)) return serializeNatural(value);
+        if (Array.isArray(value)) return lw.natural(value);
         return mismatch('a list');
       case 'map':
-        if (isPlainObject(value)) return serializeNatural(value);
+        if (isPlainObject(value)) return lw.natural(value);
         return mismatch('a map');
       case 'capsule':
         // A capsule can only come from another component's export, so a string
@@ -278,25 +543,25 @@ class Renderer {
         if (typeof value === 'string') return value.trim() === '' ? null : value.trim();
         return mismatch('an expression');
       default:
-        return serializeNatural(value);
+        return lw.natural(value);
     }
   }
 
   /**
-   * Emit one block body: schema-ordered attributes (with wired references
+   * Write one block body: schema-ordered attributes (with wired references
    * taking the place of the attribute they satisfy), then any remaining
    * top-level references, then nested blocks, then a diagnostic for every prop
    * the schema does not know.
    */
   body(
+    lw: LineWriter,
     indent: string,
     nodeId: string,
     attrs: AttrLike[],
     blocks: BlockLike[],
     props: Record<string, unknown>,
     refs: LevelRef[],
-  ): string {
-    let out = '';
+  ) {
     const consumed = new Set<string>();
     const here = new Map<string, string>();
     const nested = new Map<string, LevelRef[]>();
@@ -322,22 +587,22 @@ class Renderer {
       const wired = here.get(attr.name);
       if (wired !== undefined) {
         if (Object.hasOwn(props, attr.name)) conflict(attr.name);
-        out += `${indent}${attr.name} = ${wired}\n`;
+        lw.write(`${indent}${attr.name} = ${wired}\n`);
         consumed.add(attr.name);
         here.delete(attr.name);
         continue;
       }
       if (!Object.hasOwn(props, attr.name)) continue;
       consumed.add(attr.name);
-      const text = this.serializeTyped(nodeId, attr.name, props[attr.name], attr.type ?? '');
-      if (text !== null) out += `${indent}${attr.name} = ${text}\n`;
+      const text = this.serializeTyped(lw, nodeId, attr.name, props[attr.name], attr.type ?? '');
+      if (text !== null) lw.write(`${indent}${attr.name} = ${text}\n`);
     }
     for (const [name, value] of here) {
       if (Object.hasOwn(props, name)) {
         conflict(name);
         consumed.add(name);
       }
-      out += `${indent}${name} = ${value}\n`;
+      lw.write(`${indent}${name} = ${value}\n`);
     }
 
     for (const block of blocks) {
@@ -365,8 +630,9 @@ class Renderer {
       if ((instances === null || instances.length === 0) && childRefs.length === 0) continue;
       if (instances === null || instances.length === 0) instances = [{}];
       for (const [i, instance] of instances.entries()) {
-        out += `${indent}${block.name} {\n`;
-        out += this.body(
+        lw.write(`${indent}${block.name} {\n`);
+        this.body(
+          lw,
           `${indent}  `,
           nodeId,
           block.attributes ?? [],
@@ -374,7 +640,7 @@ class Renderer {
           instance,
           i === 0 ? childRefs : [],
         );
-        out += `${indent}}\n`;
+        lw.write(`${indent}}\n`);
       }
     }
 
@@ -385,21 +651,18 @@ class Renderer {
         'unknown_prop',
         'warning',
         nodeId,
-        `"${key}" is not an attribute or block of this component in this schema; it was not emitted`,
+        `"${clip(key)}" is not an attribute or block of this component in this schema; it was not emitted`,
       );
-    return out;
   }
 
-  /** Props for a component the schema does not describe: emitted by JSON shape
+  /** Props for a component the schema does not describe: written by JSON shape
    *  so nothing is silently dropped. */
-  untypedProps(indent: string, nodeId: string, props: Record<string, unknown>): string {
-    let out = '';
+  untypedProps(lw: LineWriter, indent: string, nodeId: string, props: Record<string, unknown>) {
     for (const key of Object.keys(props).sort(compareBytes)) {
       if (key === RAW_KEY || props[key] === null || props[key] === undefined) continue;
-      const text = this.serializeTyped(nodeId, key, props[key], '');
-      if (text !== null) out += `${indent}${key} = ${text}\n`;
+      const text = this.serializeTyped(lw, nodeId, key, props[key], '');
+      if (text !== null) lw.write(`${indent}${key} = ${text}\n`);
     }
-    return out;
   }
 }
 
@@ -433,37 +696,78 @@ interface Wire {
   seq: number;
 }
 
+/**
+ * Render a graph to Alloy text, exactly as internal/visual/render.go does. Its
+ * output is bounded (#400): a label or component name over 256 bytes is
+ * refused, a graph whose text would pass MAX_RENDER_BYTES is refused
+ * (output_too_large, empty content) as soon as the text does, and the
+ * diagnostic list is capped. Every step is n log n in the graph's size.
+ */
 export function renderTS(doc: GraphDocument, schema: SchemaPayload): RenderTSResult {
   const rd = new Renderer();
   const components = schema.components as unknown as Record<string, ComponentLike | undefined>;
   const labels = new Map<string, string>();
   const seen = new Map<string, string>();
-  let collision = false;
+  let refuse = false;
   for (const node of doc.nodes) {
+    const componentBytes = utf8Length(node.component);
+    if (componentBytes > MAX_COMPONENT_BYTES) {
+      refuse = true;
+      rd.diag(
+        'component_too_long',
+        'error',
+        node.id,
+        `the component name is ${componentBytes} bytes; the limit is ${MAX_COMPONENT_BYTES}`,
+      );
+      continue;
+    }
+    // Checked on the raw label: a disabled node's marker comment writes it
+    // unsanitized, and every wire writes the sanitized one.
+    const labelBytes = utf8Length(node.label);
+    if (labelBytes > MAX_LABEL_BYTES) {
+      refuse = true;
+      rd.diag(
+        'label_too_long',
+        'error',
+        node.id,
+        `the label is ${labelBytes} bytes; the limit is ${MAX_LABEL_BYTES}`,
+      );
+      continue;
+    }
     const label = sanitize(node.label);
     labels.set(node.id, label);
     if (node.disabled) continue;
     const key = `${node.component}\0${label}`;
     const old = seen.get(key);
     if (old) {
-      collision = true;
-      rd.diagnostics.push({
+      refuse = true;
+      rd.add({
         layer: 'L1',
         severity: 'error',
         code: 'label_collision',
         node_id: old,
         node_id2: node.id,
-        message: `nodes ${old} and ${node.id} have the same label`,
+        message: `nodes ${clip(old)} and ${clip(node.id)} have the same label`,
       });
       continue;
     }
     seen.set(key, node.id);
   }
-  if (collision) {
+  if (refuse) {
     // A collision makes every reference ambiguous, so no content is safe to
-    // emit; every colliding pair is reported, not just the first.
-    return { content: '', nodeMap: {}, diagnostics: rd.diagnostics };
+    // emit; every colliding pair is reported, not just the first. An
+    // over-long name is refused the same way.
+    return { content: '', nodeMap: {}, diagnostics: rd.sink.list() };
   }
+  const tooLarge = (): RenderTSResult => {
+    rd.add({
+      layer: 'L1',
+      severity: 'error',
+      code: CODE_OUTPUT_TOO_LARGE,
+      message: `the rendered pipeline would exceed ${MAX_RENDER_BYTES} bytes (4 MiB), the most the preview renders`,
+    });
+    return { content: '', nodeMap: {}, diagnostics: rd.sink.list() };
+  };
 
   const active = new Map<string, GraphNode>();
   for (const node of doc.nodes) if (!node.disabled) active.set(node.id, node);
@@ -472,7 +776,9 @@ export function renderTS(doc: GraphDocument, schema: SchemaPayload): RenderTSRes
   const adjacency = new Map<string, string[]>();
   for (const edge of doc.edges) {
     if (!active.has(edge.from.node) || !active.has(edge.to.node)) continue;
-    adjacency.set(edge.from.node, [...(adjacency.get(edge.from.node) ?? []), edge.to.node]);
+    const next = adjacency.get(edge.from.node);
+    if (next) next.push(edge.to.node);
+    else adjacency.set(edge.from.node, [edge.to.node]);
     indegree.set(edge.to.node, (indegree.get(edge.to.node) ?? 0) + 1);
   }
   const compare = (a: string, b: string) => {
@@ -485,26 +791,27 @@ export function renderTS(doc: GraphDocument, schema: SchemaPayload): RenderTSRes
       compareBytes(labels.get(a) as string, labels.get(b) as string)
     );
   };
-  const queue = [...active.keys()].filter((id) => indegree.get(id) === 0).sort(compare);
+  const ready = new MinHeap(compare);
+  for (const id of active.keys()) if (indegree.get(id) === 0) ready.push(id);
   const order: string[] = [];
-  while (queue.length) {
-    const id = queue.shift() as string;
+  while (ready.size > 0) {
+    const id = ready.pop();
     order.push(id);
     for (const to of adjacency.get(id) ?? []) {
       indegree.set(to, (indegree.get(to) as number) - 1);
-      if (indegree.get(to) === 0) {
-        queue.push(to);
-        queue.sort(compare);
-      }
+      if (indegree.get(to) === 0) ready.push(to);
     }
   }
   if (order.length < active.size) {
     const placed = new Set(order);
     const rest = [...active.keys()].filter((id) => !placed.has(id)).sort(compare);
-    const names = rest.map(
-      (id) => `${(active.get(id) as GraphNode).component} ${quote(labels.get(id) as string)}`,
-    );
-    rd.diagnostics.push({
+    // At most MAX_CYCLE_NAMES are named: the message must not grow with the
+    // graph.
+    const names = rest
+      .slice(0, MAX_CYCLE_NAMES)
+      .map((id) => `${(active.get(id) as GraphNode).component} ${quote(labels.get(id) as string)}`);
+    if (rest.length > MAX_CYCLE_NAMES) names.push(`${rest.length - MAX_CYCLE_NAMES} more`);
+    rd.add({
       layer: 'L1',
       severity: 'error',
       code: 'cycle',
@@ -515,47 +822,63 @@ export function renderTS(doc: GraphDocument, schema: SchemaPayload): RenderTSRes
   }
 
   const wires = resolveEdges(rd, doc, active, labels, components);
+  if (wires === null) return tooLarge();
+  // Each node's bindings in document order, indexed once rather than
+  // filtered once per node.
+  const bindings = new Map<string, GraphDocument['bindings']>();
+  for (const binding of doc.bindings) {
+    if (!active.has(binding.node)) continue;
+    const list = bindings.get(binding.node);
+    if (list) list.push(binding);
+    else bindings.set(binding.node, [binding]);
+  }
 
   const version = schema._meta.alloy_version || doc.schema_version;
+  const lw = new LineWriter(MAX_RENDER_BYTES);
   // The graph's node count, disabled nodes included — render.go writes the
   // same line (it read "graph revision N" until #308).
   const nodes = doc.nodes.length === 1 ? '1 node' : `${doc.nodes.length} nodes`;
-  let content = `// generated by shepherd visual builder — do not edit by hand (edits will be overwritten); ${nodes}, schema ${version}\n`;
+  lw.write(
+    `// generated by shepherd visual builder — do not edit by hand (edits will be overwritten); ${nodes}, schema ${version}\n`,
+  );
   for (const node of doc.nodes)
-    if (node.disabled) content += `// node ${quote(node.label)} disabled\n`;
+    if (node.disabled) lw.write(`// node ${quote(node.label)} disabled\n`);
   const nodeMap: RenderTSResult['nodeMap'] = {};
   for (const id of order) {
+    if (lw.over) break;
     const node = active.get(id) as GraphNode;
     const component = components[node.component];
     if (node.component !== '' && component === undefined)
-      rd.diagnostics.push({
+      rd.add({
         layer: 'L1',
         severity: 'error',
         code: 'unknown_component',
         node_id: id,
-        message: `component "${node.component}" is not in the schema for this graph`,
+        message: `component "${clip(node.component)}" is not in the schema for this graph`,
       });
-    content += `\n${node.component} ${quote(labels.get(id) as string)} {\n`;
-    const startLine = content.split('\n').length - 1;
+    lw.write('\n');
+    const startLine = lw.currentLine();
+    lw.write(`${node.component} ${quote(labels.get(id) as string)} {\n`);
     const props = node.props ?? {};
-    content += component
-      ? rd.body(
-          '  ',
-          id,
-          component.attributes ?? [],
-          orderBlocks(component.blocks ?? [], node.block_order),
-          props,
-          nodeRefs(component, wires.get(id)),
-        )
-      : rd.untypedProps('  ', id, props);
-    for (const binding of doc.bindings.filter((b) => b.node === id)) {
+    if (component)
+      rd.body(
+        lw,
+        '  ',
+        id,
+        component.attributes ?? [],
+        orderBlocks(component.blocks ?? [], node.block_order),
+        props,
+        nodeRefs(component, wires.get(id)),
+      );
+    else rd.untypedProps(lw, '  ', id, props);
+    for (const binding of bindings.get(id) ?? []) {
       const expr = binding.ref.expr.trim();
       if (expr === '') {
         rd.diag(
           'empty_binding_expr',
           'error',
           id,
-          `binding for "${binding.prop}" has an empty expression`,
+          `binding for "${clip(binding.prop)}" has an empty expression`,
         );
         continue;
       }
@@ -563,12 +886,13 @@ export function renderTS(doc: GraphDocument, schema: SchemaPayload): RenderTSRes
         rd.diag('empty_binding_prop', 'error', id, 'binding has an empty property name');
         continue;
       }
-      content += `  ${binding.prop} = ${expr}\n`;
+      lw.write(`  ${binding.prop} = ${expr}\n`);
     }
-    content += '}\n';
-    nodeMap[id] = { startLine, endLine: content.split('\n').length - 1 };
+    lw.write('}\n');
+    nodeMap[id] = { startLine, endLine: lw.currentLine() - 1 };
   }
-  return { content, nodeMap, diagnostics: rd.diagnostics };
+  if (lw.over) return tooLarge();
+  return { content: lw.text(), nodeMap, diagnostics: rd.sink.list() };
 }
 
 /**
@@ -583,6 +907,10 @@ export function renderTS(doc: GraphDocument, schema: SchemaPayload): RenderTSRes
  *    the reference is emitted in A: `A { forward_to = [B.receiver] }`.
  *
  * Anything else is reported instead of silently dropped.
+ *
+ * Every resolved wire's text lands in the output, so once their total passes
+ * MAX_RENDER_BYTES the render cannot fit: null reports that before the joined
+ * lists are built.
  */
 function resolveEdges(
   rd: Renderer,
@@ -590,22 +918,30 @@ function resolveEdges(
   active: Map<string, GraphNode>,
   labels: Map<string, string>,
   components: Record<string, ComponentLike | undefined>,
-): Map<string, Map<string, Wire[]>> {
+): Map<string, Map<string, Wire[]>> | null {
   const out = new Map<string, Map<string, Wire[]>>();
+  let total = 0;
   const add = (nodeId: string, port: string, wire: Wire) => {
-    const byPort = out.get(nodeId) ?? new Map<string, Wire[]>();
-    byPort.set(port, [...(byPort.get(port) ?? []), wire]);
-    out.set(nodeId, byPort);
+    let byPort = out.get(nodeId);
+    if (!byPort) {
+      byPort = new Map<string, Wire[]>();
+      out.set(nodeId, byPort);
+    }
+    const list = byPort.get(port);
+    if (list) list.push(wire);
+    else byPort.set(port, [wire]);
+    total += utf8Length(wire.text);
   };
   const reference = (edge: GraphEdge, end: 'from' | 'to') =>
     `${(active.get(edge[end].node) as GraphNode).component}.${labels.get(edge[end].node)}.${edge[end].port}`;
 
-  doc.edges.forEach((edge, i) => {
+  for (const [i, edge] of doc.edges.entries()) {
+    if (total > MAX_RENDER_BYTES) return null;
     const fromNode = active.get(edge.from.node);
     const toNode = active.get(edge.to.node);
     // Wires to disabled or absent nodes are dropped along with the node
     // itself; that is the documented meaning of "disabled".
-    if (!fromNode || !toNode) return;
+    if (!fromNode || !toNode) continue;
     const fromComp = components[fromNode.component];
     const toComp = components[toNode.component];
     const toIn = findInput(toComp, edge.to.port);
@@ -628,16 +964,16 @@ function resolveEdges(
     )
       add(edge.from.node, edge.from.port, { text: reference(edge, 'to'), order, seq: i });
     else
-      rd.diagnostics.push({
+      rd.add({
         layer: 'L1',
         severity: 'error',
         code: 'edge_unresolved',
         node_id: edge.from.node,
         node_id2: edge.to.node,
-        message: `edge ${edge.id}: ${fromNode.component}.${edge.from.port} → ${toNode.component}.${edge.to.port} does not connect an argument to a matching export; the reference was not emitted`,
+        message: `edge ${clip(edge.id)}: ${fromNode.component}.${clip(edge.from.port)} → ${toNode.component}.${clip(edge.to.port)} does not connect an argument to a matching export; the reference was not emitted`,
       });
-  });
-  return out;
+  }
+  return total > MAX_RENDER_BYTES ? null : out;
 }
 
 /** The schema type of every input port carrying Alloy's `[]discovery.Target` —
