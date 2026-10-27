@@ -65,6 +65,15 @@ const (
 	// AdminServiceRemoveOrgImportRepositoryProcedure is the fully-qualified name of the AdminService's
 	// RemoveOrgImportRepository RPC.
 	AdminServiceRemoveOrgImportRepositoryProcedure = "/shepherd.mgmt.v1.AdminService/RemoveOrgImportRepository"
+	// AdminServiceListOrgStrictComponentsProcedure is the fully-qualified name of the AdminService's
+	// ListOrgStrictComponents RPC.
+	AdminServiceListOrgStrictComponentsProcedure = "/shepherd.mgmt.v1.AdminService/ListOrgStrictComponents"
+	// AdminServiceAddOrgStrictComponentProcedure is the fully-qualified name of the AdminService's
+	// AddOrgStrictComponent RPC.
+	AdminServiceAddOrgStrictComponentProcedure = "/shepherd.mgmt.v1.AdminService/AddOrgStrictComponent"
+	// AdminServiceRemoveOrgStrictComponentProcedure is the fully-qualified name of the AdminService's
+	// RemoveOrgStrictComponent RPC.
+	AdminServiceRemoveOrgStrictComponentProcedure = "/shepherd.mgmt.v1.AdminService/RemoveOrgStrictComponent"
 	// AdminServiceListClustersProcedure is the fully-qualified name of the AdminService's ListClusters
 	// RPC.
 	AdminServiceListClustersProcedure = "/shepherd.mgmt.v1.AdminService/ListClusters"
@@ -167,6 +176,22 @@ type AdminServiceClient interface {
 	// strict tenant rule applies to the org and an enabled pipeline imports
 	// from it.
 	RemoveOrgImportRepository(context.Context, *connect.Request[v1.RemoveOrgImportRepositoryRequest]) (*connect.Response[v1.RemoveOrgImportRepositoryResponse], error)
+	// ListOrgStrictComponents lists the components an app admin allowed for an
+	// org although strict tenant mode refuses them (refused or unclassified in
+	// the schema overlay). App admin only.
+	ListOrgStrictComponents(context.Context, *connect.Request[v1.ListOrgStrictComponentsRequest]) (*connect.Response[v1.ListOrgStrictComponentsResponse], error)
+	// AddOrgStrictComponent allows one component for an org in strict tenant
+	// mode. It lifts only the refusal of an unclassified or refused component:
+	// every other strict check still applies to it, and it is shown as
+	// admin-allowed and unreviewed. App admin only; invalid_argument for a
+	// name that is not a component name or a component strict mode already
+	// accepts, already_exists for one already allowed.
+	AddOrgStrictComponent(context.Context, *connect.Request[v1.AddOrgStrictComponentRequest]) (*connect.Response[v1.OrgStrictComponent], error)
+	// RemoveOrgStrictComponent takes a component off an org's list. App admin
+	// only. Refused (failed_precondition, naming each one) while the strict
+	// tenant rule applies to the org and an enabled pipeline uses the
+	// component.
+	RemoveOrgStrictComponent(context.Context, *connect.Request[v1.RemoveOrgStrictComponentRequest]) (*connect.Response[v1.RemoveOrgStrictComponentResponse], error)
 	ListClusters(context.Context, *connect.Request[v1.ListClustersRequest]) (*connect.Response[v1.ListClustersResponse], error)
 	ClaimCluster(context.Context, *connect.Request[v1.ClaimClusterRequest]) (*connect.Response[v1.ClaimClusterResponse], error)
 	UnclaimCluster(context.Context, *connect.Request[v1.UnclaimClusterRequest]) (*connect.Response[v1.UnclaimClusterResponse], error)
@@ -289,6 +314,24 @@ func NewAdminServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(adminServiceMethods.ByName("RemoveOrgImportRepository")),
 			connect.WithClientOptions(opts...),
 		),
+		listOrgStrictComponents: connect.NewClient[v1.ListOrgStrictComponentsRequest, v1.ListOrgStrictComponentsResponse](
+			httpClient,
+			baseURL+AdminServiceListOrgStrictComponentsProcedure,
+			connect.WithSchema(adminServiceMethods.ByName("ListOrgStrictComponents")),
+			connect.WithClientOptions(opts...),
+		),
+		addOrgStrictComponent: connect.NewClient[v1.AddOrgStrictComponentRequest, v1.OrgStrictComponent](
+			httpClient,
+			baseURL+AdminServiceAddOrgStrictComponentProcedure,
+			connect.WithSchema(adminServiceMethods.ByName("AddOrgStrictComponent")),
+			connect.WithClientOptions(opts...),
+		),
+		removeOrgStrictComponent: connect.NewClient[v1.RemoveOrgStrictComponentRequest, v1.RemoveOrgStrictComponentResponse](
+			httpClient,
+			baseURL+AdminServiceRemoveOrgStrictComponentProcedure,
+			connect.WithSchema(adminServiceMethods.ByName("RemoveOrgStrictComponent")),
+			connect.WithClientOptions(opts...),
+		),
 		listClusters: connect.NewClient[v1.ListClustersRequest, v1.ListClustersResponse](
 			httpClient,
 			baseURL+AdminServiceListClustersProcedure,
@@ -402,6 +445,9 @@ type adminServiceClient struct {
 	listOrgImportRepositories *connect.Client[v1.ListOrgImportRepositoriesRequest, v1.ListOrgImportRepositoriesResponse]
 	addOrgImportRepository    *connect.Client[v1.AddOrgImportRepositoryRequest, v1.OrgImportRepository]
 	removeOrgImportRepository *connect.Client[v1.RemoveOrgImportRepositoryRequest, v1.RemoveOrgImportRepositoryResponse]
+	listOrgStrictComponents   *connect.Client[v1.ListOrgStrictComponentsRequest, v1.ListOrgStrictComponentsResponse]
+	addOrgStrictComponent     *connect.Client[v1.AddOrgStrictComponentRequest, v1.OrgStrictComponent]
+	removeOrgStrictComponent  *connect.Client[v1.RemoveOrgStrictComponentRequest, v1.RemoveOrgStrictComponentResponse]
 	listClusters              *connect.Client[v1.ListClustersRequest, v1.ListClustersResponse]
 	claimCluster              *connect.Client[v1.ClaimClusterRequest, v1.ClaimClusterResponse]
 	unclaimCluster            *connect.Client[v1.UnclaimClusterRequest, v1.UnclaimClusterResponse]
@@ -478,6 +524,21 @@ func (c *adminServiceClient) AddOrgImportRepository(ctx context.Context, req *co
 // RemoveOrgImportRepository calls shepherd.mgmt.v1.AdminService.RemoveOrgImportRepository.
 func (c *adminServiceClient) RemoveOrgImportRepository(ctx context.Context, req *connect.Request[v1.RemoveOrgImportRepositoryRequest]) (*connect.Response[v1.RemoveOrgImportRepositoryResponse], error) {
 	return c.removeOrgImportRepository.CallUnary(ctx, req)
+}
+
+// ListOrgStrictComponents calls shepherd.mgmt.v1.AdminService.ListOrgStrictComponents.
+func (c *adminServiceClient) ListOrgStrictComponents(ctx context.Context, req *connect.Request[v1.ListOrgStrictComponentsRequest]) (*connect.Response[v1.ListOrgStrictComponentsResponse], error) {
+	return c.listOrgStrictComponents.CallUnary(ctx, req)
+}
+
+// AddOrgStrictComponent calls shepherd.mgmt.v1.AdminService.AddOrgStrictComponent.
+func (c *adminServiceClient) AddOrgStrictComponent(ctx context.Context, req *connect.Request[v1.AddOrgStrictComponentRequest]) (*connect.Response[v1.OrgStrictComponent], error) {
+	return c.addOrgStrictComponent.CallUnary(ctx, req)
+}
+
+// RemoveOrgStrictComponent calls shepherd.mgmt.v1.AdminService.RemoveOrgStrictComponent.
+func (c *adminServiceClient) RemoveOrgStrictComponent(ctx context.Context, req *connect.Request[v1.RemoveOrgStrictComponentRequest]) (*connect.Response[v1.RemoveOrgStrictComponentResponse], error) {
+	return c.removeOrgStrictComponent.CallUnary(ctx, req)
 }
 
 // ListClusters calls shepherd.mgmt.v1.AdminService.ListClusters.
@@ -612,6 +673,22 @@ type AdminServiceHandler interface {
 	// strict tenant rule applies to the org and an enabled pipeline imports
 	// from it.
 	RemoveOrgImportRepository(context.Context, *connect.Request[v1.RemoveOrgImportRepositoryRequest]) (*connect.Response[v1.RemoveOrgImportRepositoryResponse], error)
+	// ListOrgStrictComponents lists the components an app admin allowed for an
+	// org although strict tenant mode refuses them (refused or unclassified in
+	// the schema overlay). App admin only.
+	ListOrgStrictComponents(context.Context, *connect.Request[v1.ListOrgStrictComponentsRequest]) (*connect.Response[v1.ListOrgStrictComponentsResponse], error)
+	// AddOrgStrictComponent allows one component for an org in strict tenant
+	// mode. It lifts only the refusal of an unclassified or refused component:
+	// every other strict check still applies to it, and it is shown as
+	// admin-allowed and unreviewed. App admin only; invalid_argument for a
+	// name that is not a component name or a component strict mode already
+	// accepts, already_exists for one already allowed.
+	AddOrgStrictComponent(context.Context, *connect.Request[v1.AddOrgStrictComponentRequest]) (*connect.Response[v1.OrgStrictComponent], error)
+	// RemoveOrgStrictComponent takes a component off an org's list. App admin
+	// only. Refused (failed_precondition, naming each one) while the strict
+	// tenant rule applies to the org and an enabled pipeline uses the
+	// component.
+	RemoveOrgStrictComponent(context.Context, *connect.Request[v1.RemoveOrgStrictComponentRequest]) (*connect.Response[v1.RemoveOrgStrictComponentResponse], error)
 	ListClusters(context.Context, *connect.Request[v1.ListClustersRequest]) (*connect.Response[v1.ListClustersResponse], error)
 	ClaimCluster(context.Context, *connect.Request[v1.ClaimClusterRequest]) (*connect.Response[v1.ClaimClusterResponse], error)
 	UnclaimCluster(context.Context, *connect.Request[v1.UnclaimClusterRequest]) (*connect.Response[v1.UnclaimClusterResponse], error)
@@ -728,6 +805,24 @@ func NewAdminServiceHandler(svc AdminServiceHandler, opts ...connect.HandlerOpti
 		AdminServiceRemoveOrgImportRepositoryProcedure,
 		svc.RemoveOrgImportRepository,
 		connect.WithSchema(adminServiceMethods.ByName("RemoveOrgImportRepository")),
+		connect.WithHandlerOptions(opts...),
+	)
+	adminServiceListOrgStrictComponentsHandler := connect.NewUnaryHandler(
+		AdminServiceListOrgStrictComponentsProcedure,
+		svc.ListOrgStrictComponents,
+		connect.WithSchema(adminServiceMethods.ByName("ListOrgStrictComponents")),
+		connect.WithHandlerOptions(opts...),
+	)
+	adminServiceAddOrgStrictComponentHandler := connect.NewUnaryHandler(
+		AdminServiceAddOrgStrictComponentProcedure,
+		svc.AddOrgStrictComponent,
+		connect.WithSchema(adminServiceMethods.ByName("AddOrgStrictComponent")),
+		connect.WithHandlerOptions(opts...),
+	)
+	adminServiceRemoveOrgStrictComponentHandler := connect.NewUnaryHandler(
+		AdminServiceRemoveOrgStrictComponentProcedure,
+		svc.RemoveOrgStrictComponent,
+		connect.WithSchema(adminServiceMethods.ByName("RemoveOrgStrictComponent")),
 		connect.WithHandlerOptions(opts...),
 	)
 	adminServiceListClustersHandler := connect.NewUnaryHandler(
@@ -852,6 +947,12 @@ func NewAdminServiceHandler(svc AdminServiceHandler, opts ...connect.HandlerOpti
 			adminServiceAddOrgImportRepositoryHandler.ServeHTTP(w, r)
 		case AdminServiceRemoveOrgImportRepositoryProcedure:
 			adminServiceRemoveOrgImportRepositoryHandler.ServeHTTP(w, r)
+		case AdminServiceListOrgStrictComponentsProcedure:
+			adminServiceListOrgStrictComponentsHandler.ServeHTTP(w, r)
+		case AdminServiceAddOrgStrictComponentProcedure:
+			adminServiceAddOrgStrictComponentHandler.ServeHTTP(w, r)
+		case AdminServiceRemoveOrgStrictComponentProcedure:
+			adminServiceRemoveOrgStrictComponentHandler.ServeHTTP(w, r)
 		case AdminServiceListClustersProcedure:
 			adminServiceListClustersHandler.ServeHTTP(w, r)
 		case AdminServiceClaimClusterProcedure:
@@ -939,6 +1040,18 @@ func (UnimplementedAdminServiceHandler) AddOrgImportRepository(context.Context, 
 
 func (UnimplementedAdminServiceHandler) RemoveOrgImportRepository(context.Context, *connect.Request[v1.RemoveOrgImportRepositoryRequest]) (*connect.Response[v1.RemoveOrgImportRepositoryResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.AdminService.RemoveOrgImportRepository is not implemented"))
+}
+
+func (UnimplementedAdminServiceHandler) ListOrgStrictComponents(context.Context, *connect.Request[v1.ListOrgStrictComponentsRequest]) (*connect.Response[v1.ListOrgStrictComponentsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.AdminService.ListOrgStrictComponents is not implemented"))
+}
+
+func (UnimplementedAdminServiceHandler) AddOrgStrictComponent(context.Context, *connect.Request[v1.AddOrgStrictComponentRequest]) (*connect.Response[v1.OrgStrictComponent], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.AdminService.AddOrgStrictComponent is not implemented"))
+}
+
+func (UnimplementedAdminServiceHandler) RemoveOrgStrictComponent(context.Context, *connect.Request[v1.RemoveOrgStrictComponentRequest]) (*connect.Response[v1.RemoveOrgStrictComponentResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("shepherd.mgmt.v1.AdminService.RemoveOrgStrictComponent is not implemented"))
 }
 
 func (UnimplementedAdminServiceHandler) ListClusters(context.Context, *connect.Request[v1.ListClustersRequest]) (*connect.Response[v1.ListClustersResponse], error) {

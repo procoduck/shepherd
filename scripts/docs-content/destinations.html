@@ -131,7 +131,28 @@
         argument given from inside a template cannot be read, so a tenant or label map taken from
         it is refused. <code>stage.regex</code> and <code>stage.pattern</code> with
         <code>labels_from_groups = true</code> need a literal expression with no group named
+        <code>__tenant_id__</code>, and a <code>stage.truncate</code> rule with
+        <code>source_type = "label"</code> needs a literal <code>sources</code> list without
         <code>__tenant_id__</code>.</p>
+      <p><strong>Only classified components.</strong> The checks above read a component&rsquo;s
+        tenant settings attribute by attribute, so a strict organisation may use only components
+        whose tenant behaviour has been reviewed. Every component Shepherd ships a schema for is
+        classified: <em>allowed</em> (it cannot set a tenant label or header), <em>checked</em> (it
+        can, only through settings the checks above read) or <em>refused</em> (it can affect the
+        tenant in a way the check cannot prove; today only <code>otelcol.auth.google</code>, whose
+        <code>token_header</code> may name <code>X-Scope-OrgID</code>). A refused component, or one
+        Shepherd has no classification for, is refused wherever it appears &mdash; at the top level,
+        in a <code>declare</code>, in a <code>foreach</code> template or in a module &mdash; and the
+        message names it. Your own <code>declare</code> components are judged by what is inside
+        them. <code>prometheus.exporter.blackbox</code> is checked: its modules must be a literal
+        <code>config</code> that names no <code>X-Scope-OrgID</code> header and has no tcp
+        <code>query_response</code> (<code>config_file</code> is refused).</p>
+      <p>An application administrator can allow one more component for an organisation on
+        <strong>Admin &rarr; Organisations</strong> (Edit &rarr; <em>Admin-allowed
+        components</em>). That lifts only this refusal: every other check above still applies to
+        the component, and the page marks it <em>admin-allowed, unreviewed</em>. Both changes are
+        recorded in the audit log, and an entry cannot be removed while an enabled pipeline uses
+        the component.</p>
       <p><strong>Pipelines saved before a check was added are checked when they are
         served.</strong> Every time a strict organisation&rsquo;s collectors are given new config,
         each enabled pipeline is checked as a save would check it. One that fails is left out of

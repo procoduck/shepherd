@@ -275,6 +275,49 @@ var _ = Describe("CheckRequireOwned", Label("integration"), func() {
 		_, err = tenancy.Load(ctx, st.Queries, pgtype.UUID{}, false)
 		Expect(err).To(HaveOccurred())
 	})
+
+	// #421: the admin-allowed components are part of the policy every check
+	// loads — the save, the preflight, the in-transaction lint and the
+	// removal guard.
+	It("loads the org's admin-allowed components, and every check honours them", func() {
+		const google = "otelcol.auth.google \"g\" { }\n"
+		_, err := st.Queries.CreatePipeline(ctx, sqlc.CreatePipelineParams{
+			OrgID: org.ID, Name: "google", Contents: google, Matchers: json.RawMessage(`[]`), Source: "ui", Enabled: true,
+		})
+		Expect(err).NotTo(HaveOccurred())
+		names := func(vs []tenancy.Violation) []string {
+			var out []string
+			for _, v := range vs {
+				out = append(out, v.Name)
+			}
+			return out
+		}
+		vs, err := tenancy.Preflight(ctx, st.Queries, org, false, pinnedimport.Cached)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(names(vs)).To(ConsistOf("google"))
+		Expect(tenancy.LintLocked(ctx, st.Queries, org.ID, true, tenancy.Pipeline{Name: "google", Contents: google})).
+			To(MatchError(tenancy.ErrPipelineNotOwned))
+
+		_, err = st.Queries.AddOrgStrictComponent(ctx, sqlc.AddOrgStrictComponentParams{OrgID: org.ID, Component: "otelcol.auth.google", CreatedBy: "t"})
+		Expect(err).NotTo(HaveOccurred())
+		p, err := tenancy.Load(ctx, st.Queries, org.ID, true)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(p.AllowedComponents).To(Equal([]string{"otelcol.auth.google"}))
+		Expect(p.Validation(st.Queries, pinnedimport.Cached).AllowedComponents).To(HaveKey("otelcol.auth.google"))
+		vs, err = tenancy.Preflight(ctx, st.Queries, org, false, pinnedimport.Cached)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(vs).To(BeEmpty())
+		Expect(tenancy.LintLocked(ctx, st.Queries, org.ID, true, tenancy.Pipeline{Name: "google", Contents: google})).To(Succeed())
+		users, err := tenancy.StrictComponentUsers(ctx, st.Queries, p, "otelcol.auth.google")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(users).To(ConsistOf(`pipeline "google"`))
+		users, err = tenancy.StrictComponentUsers(ctx, st.Queries, p, "loki.source.future")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(users).To(BeEmpty())
+		orphans, err := tenancy.OrphanedPipelines(ctx, st.Queries, org.ID, p.Owned)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(orphans).To(BeEmpty(), "removing a tenant judges pipelines with the org's allowed components")
+	})
 })
 
 // Pinned import.git (#390): the preflight, the boot check, the in-transaction

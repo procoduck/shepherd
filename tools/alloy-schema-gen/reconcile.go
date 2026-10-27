@@ -4,11 +4,15 @@
 //
 // It appends a skeleton entry for every artifact component missing from the
 // overlay ({"category": <heuristic>, "doc": "", "needs_review": true}) and
-// deletes overlay entries whose component no longer exists in the artifact.
+// deletes overlay entries whose component no longer exists in the artifact,
+// keeping a deleted entry's strict tenant classification in the top-level
+// "strict_retired" map (older shipped schemas still have the component). A
+// skeleton carries no "strict" classification: internal/validate's coverage
+// test fails until someone classifies the new component.
 // Editorial fields (doc, icon, port_display_order, discovery_stub, ...) on
 // entries that survive are never touched, and only the top-level
-// "components" map is modified — "wire_types" and "categories" pass through
-// unchanged.
+// "components" and "strict_retired" maps are modified — "wire_types" and
+// "categories" pass through unchanged.
 //
 // Usage: go run reconcile.go <artifact.json> <overlay.json>
 //
@@ -52,6 +56,7 @@ func main() {
 		overlayComponents = map[string]any{}
 	}
 
+	retireStrictClassifications(artifactComponents, overlayComponents, overlay)
 	added, removed := reconcileComponents(artifactComponents, overlayComponents)
 	overlay["components"] = overlayComponents
 
@@ -102,6 +107,35 @@ func reconcileComponents(artifactComponents, overlayComponents map[string]any) (
 		removed = append(removed, name)
 	}
 	return added, removed
+}
+
+// retireStrictClassifications moves the strict tenant classification (#421)
+// of every overlay component the artifact no longer has into the overlay's
+// top-level "strict_retired" map: older shipped schemas still have the
+// component, and internal/validate's coverage test requires every component
+// of every shipped schema to stay classified. A component the artifact still
+// has is left alone, as is one already in strict_retired.
+func retireStrictClassifications(artifactComponents, overlayComponents, overlay map[string]any) {
+	retired, _ := overlay["strict_retired"].(map[string]any) //nolint:errcheck // absent/wrong-shape treated as empty
+	for name, raw := range overlayComponents {
+		if _, ok := artifactComponents[name]; ok {
+			continue
+		}
+		entry, _ := raw.(map[string]any) //nolint:errcheck // a non-object entry carries nothing to keep
+		strict, ok := entry["strict"]
+		if !ok {
+			continue
+		}
+		if retired == nil {
+			retired = map[string]any{}
+		}
+		if _, held := retired[name]; !held {
+			retired[name] = strict
+		}
+	}
+	if retired != nil {
+		overlay["strict_retired"] = retired
+	}
 }
 
 // categorize applies the component-path heuristic from

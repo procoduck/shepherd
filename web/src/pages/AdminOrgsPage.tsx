@@ -6,6 +6,7 @@ import { clients, toApiError } from '@/api/transport';
 import { AdminConfirmDialog } from '@/components/admin/AdminConfirmDialog';
 import { AdminModal, AdminModalActions } from '@/components/admin/AdminModal';
 import { OrgImportReposEditor } from '@/components/admin/OrgImportReposEditor';
+import { OrgStrictComponentsEditor } from '@/components/admin/OrgStrictComponentsEditor';
 import { OrgStrictTenantsToggle, savedToastText } from '@/components/admin/OrgStrictTenantsToggle';
 import { OrgTenantsEditor } from '@/components/admin/OrgTenantsEditor';
 import { QueryError } from '@/components/QueryError';
@@ -381,6 +382,7 @@ export function AdminOrgsPage() {
               onRefusal={setStrictRefusal}
             />
             <OrgImportReposEditor key={`imports-${editOrg.id}`} org={editOrg} />
+            <OrgStrictComponentsEditor key={`components-${editOrg.id}`} org={editOrg} />
             <Field label='Admin group ID' hint={GROUP_VALUE_HINT}>
               <Input
                 value={editForm.adminGroupId}

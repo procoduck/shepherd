@@ -119,6 +119,42 @@ func TestStrictTenantCheckBusyFailsTheLoad(t *testing.T) {
 	}
 }
 
+// Strict tenant mode accepts only classified components (#421): a stored
+// pipeline using a refused one is excluded at serve time, and the verdict
+// cache is keyed by the org's admin-allowed components, so allowing the
+// component (or taking it off again) changes the verdict on the same text.
+func TestStrictTenantCheckComponentsAndTheCacheKey(t *testing.T) {
+	ctx := context.Background()
+	src := "otelcol.auth.google \"g\" { }\n"
+	p := tenancy.Policy{Strict: true, Owned: []gateway.OrgTenant{{Tenant: "acme", Kind: gateway.TenantExact}}}
+	pipes := []merge.Pipeline{{ID: "1", Name: "google", Contents: src, Matchers: []string{`cluster="c1"`}, Source: "ui"}}
+	verdict := func(p tenancy.Policy) string {
+		t.Helper()
+		got, err := serve.NewServing(nil, p).Form(ctx, pipes)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got[0].TenantProblem
+	}
+	if v := verdict(p); !strings.Contains(v, validate.StrictComponentRefusal) {
+		t.Fatalf("a refused component must exclude the pipeline, got %q", v)
+	}
+	allowed := p
+	allowed.AllowedComponents = []string{"otelcol.auth.google"}
+	if v := verdict(allowed); v != "" {
+		t.Errorf("an admin-allowed component must not exclude the pipeline (cached verdict reused?), got %q", v)
+	}
+	if v := verdict(p); !strings.Contains(v, validate.StrictComponentRefusal) {
+		t.Errorf("taking the component off again must exclude the pipeline again, got %q", v)
+	}
+	still := allowed
+	pipes[0].Contents = "otelcol.auth.google \"g\" { }\nloki.write \"w\" {\n  endpoint {\n    url       = \"https://l.example/push\"\n" +
+		"    tenant_id = \"globex\"\n  }\n}\n"
+	if v := verdict(still); !strings.Contains(v, `tenant "globex" is not one this organisation owns`) {
+		t.Errorf("every other check still applies with the component allowed, got %q", v)
+	}
+}
+
 // A verdict that read pinned modules is not cached: the module cache can
 // change (a module fetched later) without the text or the policy changing.
 func TestStrictTenantCheckDoesNotCacheModuleVerdicts(t *testing.T) {

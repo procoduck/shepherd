@@ -1,5 +1,59 @@
 # Upgrading the Shepherd chart
 
+## 0.24.x → 0.25.0
+
+Shepherd v0.21. A `helm upgrade` with one additive migration (`0047`) and no fleet-wide reload:
+organisations not in strict tenant mode are served the same bytes as before. **If any
+organisation uses strict tenant mode** (or you set `tenants.require_owned`), follow steps 1 and 3:
+strict tenant mode now accepts only components with a reviewed classification, and a stored
+pipeline that uses any other is left out of served config until it is fixed or the component is
+allowed for its organisation.
+
+### 1. Before you upgrade: run the tenant preflight (strict tenant mode only)
+
+Every component of every shipped schema now has a strict classification in the schema overlay:
+allowed, checked (accepted because the tenant check already reads its tenant-relevant
+attributes), or refused. In a strict organisation a component classified refused — in this
+release only `otelcol.auth.google` — or one no shipped schema classifies is refused at save, and
+a stored pipeline using one is **excluded from its collectors' served config** when it is served.
+Find such pipelines before you upgrade: run `shepherd admin tenant-preflight` **with the new
+image** against a copy of your database brought to the new schema with that image's `shepherd
+migrate up`, or right after the upgrade from a server pod:
+
+```sh
+kubectl -n shepherd exec svc/shepherd -- /usr/local/bin/shepherd admin tenant-preflight
+```
+
+It lists each pipeline with the component and exits non-zero while anything is listed. Replace
+the component, disable the pipeline, or allow the component for the organisation (step 3).
+
+**With `tenants.require_owned: true`, the server refuses to start while the preflight lists
+anything**, as in 0.24: clear the list first, or set `config.tenants.require_owned: false` for the
+upgrade, fix the listed pipelines, and turn it back on.
+
+### 2. Upgrade: migration 0047
+
+```sh
+helm upgrade shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.25.0 \
+  --namespace shepherd --reuse-values
+```
+
+`0047` creates `org_strict_components` (the components an app admin allowed per organisation).
+It is additive, and pods still on the old image ignore it. Its down migration drops it.
+
+### 3. Allowing a component for one organisation
+
+An application administrator can allow a component strict mode refuses for one organisation:
+Admin → Organisations → Edit → **Admin-allowed components**, enter the component name (such as
+`otelcol.auth.google`) and choose Allow (or `AdminService/AddOrgStrictComponent` with `org_id`
+and `component`). It takes effect at once and recomputes the organisation's served configs, so a
+pipeline excluded only for that component is served again. The entry lifts **only** the
+component refusal: every other strict check — tenants, headers, label maps, capture-group labels
+— still applies to the component, and the page marks it "admin-allowed, unreviewed". Both changes
+are audited (`org.strict_component.add` / `.remove`). An entry cannot be removed while the
+organisation is strict and an enabled pipeline uses the component; the refusal names those
+pipelines.
+
 ## 0.23.x → 0.24.0
 
 Shepherd v0.20.0. A `helm upgrade` with five additive migrations (`0042`–`0046`) and no

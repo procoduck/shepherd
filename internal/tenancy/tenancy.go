@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -42,6 +43,10 @@ type Policy struct {
 	// may import.git from, pinned to a full commit SHA (0043, #390).
 	OrgID       pgtype.UUID
 	ImportRepos []sqlc.OrgImportRepository
+	// AllowedComponents are the components an application administrator
+	// allowed for the org although strict mode refuses them (0047, #421),
+	// sorted: it lifts only that refusal.
+	AllowedComponents []string
 }
 
 // Load reads orgID's policy through q. requireOwned is the server-wide
@@ -67,10 +72,40 @@ func LoadOrg(ctx context.Context, q *sqlc.Queries, org sqlc.Org, requireOwned bo
 	if err != nil {
 		return Policy{}, fmt.Errorf("loading org import repositories: %w", err)
 	}
+	components, err := allowedComponents(ctx, q, org.ID)
+	if err != nil {
+		return Policy{}, err
+	}
 	return Policy{
 		Strict: org.StrictTenants || requireOwned, OrgStrict: org.StrictTenants, Owned: Rules(rows),
-		OrgID: org.ID, ImportRepos: repos,
+		OrgID: org.ID, ImportRepos: repos, AllowedComponents: components,
 	}, nil
+}
+
+// allowedComponents is the components an application administrator allowed
+// for orgID (0047), sorted by name.
+func allowedComponents(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID) ([]string, error) {
+	rows, err := q.ListOrgStrictComponents(ctx, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("loading the org's allowed components: %w", err)
+	}
+	out := make([]string, len(rows))
+	for i := range rows {
+		out[i] = rows[i].Component
+	}
+	return out, nil
+}
+
+// componentSet is names as validate.TenantPolicy takes them (nil when empty).
+func componentSet(names []string) map[string]bool {
+	if len(names) == 0 {
+		return nil
+	}
+	out := make(map[string]bool, len(names))
+	for _, n := range names {
+		out[n] = true
+	}
+	return out
 }
 
 // Rules converts org_tenants rows to gateway's form.
@@ -108,7 +143,10 @@ func (p Policy) Validation(q *sqlc.Queries, src pinnedimport.Source) validate.Te
 	if !p.Strict {
 		return validate.TenantPolicy{}
 	}
-	return validate.TenantPolicy{Strict: true, Owns: p.Owns, Git: src.Modules(q, p.OrgID, p.ImportRepos), Inline: inliner(q, p.OrgID, p.ImportRepos)}
+	return validate.TenantPolicy{
+		Strict: true, Owns: p.Owns, Git: src.Modules(q, p.OrgID, p.ImportRepos), Inline: inliner(q, p.OrgID, p.ImportRepos),
+		AllowedComponents: componentSet(p.AllowedComponents),
+	}
 }
 
 // inliner is the served form of an org's pipeline text (pinnedimport.Inline),
@@ -158,7 +196,14 @@ func Preflight(ctx context.Context, q *sqlc.Queries, org sqlc.Org, requireTenant
 	if err != nil {
 		return nil, fmt.Errorf("loading org %q's import repositories: %w", org.Name, err)
 	}
-	p := Policy{Strict: true, OrgStrict: org.StrictTenants, Owned: Rules(rows), OrgID: org.ID, ImportRepos: repos}
+	components, err := allowedComponents(ctx, q, org.ID)
+	if err != nil {
+		return nil, err
+	}
+	p := Policy{
+		Strict: true, OrgStrict: org.StrictTenants, Owned: Rules(rows), OrgID: org.ID, ImportRepos: repos,
+		AllowedComponents: components,
+	}
 	base := Violation{OrgID: org.ID.String(), OrgName: org.Name}
 	var out []Violation
 	if requireTenant && len(rows) == 0 {
@@ -345,9 +390,14 @@ func OrphanedPipelines(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, 
 	if err != nil {
 		return nil, fmt.Errorf("listing import repositories: %w", err)
 	}
+	components, err := allowedComponents(ctx, q, orgID)
+	if err != nil {
+		return nil, err
+	}
 	policy := validate.TenantPolicy{
 		Strict: true, Owns: func(t string) bool { return gateway.OrgOwnsTenant(remaining, t) },
 		Git: pinnedimport.Cached.Modules(q, orgID, repos), Inline: inliner(q, orgID, repos),
+		AllowedComponents: componentSet(components),
 	}
 	var out []string
 	for i := range pipelines {
@@ -550,6 +600,33 @@ func ImportRepositoryUsers(ctx context.Context, q *sqlc.Queries, orgID pgtype.UU
 			return nil, fmt.Errorf("tenant check: %w", err)
 		}
 		if rec.used {
+			out = append(out, fmt.Sprintf("pipeline %q", pipelines[i].Name))
+		}
+	}
+	return out, nil
+}
+
+// StrictComponentUsers names org's enabled pipelines that use component —
+// strict tenant mode would refuse them without it on the org's list
+// (0047) — directly or in a cached pinned module: what taking component off
+// a strict org's list must not leave behind. p is the org's policy as it
+// stands (component still on it); modules are read from the cache only. q
+// should hold the exclusive ownership lock.
+func StrictComponentUsers(ctx context.Context, q *sqlc.Queries, p Policy, component string) ([]string, error) {
+	pipelines, err := q.ListEnabledPipelinesByOrg(ctx, p.OrgID)
+	if err != nil {
+		return nil, fmt.Errorf("listing enabled pipelines: %w", err)
+	}
+	without := p
+	without.Strict = true
+	without.AllowedComponents = slices.DeleteFunc(slices.Clone(p.AllowedComponents), func(c string) bool { return c == component })
+	var out []string
+	for i := range pipelines {
+		msgs, err := LintPipeline(ctx, q, without, pinnedimport.Cached, pipelines[i].Contents)
+		if err != nil {
+			return nil, err
+		}
+		if slices.ContainsFunc(msgs, func(m string) bool { return validate.RefusesComponent(m, component) }) {
 			out = append(out, fmt.Sprintf("pipeline %q", pipelines[i].Name))
 		}
 	}

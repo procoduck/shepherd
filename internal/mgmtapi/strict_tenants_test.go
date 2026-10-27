@@ -961,4 +961,124 @@ var _ = Describe("Strict tenant mode", Label("integration"), func() {
 			ok(call(appAdmin, "AdminService/RemoveOrgImportRepository", map[string]any{"orgId": orgA.String(), "id": added["id"]}))
 		})
 	})
+
+	// Strict tenant mode accepts only classified components (#421); an app
+	// admin may allow one more for an org, which lifts that refusal only.
+	Describe("admin-allowed components", func() {
+		const google = "otelcol.auth.google \"g\" { }\n"
+		allowComponent := func(who *http.Cookie, component string) (int, map[string]any) {
+			return call(who, "AdminService/AddOrgStrictComponent", map[string]any{"orgId": orgA.String(), "component": component})
+		}
+		actions := func() []string {
+			rows, err := st.Queries.ListAuditLog(ctx, sqlc.ListAuditLogParams{Column1: orgA, Limit: 100})
+			Expect(err).NotTo(HaveOccurred())
+			var out []string
+			for _, r := range rows {
+				if strings.HasPrefix(r.Action, "org.strict_component.") {
+					out = append(out, r.Action+" "+string(r.Detail))
+				}
+			}
+			return out
+		}
+
+		BeforeEach(func() {
+			makeStrict(orgA)
+			start()
+		})
+
+		It("lets only an app admin keep the list, audited, refusing what strict mode already accepts", func() {
+			code, out := allowComponent(adminA, "otelcol.auth.google")
+			Expect(code).To(Equal(http.StatusForbidden), "%v", out)
+			code, out = call(adminA, "AdminService/ListOrgStrictComponents", map[string]any{"orgId": orgA.String()})
+			Expect(code).To(Equal(http.StatusForbidden), "%v", out)
+
+			added := ok(allowComponent(appAdmin, "otelcol.auth.google"))
+			Expect(added).To(And(HaveKeyWithValue("component", "otelcol.auth.google"), HaveKeyWithValue("classification", "refused"),
+				HaveKeyWithValue("reason", ContainSubstring("token_header"))))
+			future := ok(allowComponent(appAdmin, "loki.source.future"))
+			Expect(future).NotTo(HaveKey("classification"), "an unclassified component has none")
+
+			code, out = allowComponent(appAdmin, "otelcol.auth.google")
+			Expect(code).To(Equal(http.StatusConflict), "%v", out)
+			Expect(out["code"]).To(Equal("already_exists"))
+			for _, bad := range []string{"loki.write", "prometheus.exporter.self", "Loki.write", "declare", "a b.c"} {
+				code, out = allowComponent(appAdmin, bad)
+				Expect(code).To(Equal(http.StatusBadRequest), "%s: %v", bad, out)
+			}
+
+			list := ok(call(appAdmin, "AdminService/ListOrgStrictComponents", map[string]any{"orgId": orgA.String()}))
+			Expect(list["items"]).To(HaveLen(2))
+			ok(call(appAdmin, "AdminService/RemoveOrgStrictComponent", map[string]any{"orgId": orgA.String(), "id": added["id"]}))
+			code, out = call(appAdmin, "AdminService/RemoveOrgStrictComponent", map[string]any{"orgId": orgB.String(), "id": future["id"]})
+			Expect(code).To(Equal(http.StatusNotFound), "another org's entry: %v", out)
+
+			Expect(actions()).To(ConsistOf(
+				And(HavePrefix("org.strict_component.remove "), ContainSubstring(`"component": "otelcol.auth.google"`),
+					ContainSubstring(`"classification": "refused"`), ContainSubstring(`"reviewed": false`)),
+				And(HavePrefix("org.strict_component.add "), ContainSubstring(`"classification": "unclassified"`)),
+				HavePrefix("org.strict_component.add "),
+			))
+		})
+
+		It("refuses a refused component at save until it is allowed, and still runs every other check on it", func() {
+			code, out := createPipeline(adminA, orgA, "google", google)
+			Expect(code).To(Equal(http.StatusBadRequest), "%v", out)
+			Expect(out["code"]).To(Equal("failed_precondition"))
+			v := ok(call(adminA, "PipelineService/ValidatePipeline", map[string]any{"orgId": orgA.String(), "contents": google}))
+			Expect(fmt.Sprint(v["diagnostics"])).To(ContainSubstring(validate.StrictComponentRefusal))
+
+			ok(allowComponent(appAdmin, "otelcol.auth.google"))
+			p := ok(createPipeline(adminA, orgA, "google", google))
+			code, out = createPipeline(adminA, orgA, "google-free", google+remoteWriteTo(`"free"`))
+			Expect(code).To(Equal(http.StatusBadRequest), "an allowed component lifts only its own refusal: %v", out)
+
+			// Removing it is refused while an enabled pipeline uses it.
+			ok(call(adminA, "PipelineService/EnablePipeline", map[string]any{"orgId": orgA.String(), "id": p["id"]}))
+			list := ok(call(appAdmin, "AdminService/ListOrgStrictComponents", map[string]any{"orgId": orgA.String()}))
+			items, isList := list["items"].([]any)
+			Expect(isList).To(BeTrue())
+			Expect(items).To(HaveLen(1))
+			entry, isMap := items[0].(map[string]any)
+			Expect(isMap).To(BeTrue())
+			id := entry["id"]
+			code, out = call(appAdmin, "AdminService/RemoveOrgStrictComponent", map[string]any{"orgId": orgA.String(), "id": id})
+			Expect(code).To(Equal(http.StatusBadRequest), "%v", out)
+			Expect(out["code"]).To(Equal("failed_precondition"))
+			Expect(out["message"]).To(ContainSubstring(`pipeline "google"`))
+			ok(call(adminA, "PipelineService/DisablePipeline", map[string]any{"orgId": orgA.String(), "id": p["id"]}))
+			ok(call(appAdmin, "AdminService/RemoveOrgStrictComponent", map[string]any{"orgId": orgA.String(), "id": id}))
+		})
+
+		It("lets a non-strict org's entry go whatever uses it", func() {
+			_, err := st.Queries.SetOrgStrictTenants(ctx, sqlc.SetOrgStrictTenantsParams{ID: orgA, StrictTenants: false})
+			Expect(err).NotTo(HaveOccurred())
+			added := ok(allowComponent(appAdmin, "otelcol.auth.google"))
+			p := ok(createPipeline(adminA, orgA, "google", google))
+			ok(call(adminA, "PipelineService/EnablePipeline", map[string]any{"orgId": orgA.String(), "id": p["id"]}))
+			ok(call(appAdmin, "AdminService/RemoveOrgStrictComponent", map[string]any{"orgId": orgA.String(), "id": added["id"]}))
+		})
+
+		It("excludes a stored pipeline using a refused component at serve time, lists it in the preflight, and serves it once allowed", func() {
+			old, err := st.Queries.CreatePipeline(ctx, sqlc.CreatePipelineParams{
+				OrgID: orgA, Name: "old-google", Contents: google, Matchers: json.RawMessage(`["cluster=\"off-cluster\""]`),
+				Enabled: true, Source: "ui", WizardState: json.RawMessage(`{}`), CreatedBy: "test", UpdatedBy: "test",
+			})
+			Expect(err).NotTo(HaveOccurred())
+			_, err = serve.LoadPipelines(ctx, st, orgA, false)
+			Expect(err).NotTo(HaveOccurred())
+			ex, err := st.Queries.GetPipelineTenantExclusion(ctx, old.ID)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(ex.Reason).To(ContainSubstring(validate.StrictComponentRefusal))
+			pre := ok(call(appAdmin, "AdminService/TenantPreflight", map[string]any{"orgId": orgA.String()}))
+			Expect(fmt.Sprint(pre)).To(And(ContainSubstring("old-google"), ContainSubstring(validate.StrictComponentRefusal)))
+
+			ok(allowComponent(appAdmin, "otelcol.auth.google"))
+			_, err = serve.LoadPipelines(ctx, st, orgA, false)
+			Expect(err).NotTo(HaveOccurred())
+			_, err = st.Queries.GetPipelineTenantExclusion(ctx, old.ID)
+			Expect(err).To(HaveOccurred(), "an allowed component no longer excludes the pipeline")
+			pre = ok(call(appAdmin, "AdminService/TenantPreflight", map[string]any{"orgId": orgA.String()}))
+			Expect(fmt.Sprint(pre)).NotTo(ContainSubstring("old-google"))
+		})
+	})
 })

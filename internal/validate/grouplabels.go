@@ -3,6 +3,7 @@ package validate
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/grafana/alloy/syntax/ast"
@@ -22,7 +23,8 @@ import (
 // v1.21.2 sources: the other stages write the extracted map (json, logfmt,
 // geoip, eventlogmessage, windowsevent, template, replace) or structured
 // metadata (structured_metadata, its regex included), or set fixed names
-// (cri and docker's "stream"); stage.pack only removes labels;
+// (cri and docker's "stream"); stage.pack only removes labels; stage.truncate
+// rewrites the label values a label rule names (checked below);
 // loki.secretfilter's origin_label only reads one (checked below);
 // loki.source.syslog's label_structured_data names labels
 // __syslog_message_sd_*; loki.source.podlogs and loki.source.kubernetes drop
@@ -127,6 +129,42 @@ func (l *tenantLinter) groupLabels(b *ast.BlockStmt, name string, sc scope) {
 				"strict tenant mode refuses it", name, tenantLabel))
 			return
 		}
+	}
+}
+
+// truncateRule checks a loki.process stage.truncate `rule` block. With
+// source_type "label" it cuts each label value it names to the limit and
+// appends its suffix (Alloy v1.21.2 loki/process/stages/truncate.go), so it
+// would rewrite __tenant_id__ into a tenant nobody checked: strict tenant
+// mode requires a literal source_type and, for "label", a literal sources
+// list without __tenant_id__ (no sources means every label).
+func (l *tenantLinter) truncateRule(b *ast.BlockStmt, sc scope) {
+	attrs := attrsOf(b)
+	st := attrs["source_type"]
+	if st == nil {
+		return // "line"
+	}
+	types, ok := l.resolve(st, sc, 0)
+	if !ok {
+		l.refuse(st, "stage.truncate rule source_type cannot be verified and may be \"label\", which rewrites "+
+			tenantLabel+" — strict tenant mode refuses it; write the source_type as a literal")
+		return
+	}
+	if !slices.Contains(types, "label") {
+		return
+	}
+	sources, ok := literalList(attrs["sources"])
+	switch {
+	case !ok || len(sources) == 0:
+		var at ast.Node = b
+		if v := attrs["sources"]; v != nil {
+			at = v
+		}
+		l.refuse(at, "stage.truncate rule with source_type \"label\" truncates every label it is not given a literal "+
+			"list of, "+tenantLabel+" included — strict tenant mode refuses it; list the labels in sources")
+	case hasTenantLabel(sources):
+		l.refuse(attrs["sources"], "stage.truncate rule truncates "+tenantLabel+", which rewrites the tenant — strict "+
+			"tenant mode refuses it")
 	}
 }
 

@@ -1,4 +1,4 @@
-.PHONY: docs check-docs-drift check-docs-version web-ci check-gateway-pin check-chartvalues-pin chart-verify preflight-docker help build build-web build-all test e2e e2e-k8s e2e-k8s-clean e2e-sim e2e-egress smoke test-cover test-ui check-single-dist check-dist-consistency check-build-script check-raw-sql check-docker check-no-route-mocks guards vulncheck lint fmt generate gen-alloy-version generate-corpus schema schema-verify helm-lint release-snapshot docker-build docker-build-local docker-build-init docker-build-simulator dev dev-sim dev-frontend dev-restart dev-seed dev-reset dev-kind dev-kind-reload dev-kind-seed dev-kind-status dev-kind-down test-fullstack test-fullstack-sim clean clean-docker tools preflight-ginkgo preflight-k8s secrets-scan image-scan config-scan
+.PHONY: docs check-docs-drift check-docs-version web-ci check-gateway-pin check-chartvalues-pin chart-verify preflight-docker help build build-web build-all test e2e e2e-k8s e2e-k8s-clean e2e-sim e2e-egress e2e-strict smoke test-cover test-ui check-single-dist check-dist-consistency check-build-script check-raw-sql check-docker check-no-route-mocks guards vulncheck lint fmt generate gen-alloy-version generate-corpus schema schema-verify helm-lint release-snapshot docker-build docker-build-local docker-build-init docker-build-simulator dev dev-sim dev-frontend dev-restart dev-seed dev-reset dev-kind dev-kind-reload dev-kind-seed dev-kind-status dev-kind-down test-fullstack test-fullstack-sim clean clean-docker tools preflight-ginkgo preflight-k8s secrets-scan image-scan config-scan
 
 # Several recipes are bash-idiomatic (the smoke here-string, trap chains);
 # /bin/sh is dash on Debian/Ubuntu and rejects them.
@@ -59,7 +59,7 @@ help: ## List targets and the env knobs the test suites honor
 	@awk 'BEGIN {FS = ":.*## "} /^[A-Za-z0-9_-]+:.*## / {printf "  \033[36m%-24s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 	@echo ""
 	@echo "Env knobs:"
-	@echo "  E2E_KEEP=1              leave the compose stack running after e2e / e2e-sim / e2e-egress"
+	@echo "  E2E_KEEP=1              leave the compose stack running after e2e / e2e-sim / e2e-egress / e2e-strict"
 	@echo "  E2E_K8S_KEEP=1          leave the kind cluster up after e2e-k8s"
 	@echo "  E2E_K8S_NODE_IMAGE=...  pin a different Kubernetes version for e2e-k8s"
 	@echo "  E2E_K8S_ARTIFACTS=dir   write per-feature failure logs from e2e-k8s"
@@ -113,7 +113,7 @@ e2e: preflight-ginkgo docker-build-local docker-build-init ## Compose e2e suite 
 	@# dies on the agent token's duplicate primary key before any spec runs.
 	docker compose -f e2e/docker-compose.e2e.yaml down -v
 	docker compose -f e2e/docker-compose.e2e.yaml up -d --build --wait
-	ginkgo --tags=e2e --randomize-all=false --label-filter='!sandbox-sim' ./e2e
+	ginkgo --tags=e2e --randomize-all=false --label-filter='!sandbox-sim && !strict-tenant' ./e2e
 	@if [ "$(E2E_KEEP)" != "1" ]; then \
 		docker compose -f e2e/docker-compose.e2e.yaml down -v; \
 	else \
@@ -179,6 +179,22 @@ e2e-egress: preflight-ginkgo docker-build-local docker-build-init docker-build-s
 	ginkgo --tags=e2e --randomize-all=false --fail-on-empty --label-filter=sandbox-egress ./e2e
 	@if [ "$(E2E_KEEP)" != "1" ]; then \
 		docker compose -f e2e/docker-compose.e2e.yaml --profile sim down -v; \
+	else \
+		echo "E2E_KEEP=1: stack left running."; \
+	fi
+
+# Strict tenant mode against a real Alloy (#421): the `strict` profile adds a
+# strict org owning tenant `mine`, its collector (alloy-strict) and tenantsink,
+# a recording stand-in for Loki. e2e/strict_tenant_test.go saves (or stores
+# directly) every construct the tenant lint refuses and accepts, and checks
+# the tenant each push reaches the sink under. --fail-on-empty: a typoed
+# label must fail the build, not report "Ran 0 of N Specs".
+e2e-strict: preflight-ginkgo docker-build-local docker-build-init ## Strict tenant e2e: real Alloy against a recording sink
+	docker compose -f e2e/docker-compose.e2e.yaml --profile strict down -v
+	docker compose -f e2e/docker-compose.e2e.yaml --profile strict up -d --build --wait
+	ginkgo --tags=e2e --randomize-all=false --fail-on-empty --label-filter=strict-tenant ./e2e
+	@if [ "$(E2E_KEEP)" != "1" ]; then \
+		docker compose -f e2e/docker-compose.e2e.yaml --profile strict down -v; \
 	else \
 		echo "E2E_KEEP=1: stack left running."; \
 	fi

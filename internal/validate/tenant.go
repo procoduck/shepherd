@@ -38,6 +38,15 @@ type TenantPolicy struct {
 	// that form too. Nil: no served form is checked (a non-strict policy, or
 	// a caller with nothing to inline from).
 	Inline func(ctx context.Context, contents string) (string, error)
+	// AllowedComponents are the components an application administrator
+	// allowed for the org (org_strict_components, #421): strict mode accepts
+	// them although their classification is refused or missing
+	// (strictcomponents.go). It lifts that refusal only; every other check
+	// still applies.
+	AllowedComponents map[string]bool
+	// literalsOnly is set by TenantLiteralsWith: it reads tenants, so it
+	// does not judge components.
+	literalsOnly bool
 	// servedDrops is set by ValidatePipeline and WithTenantLint, and only
 	// there, on the policy they lint the stored text with when they lint the
 	// served form too (Strict and Inline set): a labelmap that may write
@@ -299,6 +308,9 @@ func runLint(ctx context.Context, content string, p TenantPolicy) (*tenantLinter
 	if _, err := labelMapAttributes(); err != nil {
 		return nil, fmt.Errorf("the tenant check cannot read the component schemas: %w", err)
 	}
+	if _, err := ComponentClassifications(); err != nil {
+		return nil, fmt.Errorf("the tenant check cannot read the component classifications: %w", err)
+	}
 	git := &gitState{fetched: map[GitModule]gitFetch{}}
 	for round := 0; ; round++ {
 		git.needed, git.asked = nil, map[GitModule]bool{}
@@ -342,7 +354,7 @@ func TenantLiterals(content string) (literals []string, complete bool, err error
 // git (nil: none, so a pipeline with one is incomplete): a strict org's
 // pipeline whose modules are cached is recorded with their tenants.
 func TenantLiteralsWith(ctx context.Context, content string, git GitModules) (literals []string, complete bool, err error) {
-	l, err := runLint(ctx, content, TenantPolicy{Strict: true, Owns: func(string) bool { return true }, Git: git})
+	l, err := runLint(ctx, content, TenantPolicy{Strict: true, Owns: func(string) bool { return true }, Git: git, literalsOnly: true})
 	if err != nil {
 		return nil, false, err
 	}
@@ -397,7 +409,7 @@ func newTenantLinter(content string, p TenantPolicy, external map[string]map[str
 	l := &tenantLinter{
 		policy: p, declares: map[string]*declareInfo{}, depth: depth, gitDepth: gitDepth, git: git, budget: b,
 		memo: map[string]*resolved{}, components: map[string]map[string]*ast.BlockStmt{},
-		seenLiteral: map[string]bool{},
+		seenLiteral: map[string]bool{}, imports: map[string]bool{},
 	}
 	if len(content) > maxContentBytes {
 		l.diags = append(l.diags, Diagnostic{Line: 1, Col: 1, Stage: 1, Message: fmt.Sprintf(
@@ -417,6 +429,7 @@ func newTenantLinter(content string, p TenantPolicy, external map[string]map[str
 		return nil
 	}
 	l.collectDeclares(file.Body, "", external)
+	l.collectImports(file.Body, "", 0)
 	l.collectComponents(file.Body, "", 0)
 	l.body(file.Body, scope{})
 	l.pushSourcePaths()
@@ -445,9 +458,12 @@ type tenantLinter struct {
 	components map[string]map[string]*ast.BlockStmt
 	// pushes are the push sources found, with their scope.
 	pushes []pushSource
-	memo   map[string]*resolved
-	depth  int
-	budget *budget
+	// imports are the import blocks' labels, keyed by scope as declares
+	// are: where isModuleInstance looks a custom component up.
+	imports map[string]bool
+	memo    map[string]*resolved
+	depth   int
+	budget  *budget
 	// gitDepth is how many import.git modules enclose this text; git is
 	// what the TenantLintChecked call has fetched (nil: none can be).
 	gitDepth int
@@ -773,8 +789,10 @@ func (l *tenantLinter) body(stmts ast.Body, sc scope) {
 			}
 			l.rulesAttributes(n, name, sc)
 			if compPos {
+				l.strictComponent(n, name, sc)
 				l.enrichLabels(n, name)
 				l.secretfilterOrigin(n, name, sc)
+				l.blackboxConfig(n, name, sc)
 			}
 			l.groupLabels(n, name, sc)
 			switch {
@@ -800,7 +818,10 @@ func (l *tenantLinter) body(stmts ast.Body, sc scope) {
 				if sc.component == "otelcol.auth.headers" && sc.path == nil && name == "header" {
 					l.authHeader(n, sc)
 				}
-				if name == "rule" {
+				switch {
+				case name == "rule" && sc.last() == "stage.truncate":
+					l.truncateRule(n, sc)
+				case name == "rule":
 					l.relabelRule(n, sc, nextRule(stmts, i))
 				}
 				child := sc.child(name)

@@ -1146,6 +1146,102 @@ export function installDefaultHandlers(router: Router) {
     o['import_repositories'] = importReposOf(o).filter((x) => x !== held);
     return json(r, 200, {});
   });
+  // Admin-allowed components (internal/mgmtapi/org_strict_components.go):
+  // app admin only. Held on the org fixture as strict_components
+  // ({ id, component, created_by, in_use_by? }); in_use_by lists the enabled
+  // pipelines a removal is refused over. The mock's classification is the
+  // overlay's in brief: otelcol.auth.google is refused, the components in
+  // acceptedComponents are accepted already, anything else is unclassified.
+  type FixtureStrictComponent = {
+    id: string;
+    component: string;
+    created_by?: string;
+    created_at?: string;
+    in_use_by?: string[];
+  };
+  const refusedComponents: Record<string, string> = {
+    'otelcol.auth.google':
+      'token_header may name X-Scope-OrgID, and the token it then sends there is fetched from Google at run time; the lint does not read token_header',
+  };
+  const acceptedComponents = new Set([
+    'loki.write',
+    'loki.process',
+    'prometheus.remote_write',
+    'prometheus.scrape',
+    'prometheus.exporter.self',
+  ]);
+  const strictComponentsOf = (o: Obj): FixtureStrictComponent[] =>
+    (o['strict_components'] as FixtureStrictComponent[] | undefined) ?? [];
+  const strictComponentToWire = (o: Obj, x: FixtureStrictComponent) => ({
+    id: x.id,
+    orgId: s(o, 'id'),
+    component: x.component,
+    classification: refusedComponents[x.component] ? 'refused' : '',
+    reason: refusedComponents[x.component] ?? '',
+    createdBy: x.created_by ?? '',
+    createdAt: x.created_at ?? '2026-10-27T09:00:00Z',
+  });
+  router.register('POST', '/shepherd.mgmt.v1.AdminService/ListOrgStrictComponents', async (r) => {
+    const denied = requireAppAdmin(r);
+    if (denied) return denied;
+    const o = findOrg((await body(r))['orgId']);
+    if (!o) return connectError(r, 404, 'not_found', 'org not found');
+    return json(r, 200, { items: strictComponentsOf(o).map((x) => strictComponentToWire(o, x)) });
+  });
+  router.register('POST', '/shepherd.mgmt.v1.AdminService/AddOrgStrictComponent', async (r) => {
+    const denied = requireAppAdmin(r);
+    if (denied) return denied;
+    const req = await body(r);
+    const o = findOrg(req['orgId']);
+    if (!o) return connectError(r, 404, 'not_found', 'org not found');
+    const component = String(req['component'] ?? '');
+    if (!/^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/.test(component))
+      return connectError(
+        r,
+        400,
+        'invalid_argument',
+        `not a component strict tenant mode refuses: ${JSON.stringify(component)} is not a component name (such as otelcol.auth.google)`,
+      );
+    if (acceptedComponents.has(component))
+      return connectError(
+        r,
+        400,
+        'invalid_argument',
+        `not a component strict tenant mode refuses: ${component} is classified checked, so strict tenant mode already accepts it`,
+      );
+    if (strictComponentsOf(o).some((x) => x.component === component))
+      return connectError(
+        r,
+        409,
+        'already_exists',
+        `org ${JSON.stringify(s(o, 'name'))} already allows ${component}`,
+      );
+    const entry: FixtureStrictComponent = {
+      id: mockId('strictcomp'),
+      component,
+      created_by: 'admin',
+    };
+    o['strict_components'] = [...strictComponentsOf(o), entry];
+    return json(r, 200, strictComponentToWire(o, entry));
+  });
+  router.register('POST', '/shepherd.mgmt.v1.AdminService/RemoveOrgStrictComponent', async (r) => {
+    const denied = requireAppAdmin(r);
+    if (denied) return denied;
+    const req = await body(r);
+    const o = findOrg(req['orgId']);
+    if (!o) return connectError(r, 404, 'not_found', 'org not found');
+    const held = strictComponentsOf(o).find((x) => x.id === req['id']);
+    if (!held) return connectError(r, 404, 'not_found', 'allowed component not found');
+    if (held.in_use_by?.length)
+      return connectError(
+        r,
+        400,
+        'failed_precondition',
+        `${held.component} is still used by enabled pipeline(s) of org ${JSON.stringify(s(o, 'name'))}, which strict tenant mode would then refuse: ${held.in_use_by.map((p) => `pipeline ${JSON.stringify(p)}`).join('; ')}; edit or disable them first`,
+      );
+    o['strict_components'] = strictComponentsOf(o).filter((x) => x !== held);
+    return json(r, 200, {});
+  });
   // Strict tenant mode (internal/mgmtapi/strict_tenants.go): app admin
   // only; turning it on is refused while the org owns no tenant or the
   // fixture's strict_violations (what the server's preflight would find)

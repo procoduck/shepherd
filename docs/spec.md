@@ -298,6 +298,9 @@ orgs(id, name text UNIQUE, display_name text,
 --        instance last reported, stamped by every accepted beacon write (one even
 --        with no pipeline series); reconciliation counts a row as running only
 --        within 15 s of it (NULL: within 15 s of the instance's newest row)
+--   0047 org_strict_components (org_id, component, created_by, created_at) — the
+--        components an app admin allowed for an org that strict tenant mode would
+--        refuse (§8 "Classified components")
 
 org_tenants(org_id uuid REFERENCES orgs ON DELETE CASCADE,       -- 0039; app admin writes only
            tenant text, kind text CHECK (kind IN ('exact','prefix')),
@@ -727,13 +730,61 @@ group name is literal text, so this holds whatever the expression's own parser r
 literal other than `__tenant_id__`. Checked and needing nothing: the other stages write the
 extracted map (`json`, `logfmt`, `geoip`, `eventlogmessage`, `windowsevent`, `template`,
 `replace`) or structured metadata (`structured_metadata`, its `regex` included), or set fixed
-names (`cri`/`docker` `stream`); `stage.pack` only removes labels; `loki.source.syslog`'s
+names (`cri`/`docker` `stream`); `stage.pack` only removes labels; a `stage.truncate` `rule` with
+`source_type = "label"` cuts each label value it names and appends its `suffix`, so it needs a literal
+`source_type` and a literal, non-empty `sources` without `__tenant_id__` (#421); `loki.source.syslog`'s
 `label_structured_data` names labels `__syslog_message_sd_*`; `loki.source.podlogs` and
 `loki.source.kubernetes` drop every reserved label but `__meta_*` (`kubetail.NewTarget`) whatever
 `preserve_discovered_labels` says — PodLogs relabelings run in the cluster, outside this check.
 Metrics and profiles labels (`honor_labels` included) carry no tenant: Mimir and Pyroscope read it
 only from the header. OTLP attributes become Loki labels only through `otelcol.exporter.loki`
 (routed through a drop); an OTLP export to Loki takes the tenant from the header.
+
+**Classified components (#421).** The checks above are attribute by attribute; they are sound
+only for components whose tenant-relevant behaviour has been reviewed. So strict mode accepts only
+classified components: every component of every shipped schema carries a `strict` entry in the
+schema overlay (`internal/schema/artifacts/overlay.json`, `components.<name>.strict`, and
+`strict_retired.<name>` for a component only an older shipped schema has) with a `class` —
+`allowed` (it cannot introduce or alter a tenant label or header), `checked` (it can, only through
+attributes the lint already checks; `checks` names each, from `validate.StrictCheckNames`:
+`tenant_attributes`, `headers`, `label_maps`, `targets`, `relabel_rules`, `group_labels`,
+`secretfilter_origin`, `enrich_labels`, `push_source`, `auth_headers`, `auth_bearer`,
+`blackbox_config`) or `refused` (it can produce tenant-affecting output the lint cannot prove) —
+and a one-line `reason`. A component classified refused, or with no classification, is refused at
+every component position the lint walks (the top level, a declare body, a `foreach` template, a
+readable `import.string` module, a pinned `import.git` module), with a message naming it and saying
+an application administrator can allow it for the org. Only a dotted name is judged: an instance of
+a declare or of an import's module is judged by its body, and Alloy's own blocks (`argument`,
+`export`, `logging`, …) are Stage 2's. A repo test (`TestEveryShippedComponentIsClassified`) fails
+when a shipped schema has a component without a classification, a classification names a component
+no shipped schema has, or a `checked` entry names a check that does not exist or does not cover the
+component (`validate.StrictCheckCovers`: a `headers` check needs a headers map in the component's
+schema, `relabel_rules` a rule block or rules attribute, and so on). The k8s-monitoring fixtures,
+every wizard golden and the dev seed pipelines use only allowed or checked components (a spec).
+In v1.21.2 the one refused component is `otelcol.auth.google` (`token_header` may name
+`X-Scope-OrgID`, and the token it sends there is fetched at run time).
+
+`prometheus.exporter.blackbox` is checked by `blackbox_config`: a probe sends the requests its
+modules define (headers, bodies, a tcp `query_response` that expands references from the server's
+answer), so `config` must be a readable literal that parses as YAML (as blackbox_exporter reads
+it) and names `X-Scope-OrgID` nowhere — no key and no string, compared case-insensitively after
+YAML decoding — and has no `query_response`; `config_file` is refused.
+
+**Admin-allowed components (0047).** An app admin may allow a component strict mode refuses for one
+org (`AdminService.List/Add/RemoveOrgStrictComponent`; Admin → Organisations → Edit). `Add` takes a
+component name (dotted lower-case identifiers) whose classification is refused or missing —
+one classified allowed or checked is `invalid_argument`, a second entry `already_exists` — and
+audits `org.strict_component.add` with the shipped classification and `reviewed: false`. The entry
+lifts **only** the component refusal (`validate.TenantPolicy.AllowedComponents`); every other check
+still applies to the component, and the UI shows it as "admin-allowed, unreviewed". `Remove` is
+refused (`failed_precondition`, naming each pipeline) while the strict rule applies to the org and
+an enabled pipeline — directly or through a cached pinned module — would then be refused for the
+component (`tenancy.StrictComponentUsers`), the import allowlist's rule (#390); otherwise it audits
+`org.strict_component.remove`. Both run under the exclusive ownership lock, mark the org's served
+configs dirty and recompute them. The serve-time verdict cache is keyed by the org's allowed
+components too, so a change is seen on the next recompute. `make e2e-strict` (`e2e-strict.yml`)
+runs every refused and accepted construct through a real Alloy against a recording sink and
+checks the tenant each push arrives under.
 
 **Serve-time check (0045).** A strict org's pipeline saved before a check it now fails is served
 as stored unless something re-checks it. So whenever a strict org's pipelines are loaded to be
