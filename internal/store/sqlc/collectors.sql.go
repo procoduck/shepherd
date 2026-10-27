@@ -234,6 +234,21 @@ func (q *Queries) ListCollectorsWithClusterByOrg(ctx context.Context, orgID pgty
 	return items, nil
 }
 
+const lockCollectorVersionWarning = `-- name: LockCollectorVersionWarning :one
+SELECT version_warning FROM collectors WHERE id = $1 FOR UPDATE
+`
+
+// The stored version warning, locked for the transaction that replaces it:
+// serve.RecordVersionCheck compares it with the new one, ignoring served-config
+// line numbers, to decide whether the change is audited. The lock keeps two
+// polls reaching the same new finding from both seeing the old one.
+func (q *Queries) LockCollectorVersionWarning(ctx context.Context, id pgtype.UUID) (pgtype.Text, error) {
+	row := q.db.QueryRow(ctx, lockCollectorVersionWarning, id)
+	var version_warning pgtype.Text
+	err := row.Scan(&version_warning)
+	return version_warning, err
+}
+
 const recordCollectorRefusal = `-- name: RecordCollectorRefusal :exec
 UPDATE collectors
 SET last_refused_at = now(), last_refused_reason = $1::text
@@ -318,24 +333,34 @@ func (q *Queries) SetCollectorLabel(ctx context.Context, arg SetCollectorLabelPa
 const setCollectorVersionWarning = `-- name: SetCollectorVersionWarning :one
 UPDATE collectors
 SET version_warning    = $1::text,
-    version_warning_at = CASE WHEN $1::text IS NULL THEN NULL ELSE now() END,
-    version_mismatch   = $2::bool
-WHERE id = $3
+    version_warning_at = CASE WHEN $1::text IS NULL THEN NULL
+                              WHEN $2::bool AND version_warning_at IS NOT NULL THEN version_warning_at
+                              ELSE now() END,
+    version_mismatch   = $3::bool
+WHERE id = $4
   AND version_warning IS DISTINCT FROM $1::text
 RETURNING id
 `
 
 type SetCollectorVersionWarningParams struct {
-	Warning  pgtype.Text `json:"warning"`
-	Mismatch bool        `json:"mismatch"`
-	ID       pgtype.UUID `json:"id"`
+	Warning   pgtype.Text `json:"warning"`
+	KeepSince bool        `json:"keep_since"`
+	Mismatch  bool        `json:"mismatch"`
+	ID        pgtype.UUID `json:"id"`
 }
 
 // #375 (0044): a compare-and-swap on version_warning, so concurrent polls
 // that reach the same finding write — and audit — it once. No row means the
-// stored warning already says this.
+// stored warning already says this. keep_since keeps version_warning_at for a
+// warning whose findings only moved lines (serve.RecordVersionCheck): it is
+// the same warning, standing since then.
 func (q *Queries) SetCollectorVersionWarning(ctx context.Context, arg SetCollectorVersionWarningParams) (pgtype.UUID, error) {
-	row := q.db.QueryRow(ctx, setCollectorVersionWarning, arg.Warning, arg.Mismatch, arg.ID)
+	row := q.db.QueryRow(ctx, setCollectorVersionWarning,
+		arg.Warning,
+		arg.KeepSince,
+		arg.Mismatch,
+		arg.ID,
+	)
 	var id pgtype.UUID
 	err := row.Scan(&id)
 	return id, err

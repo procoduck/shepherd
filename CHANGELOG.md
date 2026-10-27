@@ -119,6 +119,37 @@ Categories used here:
   instance's newest row). An instance that stopped reporting entirely keeps its last report,
   flagged stale, until the sweeper removes it. The finding now says the component is "not
   currently served", which holds whether or not it ever was.
+- **A disabled pipeline no longer reads as running for one more beacon cycle.** Shipped. When
+  Alloy unloads a pipeline, the next beacon write carries a Prometheus staleness marker for each
+  series that went away. The beacon read the marker's NaN as a live count that passed the health
+  check, so the pipeline's row was refreshed as healthy and the Reconciliation tab showed it
+  "running (healthy=true) but not currently served" until the next scrape. A staleness marker now
+  ends the series, as Prometheus treats it: it neither refreshes nor creates a row. Any other
+  non-finite count (NaN, ±Inf) marks the pipeline unhealthy.
+- **Reconciliation says "unknown" for a collector with nothing reporting.** Shipped. A collector
+  whose only instance was gone (scaled to zero, unregistered or past `agent.inactive_after`)
+  kept its beacon rows until the sweeper deleted them, and for up to two sweeps the tab said
+  "In sync — declared, served and observed all agree" beside an instance reading "Last seen
+  unknown". Observed state now counts as known only while the collector has a live instance (the
+  rule the instance list uses for "inactive") and at least one beacon row less than five minutes
+  old. Otherwise the tab says the observed state is unknown, with no agreement or drift claimed.
+- **A version warning is audited once, wherever its line moves.** Shipped. The
+  `collector.version_warning` audit fired again when a change elsewhere in the served config only
+  moved a finding's line (a disable moved one from line 487 to 486). Line numbers no longer count
+  towards whether the warning changed, so neither the audit nor the warning's "since" time moves.
+  The warning shown on the collector still names the current line.
+- **`org.update` is audited only when something changed, and says what.** Shipped. Every org
+  Save wrote an empty `org.update` row, even one that only toggled strict mode (audited on its
+  own as `org.strict_tenants`). The row is now written only when a field it covers changed, with
+  each change as `{"changes": {"<field>": {"value": …, "previous_value": …}}}`.
+- **Package-level log lines use the server's log format.** Shipped. Strict tenant mode's
+  "recorded as incomplete" warning, and a few other lines logged through slog's default logger,
+  came out as plain text inside the JSON log. `shepherd serve` now installs its logger as the
+  default.
+- **The pipeline editor counts warnings.** Shipped. The toolbar said "No problems" beside a
+  warning in the problems panel; it now shows the warning count (warnings still never block
+  Save). A diagnostic with no position, such as the nearest-older-schema note, is listed without
+  a "0:0" prefix.
 - **A refused instance stays visible beside healthy ones.** Shipped. A collector is a
   (cluster, role) shared by every instance that polls it, and any passing poll cleared its
   recorded refusal. One pod with credentials for another cluster, next to healthy pods of the

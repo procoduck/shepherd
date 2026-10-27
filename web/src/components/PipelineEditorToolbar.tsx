@@ -19,6 +19,7 @@ export function PipelineEditorToolbar({
   showStatus,
   validating,
   problems,
+  warnings,
   alloyValidateSkipped,
   wrapLines,
   onWrapLines,
@@ -33,6 +34,7 @@ export function PipelineEditorToolbar({
   showStatus: boolean;
   validating: boolean;
   problems: number;
+  warnings: number;
   alloyValidateSkipped: boolean;
   wrapLines: boolean;
   onWrapLines: (wrap: boolean) => void;
@@ -54,6 +56,7 @@ export function PipelineEditorToolbar({
         show={showStatus}
         validating={validating}
         problems={problems}
+        warnings={warnings}
         alloyValidateSkipped={alloyValidateSkipped}
       />
       <div className='ml-auto flex flex-wrap items-center justify-end gap-2'>

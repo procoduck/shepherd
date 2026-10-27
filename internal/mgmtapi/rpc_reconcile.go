@@ -239,10 +239,39 @@ func (s *FleetService) reconcileServed(ctx context.Context, orgID pgtype.UUID, c
 // reconcileObserved reads the collector's beacon inventory (attributed via the
 // shepherd_collector_id the baseline stamps) into the reconcile Observed set,
 // scoped to the managed namespace (see managedControllerPrefix).
+//
+// known is whether that inventory is current: the collector has a live
+// instance (registered, and checked in within agent.inactive_after — the rule
+// presentInstanceStatus presents "inactive" by, so the tab and the instance
+// list agree) AND at least one of its rows was refreshed within
+// beaconStaleAfter. Rows waiting for the sweeper are no evidence of what runs
+// now: a collector scaled to zero left its rows behind for up to two sweeps
+// while its instance read "Last seen unknown", and the tab said "in sync"
+// (0.21 walkthrough). While not known, nothing observed is reported — no
+// agreement and no drift — and the tab says the observed state is unknown.
 func (s *FleetService) reconcileObserved(ctx context.Context, collectorID pgtype.UUID) (reconcile.Observed, bool, error) {
 	rows, err := s.store.Queries.ListBeaconInventoryByCollector(ctx, collectorID)
 	if err != nil {
 		return reconcile.Observed{}, false, err
+	}
+	now := s.now()
+	staleBefore := now.Add(-beaconStaleAfter)
+	fresh := false
+	for i := range rows {
+		if rows[i].LastSeen.Valid && !rows[i].LastSeen.Time.Before(staleBefore) {
+			fresh = true
+			break
+		}
+	}
+	if !fresh {
+		return reconcile.Observed{}, false, nil
+	}
+	live, err := s.hasLiveInstance(ctx, collectorID, now)
+	if err != nil {
+		return reconcile.Observed{}, false, err
+	}
+	if !live {
+		return reconcile.Observed{}, false, nil
 	}
 	// Only rows the instance's latest report refreshed count as running
 	// (reconcile.ObserveBeacon): a pipeline disabled and dropped by a reload
@@ -258,12 +287,28 @@ func (s *FleetService) reconcileObserved(ctx context.Context, collectorID pgtype
 			Healthy: r.Healthy, LastSeen: r.LastSeen.Time,
 		})
 	}
-	comps := reconcile.ObserveBeacon(beaconRows, s.now().Add(-beaconStaleAfter))
-	// known is whether the beacon reported anything at all for this
-	// collector — unmanaged components included: an inventory holding none
-	// of the managed pipelines is a positive "none running", while no rows
-	// is UNKNOWN (never reported, or every row aged out; package reconcile).
-	return reconcile.Observed{Components: comps}, len(rows) > 0, nil
+	comps := reconcile.ObserveBeacon(beaconRows, staleBefore)
+	// A current inventory counts unmanaged components too: one holding none
+	// of the managed pipelines is a positive "none running", while no current
+	// rows is UNKNOWN (never reported, or nothing reporting; package
+	// reconcile).
+	return reconcile.Observed{Components: comps}, true, nil
+}
+
+// hasLiveInstance reports whether any registered instance of the collector is
+// not presented as inactive (presentInstanceStatus's rule).
+func (s *FleetService) hasLiveInstance(ctx context.Context, collectorID pgtype.UUID, now time.Time) (bool, error) {
+	instances, err := s.store.Queries.ListCollectorInstancesByCollector(ctx, collectorID)
+	if err != nil {
+		return false, err
+	}
+	for i := range instances {
+		status, _ := presentInstanceStatus(instanceOutcome{lastSeen: instances[i].LastSeen}, s.inactiveAfter, now)
+		if status != instanceStatusInactive {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func findingsToProto(findings []reconcile.Finding) []*mgmtv1.Finding {

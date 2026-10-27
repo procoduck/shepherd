@@ -169,6 +169,37 @@ var _ = Describe("Served-config version check (#375)", Label("integration"), fun
 		Expect(audits(ctx)).To(Equal(int32(2)))
 	})
 
+	// 0.21 walkthrough: disabling an unrelated pipeline moved the finding
+	// from served line 487 to 486 and wrote a second audit row. A finding is
+	// the same finding wherever it sits; the stored text still follows the
+	// line, so what the collector page shows stays right.
+	It("does not audit a finding again when only its line in the served config moved", func(ctx context.Context) {
+		agentapi.SetVersionNewWindow(svc, 0)
+		agentapi.SetVersionRecheck(svc, 0) // a mismatch is re-checked on every poll
+		poll(ctx, "new-0", pinned)
+		before := poll(ctx, "old-0", "v1.18.1")
+		Expect(audits(ctx)).To(Equal(int32(1)))
+		firstWarning := collector(ctx).VersionWarning.String
+		since := collector(ctx).VersionWarningAt
+		Expect(firstWarning).To(MatchRegexp(`^line \d+: attribute scrape_classic_histograms`))
+
+		// A pipeline merged ahead of "pods" shifts every line after it.
+		_, err := st.Queries.CreatePipeline(ctx, sqlc.CreatePipelineParams{
+			OrgID: org.ID, Name: "aaa-shift", Contents: "// one\n// two\n// three\n", Matchers: json.RawMessage(`["role=\"metrics\""]`),
+			Enabled: true, Source: "ui", WizardState: json.RawMessage(`{}`), CreatedBy: "test", UpdatedBy: "test",
+		})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(st.Queries.MarkServeCacheDirtyByOrg(ctx, org.ID)).To(Succeed())
+		after := poll(ctx, "old-0", "v1.18.1")
+		Expect(after.GetHash()).NotTo(Equal(before.GetHash()), "the served config changed")
+
+		c := collector(ctx)
+		Expect(c.VersionWarning.String).NotTo(Equal(firstWarning), "the shown line follows the served config")
+		Expect(c.VersionWarning.String).To(ContainSubstring("attribute scrape_classic_histograms"))
+		Expect(audits(ctx)).To(Equal(int32(1)), "a moved line is not a new finding")
+		Expect(c.VersionWarningAt).To(Equal(since), "the warning has stood since it first appeared")
+	})
+
 	It("skips the check on a steady poll and re-runs it when a new version polls", func(ctx context.Context) {
 		agentapi.SetVersionNewWindow(svc, 0)
 		poll(ctx, "new-0", pinned)

@@ -2,9 +2,11 @@ package beacon
 
 import (
 	"errors"
+	"math"
 	"reflect"
 	"testing"
 
+	"github.com/prometheus/prometheus/model/value"
 	"github.com/prometheus/prometheus/prompb"
 )
 
@@ -324,5 +326,78 @@ func TestProject_NoCollectorIDLabelIsEmpty(t *testing.T) {
 	}
 	if collectorID != "" {
 		t.Fatalf("collectorID = %q, want empty", collectorID)
+	}
+}
+
+// staleSeries is a series whose latest sample is Prometheus's staleness
+// marker: what remote_write sends for a series the scrape no longer
+// produced (a pipeline Alloy unloaded), once, in the next scrape.
+func staleSeries(instance, pipe, healthType string) prompb.TimeSeries {
+	s := pipeSeries(instance, pipe, healthType, 0)
+	s.Samples = []prompb.Sample{{Value: 1, Timestamp: 1000}, {Value: math.Float64frombits(value.StaleNaN), Timestamp: 2000}}
+	return s
+}
+
+// TestProject_StaleMarkerIsNotAnObservation is the 0.21 walkthrough's
+// one-extra-cycle "running but not served": after a disabled pipeline was
+// unloaded, the next beacon write carried a staleness marker for its
+// series, Project took that NaN as the bucket's value, and NaN passed
+// isHealthy — so the row was refreshed, healthy, one scrape after Alloy
+// stopped running it. A stale marker ends the series (Prometheus drops it
+// from every lookback from then on); it is not a sample.
+func TestProject_StaleMarkerIsNotAnObservation(t *testing.T) {
+	wr := &prompb.WriteRequest{Timeseries: []prompb.TimeSeries{
+		pipeSeries("i", "pipe_kept", "healthy", 1),
+		staleSeries("i", "pipe_gone", "healthy"),
+		ctrlSeries("i", "/remotecfg/pipe_gone.default", "feat.x", "healthy", math.Float64frombits(value.StaleNaN)),
+	}}
+	_, _, obs, err := Project(wr)
+	if err != nil {
+		t.Fatalf("Project: %v", err)
+	}
+	want := []ComponentObservation{{ComponentName: "pipe_kept", Healthy: true}}
+	if !reflect.DeepEqual(obs, want) {
+		t.Fatalf("obs = %+v, want only pipe_kept (a stale marker must not refresh or create a row)", obs)
+	}
+}
+
+// TestProject_StaleBucketDoesNotCount: one bucket of a live pipeline going
+// stale (its unhealthy count dropped out) leaves the live buckets to decide.
+func TestProject_StaleBucketDoesNotCount(t *testing.T) {
+	wr := &prompb.WriteRequest{Timeseries: []prompb.TimeSeries{
+		pipeSeries("i", "pipe_x", "healthy", 2),
+		staleSeries("i", "pipe_x", "unhealthy"),
+	}}
+	_, _, obs, err := Project(wr)
+	if err != nil {
+		t.Fatalf("Project: %v", err)
+	}
+	want := []ComponentObservation{{ComponentName: "pipe_x", Healthy: true}}
+	if !reflect.DeepEqual(obs, want) {
+		t.Fatalf("obs = %+v, want %+v", obs, want)
+	}
+}
+
+// TestProject_NonFiniteValueIsNeverHealthy: an ordinary NaN or an infinity
+// is a sample (the series is live), but no count of healthy components.
+func TestProject_NonFiniteValueIsNeverHealthy(t *testing.T) {
+	for name, v := range map[string]float64{"NaN": math.NaN(), "+Inf": math.Inf(1), "-Inf": math.Inf(-1)} {
+		for _, bucket := range []string{"healthy", "unhealthy"} {
+			wr := &prompb.WriteRequest{Timeseries: []prompb.TimeSeries{
+				pipeSeries("i", "pipe_x", "healthy", 1),
+				pipeSeries("i", "pipe_x", bucket, v),
+			}}
+			if bucket == "healthy" {
+				wr.Timeseries = wr.Timeseries[1:]
+			}
+			_, _, obs, err := Project(wr)
+			if err != nil {
+				t.Fatalf("%s in %s: Project: %v", name, bucket, err)
+			}
+			want := []ComponentObservation{{ComponentName: "pipe_x", Healthy: false}}
+			if !reflect.DeepEqual(obs, want) {
+				t.Fatalf("%s in %s: obs = %+v, want %+v", name, bucket, obs, want)
+			}
+		}
 	}
 }

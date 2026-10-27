@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -72,6 +73,23 @@ func VersionFindings(content string, versions []string) (findings []string, mism
 	return findings, mismatch
 }
 
+// findingLinePrefix is the "line N: " VersionFindings puts before a finding
+// with a position in the served config.
+var findingLinePrefix = regexp.MustCompile(`(?m)^line [0-9]+: `)
+
+// versionWarningIdentity is what makes two recorded warnings the same for the
+// audit: the findings without their served-config line numbers. Any change
+// above a finding (another pipeline enabled, disabled or edited, the header's
+// revision list) moves it, and a moved finding is not a new one (0.21
+// walkthrough: a disable moved one from line 487 to 486 and audited it again).
+// The messages themselves carry no position.
+func versionWarningIdentity(warning pgtype.Text) pgtype.Text {
+	if !warning.Valid {
+		return warning
+	}
+	return pgtype.Text{String: findingLinePrefix.ReplaceAllString(warning.String, ""), Valid: true}
+}
+
 // RecordVersionCheck checks a served config against its collector's active
 // Alloy versions and records the outcome on the collector row (migration
 // 0044). It never changes what is served: the config passed every
@@ -79,9 +97,12 @@ func VersionFindings(content string, versions []string) (findings []string, mism
 // changed since then (an older pod joined) keeps being served it, flagged.
 //
 // The warning is written with a compare-and-swap (SetCollectorVersionWarning)
-// and audited only when that write lands, so a warning is audited once per
-// change however many pods poll; the check's fingerprint (served hash and
-// versions) is recorded every time so the caller can skip the next one.
+// under a row lock, and audited only when that write lands and changes what
+// the warning says (versionWarningIdentity: line numbers aside), so a warning
+// is audited once per change however many pods poll and however its lines
+// move; the stored text still follows the lines. The check's fingerprint
+// (served hash and versions) is recorded every time so the caller can skip
+// the next one.
 func RecordVersionCheck(ctx context.Context, st *store.Store, in VersionCheck) (findings []string, err error) {
 	findings, mismatch := VersionFindings(in.Content, in.Versions)
 	warning := pgtype.Text{String: strings.Join(findings, "\n"), Valid: len(findings) > 0}
@@ -93,10 +114,19 @@ func RecordVersionCheck(ctx context.Context, st *store.Store, in VersionCheck) (
 	defer tx.Rollback(ctx) //nolint:errcheck // no-op after Commit
 	q := st.Queries.WithTx(tx)
 
+	// No row: the collector is gone, and the update below finds nothing too.
+	previous, err := q.LockCollectorVersionWarning(ctx, in.CollectorID)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return findings, fmt.Errorf("reading version warning: %w", err)
+	}
+	moved := warning.Valid && previous.Valid && versionWarningIdentity(previous) == versionWarningIdentity(warning)
 	_, setErr := q.SetCollectorVersionWarning(ctx, sqlc.SetCollectorVersionWarningParams{
-		ID: in.CollectorID, Warning: warning, Mismatch: mismatch,
+		ID: in.CollectorID, Warning: warning, Mismatch: mismatch, KeepSince: moved,
 	})
 	switch {
+	case setErr == nil && moved:
+		// Only line numbers moved: the text follows them, the audit and the
+		// warning's "since" do not.
 	case setErr == nil:
 		detail, mErr := json.Marshal(map[string]any{
 			"findings":    findings,

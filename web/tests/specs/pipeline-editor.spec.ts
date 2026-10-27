@@ -125,6 +125,52 @@ test('validate says alloy validate was skipped instead of "No problems"', async 
   await expect(page.getByRole('button', { name: 'Save' })).toBeEnabled();
 });
 
+// 0.21 walkthrough: the toolbar read "No problems" beside a warning in the
+// problems panel, and a warning with no position (the nearest-older-schema
+// note) was printed as "0:0   warning: ...".
+test('validate counts warnings in the toolbar and prints no position for a positionless one', async ({
+  page,
+  api,
+}) => {
+  await api.loginAs(orgEditor);
+  const s = basicScenario();
+  const p = pipeline({ id: 'pip-warn', org_id: s.org.id, name: 'warn', contents: '// ok' });
+  api.seed({
+    orgs: [s.org],
+    pipelines: [p],
+    validateResult: {
+      valid: true,
+      diagnostics: [
+        {
+          line: 1,
+          col: 1,
+          message: 'component otelcol.encoding.jsonlog is experimental in Alloy v1.21.0',
+          stage: 3,
+          warning: true,
+        },
+        {
+          line: 0,
+          col: 0,
+          message: 'a collector in this org runs Alloy 1.17.0, older than every shipped schema',
+          stage: 3,
+          warning: true,
+        },
+      ],
+    },
+  });
+  await page.goto('/pipelines/pip-warn');
+  await expect(page.getByTestId('editor-warning')).toHaveCount(2);
+
+  await expect(page.getByTestId('editor-warning-count')).toHaveText('2 warnings');
+  await expect(page.getByText(/No problems/i)).toHaveCount(0);
+  await expect(page.getByTestId('editor-warning').nth(0)).toContainText('1:1');
+  const positionless = page.getByTestId('editor-warning').nth(1);
+  await expect(positionless).toContainText('warning: a collector in this org runs Alloy 1.17.0');
+  await expect(positionless).not.toContainText('0:0');
+  // Warnings never block Save.
+  await expect(page.getByRole('button', { name: 'Save' })).toBeEnabled();
+});
+
 test('validates and shows problems panel for syntax errors', async ({ page, api }) => {
   await api.loginAs(appAdmin);
   const s = basicScenario();

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 	. "github.com/onsi/ginkgo/v2"
@@ -26,6 +27,10 @@ import (
 // wiring. reconcileServed replicates merge match+enforcement; the observed set
 // comes from beacon_inventory attributed by the collector id the baseline
 // stamps (see internal/reconcile for the pure comparison's own tests).
+// reconInstanceID is the wire id of the collector instance the suite's
+// beacon rows stand for.
+const reconInstanceID = "recon-instance"
+
 var _ = Describe("shepherd.mgmt.v1.FleetService/GetReconciliation", Label("integration"), func() {
 	var (
 		ctx      context.Context
@@ -73,7 +78,15 @@ var _ = Describe("shepherd.mgmt.v1.FleetService/GetReconciliation", Label("integ
 		})
 		Expect(err).NotTo(HaveOccurred())
 
-		cfg := &config.Config{Auth: config.AuthConfig{InsecureCookies: true}}
+		// The Alloy reporting the beacon rows below: beacon data is current
+		// only while the collector has a live instance (agent.inactive_after,
+		// the rule the instance list presents "inactive" by).
+		_, err = st.Queries.UpsertCollectorInstance(ctx, sqlc.UpsertCollectorInstanceParams{
+			ID: reconInstanceID, CollectorID: collID, Name: "recon-alloy", LocalAttributes: json.RawMessage(`{}`),
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		cfg := &config.Config{Auth: config.AuthConfig{InsecureCookies: true}, Agent: config.AgentConfig{InactiveAfter: 5 * time.Minute}}
 		authHandler := auth.NewLocalAdmin(cfg, st, slog.Default())
 		server = httptest.NewServer(newRPCWiringRouter(st, authHandler, cfg))
 		viewer = &http.Cookie{Name: "shepherd_session", Value: newTestSession(ctx, st, "recon-viewer")}
@@ -238,6 +251,42 @@ var _ = Describe("shepherd.mgmt.v1.FleetService/GetReconciliation", Label("integ
 		Expect(err).NotTo(HaveOccurred())
 		Expect(findings()).To(BeEmpty())
 		Expect(observedKnown()).To(BeTrue())
+	})
+
+	// 0.21 walkthrough: with the collector's only deployment scaled to 0 its
+	// instance unregistered and showed "Last seen unknown", but its beacon
+	// rows lived on until the sweeper deleted them, and for ~8.5 minutes the
+	// tab said "In sync — declared, served and observed all agree". Beacon
+	// rows are evidence of what runs only while something is reporting them.
+	Context("when nothing is reporting any more", func() {
+		BeforeEach(func() {
+			observe("pipe_keep_me", true)
+			observe("pipe_ghost", true) // would be drift if it counted
+			Expect(observedKnown()).To(BeTrue())
+			Expect(findings()).To(HaveLen(1))
+		})
+
+		It("reports observed state unknown once the collector's only instance unregistered", func() {
+			Expect(st.Queries.UnregisterInstance(ctx, reconInstanceID)).To(Succeed())
+			Expect(observedKnown()).To(BeFalse())
+			Expect(findings()).To(BeEmpty(), "rows nobody reports are no evidence of drift either")
+		})
+
+		It("reports observed state unknown once the collector's only instance went inactive", func() {
+			// RAW-SQL-OK: backdating last_seen past agent.inactive_after — no sqlc query sets it
+			_, err := st.Pool().Exec(ctx, `UPDATE collector_instances SET last_seen = now() - interval '6 minutes' WHERE id = $1`, reconInstanceID)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(observedKnown()).To(BeFalse())
+			Expect(findings()).To(BeEmpty())
+		})
+
+		It("reports observed state unknown when every beacon row is due for the sweep", func() {
+			// RAW-SQL-OK: backdating last_seen past the sweeper's expiry — no sqlc query sets it
+			_, err := st.Pool().Exec(ctx, `UPDATE beacon_inventory SET last_seen = now() - interval '6 minutes'`)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(observedKnown()).To(BeFalse())
+			Expect(findings()).To(BeEmpty())
+		})
 	})
 
 	It("ignores root-level (non-managed) observed components", func() {

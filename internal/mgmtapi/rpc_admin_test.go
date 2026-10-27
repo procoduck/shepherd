@@ -218,6 +218,48 @@ var _ = Describe("shepherd.mgmt.v1 AdminService and MeService RPC", Label("integ
 			})
 		})
 
+		// 0.21 walkthrough: every org Save wrote `org.update {}`, even one that
+		// only toggled strict mode (audited on its own as org.strict_tenants).
+		It("audits UpdateOrg only when a field changed, naming each change", func() {
+			appAdmin := createSession(true, nil)
+			// RAW-SQL-OK: test-only read of the audit rows — no sqlc query lists them by action
+			updateAudits := func() []map[string]any {
+				rows, err := st.Pool().Query(ctx, `SELECT detail FROM audit_log WHERE action = 'org.update' ORDER BY id`)
+				Expect(err).NotTo(HaveOccurred())
+				defer rows.Close()
+				var out []map[string]any
+				for rows.Next() {
+					var raw []byte
+					Expect(rows.Scan(&raw)).To(Succeed())
+					var d map[string]any
+					Expect(json.Unmarshal(raw, &d)).To(Succeed())
+					out = append(out, d)
+				}
+				Expect(rows.Err()).NotTo(HaveOccurred())
+				return out
+			}
+			unchanged := map[string]any{
+				"orgId": orgIDStr, "displayName": "Admin RPC Org", "adminGroupId": "admin-rpc-admin-group",
+				"viewerGroupId": "admin-rpc-viewer-group",
+			}
+			resp := postConnect("/shepherd.mgmt.v1.AdminService/UpdateOrg", unchanged, appAdmin)
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			Expect(updateAudits()).To(BeEmpty(), "a save that changes nothing is no update")
+
+			changed := map[string]any{
+				"orgId": orgIDStr, "displayName": "Renamed", "adminGroupId": "admin-rpc-admin-group",
+				"viewerGroupId": "admin-rpc-viewer-group", "allowLabelMatching": true,
+			}
+			resp = postConnect("/shepherd.mgmt.v1.AdminService/UpdateOrg", changed, appAdmin)
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			audits := updateAudits()
+			Expect(audits).To(HaveLen(1))
+			Expect(audits[0]).To(Equal(map[string]any{"changes": map[string]any{
+				"display_name":         map[string]any{"value": "Renamed", "previous_value": "Admin RPC Org"},
+				"allow_label_matching": map[string]any{"value": true, "previous_value": false},
+			}}))
+		})
+
 		It("denies ListOrgs for an org admin session that is not an app admin", func() {
 			orgAdmin := createSession(false, []string{"admin-rpc-admin-group"})
 

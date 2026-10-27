@@ -9,8 +9,10 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"math"
 	"net/http"
 	"net/http/httptest"
+	"time"
 
 	"github.com/golang/snappy"
 	"github.com/jackc/pgx/v5"
@@ -19,6 +21,7 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
+	"github.com/prometheus/prometheus/model/value"
 	"github.com/prometheus/prometheus/prompb"
 
 	"shepherd/internal/agentapi"
@@ -625,5 +628,41 @@ var _ = Describe("BeaconHandler", Label("integration"), func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(rows).To(HaveLen(1))
 		Expect(rows[0].Healthy).To(BeFalse())
+	})
+	// 0.21 walkthrough: a disabled pipeline's row was refreshed (healthy) by
+	// the first beacon write after Alloy unloaded it, because that write
+	// carries a staleness marker for each vanished series and the marker's
+	// NaN was projected as a live, healthy count. The marker must leave the
+	// row as the last real report left it, so reconciliation sees it fall
+	// behind on the very next report.
+	It("does not refresh a pipeline's row from a staleness marker", func() {
+		const inst = "10.0.0.4:12345"
+		Expect(postRaw(encodeWrite([][]prompb.Label{
+			healthySeries(inst, "pipe_keep"), healthySeries(inst, "pipe_gone"),
+		}, 1), authHeader).StatusCode).To(Equal(http.StatusNoContent))
+		lastSeen := func() map[string]time.Time {
+			rows, err := st.Queries.ListBeaconInventoryByPrincipal(ctx, tokenID)
+			Expect(err).NotTo(HaveOccurred())
+			out := map[string]time.Time{}
+			for _, r := range rows {
+				out[r.ComponentName] = r.LastSeen.Time
+			}
+			return out
+		}
+		before := lastSeen()
+		Expect(before).To(HaveKey("pipe_gone"))
+
+		wr := &prompb.WriteRequest{Timeseries: []prompb.TimeSeries{
+			{Labels: healthySeries(inst, "pipe_keep"), Samples: []prompb.Sample{{Value: 1, Timestamp: 2000}}},
+			{Labels: healthySeries(inst, "pipe_gone"), Samples: []prompb.Sample{{Value: math.Float64frombits(value.StaleNaN), Timestamp: 2000}}},
+		}}
+		raw, err := wr.Marshal()
+		Expect(err).NotTo(HaveOccurred())
+		time.Sleep(10 * time.Millisecond)
+		Expect(postRaw(snappy.Encode(nil, raw), authHeader).StatusCode).To(Equal(http.StatusNoContent))
+
+		after := lastSeen()
+		Expect(after["pipe_keep"]).To(BeTemporally(">", before["pipe_keep"]))
+		Expect(after["pipe_gone"]).To(Equal(before["pipe_gone"]), "a staleness marker is not a report")
 	})
 })
