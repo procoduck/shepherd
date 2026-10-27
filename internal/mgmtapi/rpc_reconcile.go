@@ -245,8 +245,8 @@ func (s *FleetService) reconcileServed(ctx context.Context, orgID pgtype.UUID, c
 // presentInstanceStatus presents "inactive" by, so the tab and the instance
 // list agree) AND one of its beacon instances reported within
 // beaconStaleAfter — on a row, or in its last-report record (0047), which
-// outlives the rows the sweeper deletes (reconcile.InventoryCurrent). Rows waiting for the sweeper are no evidence of what runs
-// now: a collector scaled to zero left its rows behind for up to two sweeps
+// outlives the rows the sweeper deletes (reconcile.InventoryCurrent). Rows
+// waiting for the sweeper are no evidence of what runs now: a collector scaled to zero left its rows behind for up to two sweeps
 // while its instance read "Last seen unknown", and the tab said "in sync"
 // (0.21 walkthrough). While not known, nothing observed is reported — no
 // agreement and no drift — and the tab says the observed state is unknown.
