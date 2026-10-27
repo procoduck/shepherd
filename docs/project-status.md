@@ -570,22 +570,22 @@ decisions are in `docs/archive/plans/2026-10-26-v020-queue.md`.
 **Known follow-ups from v0.20.0** (found in the pre-release walkthroughs and reviews, not fixed in
 the release):
 
-- [x] **Reconciliation after the sweep.** — shipped on main (PR #PRNUM, unreleased): each
+- [x] **Reconciliation after the sweep.** — shipped on main (PR #428, unreleased): each
       instance's last report is kept in `beacon_instance_reports` (migration `0047`), swept with
       the instance lifecycle, so the tab reads "nothing running". Original note: A collector whose only pipeline was disabled reads
       correctly (nothing running) while its beacon rows remain; once the sweeper has deleted them,
       the tab reads "unknown" rather than "nothing running", because no row is left to carry the
       instance's last report.
 - [x] **The wizard preview shows "No problems" beside warnings.** — shipped on main (PR
-      #PRNUM, unreleased): the preview reuses the editor's `EditorValidationStatus`. The pipeline editor counts
+      #428, unreleased): the preview reuses the editor's `EditorValidationStatus`. The pipeline editor counts
       warnings since PR #417; the wizard preview's summary does not yet.
 - [x] **The trailing `// otelcol.exporter.loki` comment ends up after the inserted drop block.**
-      — shipped on main (PR #PRNUM, unreleased): the block goes after a comment ending the
+      — shipped on main (PR #428, unreleased): the block goes after a comment ending the
       exporter's closing line.
       In a strict org's served form, a `// otelcol.exporter.loki` comment that trails the exporter
       lands after the inserted `loki.process "shepherd_tenant_drop_<label>"` block instead of next
       to the exporter, so it reads as belonging to the wrong block. Cosmetic; served text only.
-- [x] **Junk or flapping Alloy version strings are untested.** — shipped on main (PR #PRNUM,
+- [x] **Junk or flapping Alloy version strings are untested.** — shipped on main (PR #428,
       unreleased): specs added; they exposed unbounded versions in the audit row and fingerprint,
       an audit per re-check for a flapping unknown version, and NUL bytes failing as `Internal`,
       all fixed. The version-aware check is covered
