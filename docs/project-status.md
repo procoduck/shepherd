@@ -25,8 +25,15 @@
 >
 > **v0.19.1** (chart 0.23.1, 2026-10-26) is a patch on top: beacon ingest hardening (#389, PR
 > #402), the bounded in-browser visual preview (#400, PR #403) and Alloy v1.21.2 (PR #404). Its
-> baseline is `cf235a6` (§1). Step 7b (#362), #375, #390 and the rest of #378 are open (§4) and
-> scheduled for 0.20.
+> baseline is `cf235a6` (§1).
+>
+> **v0.20.0** (chart 0.24.0, 2026-10-27) ships the 0.20 queue: module-based pipelines reaching
+> restricted roles (#378, PR #406), viewer-tier service accounts (#362, step 7b, PR #407), pinned
+> `import.git` for strict orgs (#390, PR #408), version-aware validation (#375, PRs #409, #412),
+> the grafana/k8s-monitoring `labelmap` rules in strict orgs (#410, PR #413), strict tenant mode
+> checking more constructs at save time and re-checking stored pipelines when served (PRs #415,
+> #416), and the two pre-release kind walkthroughs' fixes (PRs #411, #414, #417, #418). Its
+> baseline is `a4d7733` (§1). Known follow-ups are in §4.
 > Completed rounds live in `docs/archive/` — the history this ledger used to carry inline is
 > `docs/archive/completed-2026-09-11.md`. Do not start a second ledger.
 
@@ -36,7 +43,7 @@
 |---|---|
 | `docs/project-status.md` | this ledger — verified baseline, open bugs, unbuilt features, open follow-ups |
 | `docs/spec.md` | authoritative product/build specification (§ numbers referenced below) |
-| `docs/plans/` | dated per-PR implementation plans while their work is unreleased; a plan moves to `docs/archive/plans/` once it has shipped in a tag. Current: `2026-10-26-v020-queue.md` (0.19.1 and 0.20). The last shipped, `2026-10-22-review-remediation.md` (the v0.19.0 line, #363–#396), is in `docs/archive/plans/` with every earlier plan |
+| `docs/plans/` | dated per-PR implementation plans while their work is unreleased; a plan moves to `docs/archive/plans/` once it has shipped in a tag. Empty between releases. The last shipped, `2026-10-26-v020-queue.md` (0.19.1 and 0.20, #389–#418), is in `docs/archive/plans/` with every earlier plan |
 | `docs/visual-builder-design-VB1.md` | visual builder design — M1–M8 built; §6.4 (S3) is the live spec for the sandbox feature (enabled by default in the Helm chart since v0.0.1) |
 | `docs/reviews/` | **live decision records only**: `canvas-framework-evaluation.md` (the React Flow decision and the controlled-mode contract `CanvasPane` depends on). Closed reviews move to `docs/archive/reviews/` |
 | `docs/dev-guide.md` | running the dev stack |
@@ -50,7 +57,21 @@
 
 ---
 
-## 1. Verified baseline (2026-10-26, v0.19.1; table from 2026-10-24, v0.19.0)
+## 1. Verified baseline (2026-10-27, v0.20.0; table from 2026-10-24, v0.19.0)
+
+**v0.20.0:** the baseline commit is `a4d7733` (#418, the last merge before the v0.20.0 release
+PR). Its push runs are CI 40431408354, CodeQL 40431408270, security-scan 40431408360 and E2E
+40431408271, all green. The Kubernetes e2e last ran on #416's head `f001c0e` (run 40413570496,
+green) and on #414's head `fcd3b0e` (run 40385897578, green); #417 and #418 touched no path it
+filters on. Each 0.20 PR added red-first specs for its change (the PR descriptions list them).
+Two kind walkthroughs with Playwright ran before the tag: on `51c8f81` (every 0.20 feature passed;
+its findings were fixed in #413 and #414) and on a fresh cluster at `8d85aaa` (every strict-mode,
+tenant, service-account, pinned-import and version item passed; two Reconciliation failures and
+five small findings, fixed in #417 and #418). Both fixes were re-walked on the same cluster with
+Playwright: #417 on `c384f92` (every item passed except a collector whose only pipeline was
+dropped, which led to #418) and #418 on `a4d7733` (that case and its sibling case passed;
+migration 0046 applied; no ERROR or non-JSON server log lines). The table below is the v0.19.0 evidence and stays valid for every surface the 0.20 PRs
+did not touch.
 
 **v0.19.1:** the baseline commit is `cf235a6` (#404, the last merge before the v0.19.1 release
 PR). Its push runs are CI 40309974049, CodeQL 40309974071, security-scan 40309973911 and E2E
@@ -217,6 +238,20 @@ the manual end-to-end pass the list above records. Re-walk them on the next rele
   PR #402). The in-browser visual preview is capped at 4 MiB / 800 diagnostics with 256-byte
   labels (#400, PR #403). Alloy v1.21.2, which clears the bundled-binary code-scanning alerts (PR #404).
   Not walked in the browser.
+- **v0.20.0** (chart 0.24.0) — module instances carry their declare's signals and 24 single-signal
+  OTel components are narrowed, so verbatim grafana/k8s-monitoring output reaches `metrics` and
+  `logs` collectors (#378, PR #406); viewer-tier service accounts (#362, PR #407, migration
+  `0042`); SHA-pinned `import.git` from an app-admin allowlist in strict orgs, served inlined as
+  `import.string` (#390, PR #408, migration `0043`); validation against each collector's Alloy
+  versions with schemas for every patch v1.18.0–v1.21.2 and `Collector.version_warning` (#375,
+  PRs #409, #412, migration `0044`); the k8s-monitoring `labelmap` rules accepted in strict orgs
+  with a served `__tenant_id__` drop (#410, PR #413); strict tenant mode checking more constructs
+  at save time and re-checking stored pipelines when served, with exclusions in the header, the
+  pipeline page, Reconciliation and the audit log (PRs #415, #416, migration `0045`); a refused
+  instance visible beside healthy ones, `agent.refusal_visible_for` (PR #414); Reconciliation
+  judging beacon rows against the instance's last report and saying "unknown" with nothing
+  reporting (PRs #414, #417, #418, migration `0046`); audit, log-format and editor-warning fixes
+  (PR #417). Walked on kind before the tag except the #417/#418 fixes (§1).
 
 ### History
 
@@ -257,7 +292,11 @@ remediation with its D1–D14 decisions, and the v0.5.0 dependency and toolchain
   strict tenant mode, outage tolerance, config and render bounds, refused collectors visible, the
   beacon reporting), chart 0.23.0; release run recorded after the tag.
 - 2026-10-26 — v0.19.1 (beacon ingest hardening, bounded in-browser preview, Alloy v1.21.2),
-  chart 0.23.1; release run recorded after the tag.
+  chart 0.23.1, release run 40314944875.
+- 2026-10-27 — v0.20.0 (viewer service accounts, version-aware validation, pinned `import.git`
+  for strict orgs, k8s-monitoring pipelines under restricted roles and strict mode, the
+  serve-time strict re-check, Reconciliation fixes), chart 0.24.0; release run recorded after the
+  tag.
 
 ---
 
@@ -498,26 +537,26 @@ below ships in v0.19.0 — steps 1–6, 4b–4d and 7a (first in rc.1), the plan
 #385, #377 via #383, the beacon half of #378 via #384) and the tenancy work (#386, #387, #388,
 #393, first in rc.2), and the walkthrough fixes #395 and #396. Open, unless marked shipped:
 
-- **Step 7b** — a service-account viewer tier, R14 (#362). **Merged, unreleased** (PR #407,
-  migration `0042`); ships in 0.20.
-- **#375** — validation ignores each collector's Alloy version. **Built, in review**
-  (PR #409, migration `0044`): Stage 3 and git sync's dry run check each collector's merged
+- **Step 7b** — a service-account viewer tier, R14 (#362). **Shipped in v0.20.0** (PR #407,
+  migration `0042`).
+- **#375** — validation ignores each collector's Alloy version. **Shipped in v0.20.0**
+  (PRs #409, #412, migration `0044`): Stage 3 and git sync's dry run check each collector's merged
   config against every active instance's Alloy schema (exact, else nearest older shipped schema
   with an approximation warning; pinned only for too-new, non-release or missing versions); a
   mismatch already served refuses only changes to the pipeline holding it. The agent API flags a
-  mismatch that appears after the save on the collector (`Collector.version_warning`). First
-  review round (FIX FIRST) addressed; re-review before merge.
+  mismatch that appears after the save on the collector (`Collector.version_warning`).
 - **#378, role-enforcement half** — module-based (chart-generated) pipelines' instances count as
-  Unknown and the pipeline is dropped from restricted roles. **Fixed on main, unreleased**: an
+  Unknown and the pipeline is dropped from restricted roles. **Shipped in v0.20.0** (PR #406): an
   instance of a module declared in the pipeline or in a literal `import.string` carries its
   declare body's signals (lexical scope); `import.file`/`import.git`/`import.http` modules stay
   Unknown. Single-signal OTel components (the chart's `otelcol.exporter.prometheus`/`.loki`
   bridges among them) are narrowed by curated overlay `signals` overrides, so verbatim chart
   output reaches `metrics`/`logs` collectors.
 - **#389** — beacon ingest hardening follow-ups. **Shipped in v0.19.1** (PR #402).
-- **#390** — strict tenant mode: allow pinned external module imports.
+- **#390** — strict tenant mode: allow pinned external module imports. **Shipped in v0.20.0**
+  (PR #408, migration `0043`).
 - **#410** — strict tenant mode refused the grafana/k8s-monitoring chart's `labelmap` rules (1 in
-  the logs output, 2 in metrics). **Fixed on main, unreleased**: a strict org's served form drops
+  the logs output, 2 in metrics). **Shipped in v0.20.0** (PR #413): a strict org's served form drops
   `__tenant_id__` right after every labelmap that may write it (`validate.InsertTenantDrops`, inside
   `pinnedimport.Inline`); the lint accepts such a labelmap only when that drop follows it. The
   stored text is unchanged; non-strict orgs and pipelines without such a rule serve byte-identical.
@@ -525,8 +564,26 @@ below ships in v0.19.0 — steps 1–6, 4b–4d and 7a (first in rc.1), the plan
 - **#400** — the in-browser visual preview (`web/src/visual/renderTS.ts`) has no label or output
   cap; the server's diagnostics are authoritative (#393 follow-up). **Shipped in v0.19.1** (PR #403).
 
-Their order, releases (0.19.1, shipped: #389, #400; 0.20: #378, #362, #390, #375) and design decisions are in
-`docs/plans/2026-10-26-v020-queue.md`.
+Their order, releases (0.19.1: #389, #400; 0.20: #378, #362, #390, #375, both shipped) and design
+decisions are in `docs/archive/plans/2026-10-26-v020-queue.md`.
+
+**Known follow-ups from v0.20.0** (found in the pre-release walkthroughs and reviews, not fixed in
+the release):
+
+- [ ] **Reconciliation after the sweep.** A collector whose only pipeline was disabled reads
+      correctly (nothing running) while its beacon rows remain; once the sweeper has deleted them,
+      the tab reads "unknown" rather than "nothing running", because no row is left to carry the
+      instance's last report.
+- [ ] **The wizard preview shows "No problems" beside warnings.** The pipeline editor counts
+      warnings since PR #417; the wizard preview's summary does not yet.
+- [ ] **The trailing `// otelcol.exporter.loki` comment ends up after the inserted drop block.**
+      In a strict org's served form, a `// otelcol.exporter.loki` comment that trails the exporter
+      lands after the inserted `loki.process "shepherd_tenant_drop_<label>"` block instead of next
+      to the exporter, so it reads as belonging to the wrong block. Cosmetic; served text only.
+- [ ] **Junk or flapping Alloy version strings are untested.** The version-aware check is covered
+      for released, pre-release, too-new and missing versions; malformed version strings, and an
+      instance whose reported version keeps changing (beyond the once-a-minute re-check), have no
+      spec.
 
 In rough priority order; closed items stay in place, marked with the release that shipped them:
 

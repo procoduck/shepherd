@@ -2,60 +2,167 @@
 
 ## 0.23.x → 0.24.0
 
-#### Errors during the rollout
+Shepherd v0.20.0. A `helm upgrade` with five additive migrations (`0042`–`0046`) and no
+fleet-wide reload: the served config format is unchanged, and organisations not in strict tenant
+mode are served the same bytes as before. **If any organisation uses strict tenant mode** (or you
+set `tenants.require_owned`), follow steps 1 and 3: pipelines saved under earlier versions that
+the stricter check now refuses are left out of served config until they are fixed. Everyone
+should read step 2's note on viewer service accounts and the note on version-aware validation.
 
-Migration `0042` lets a service account hold the viewer tier, with no capability
-(`service_accounts.capability` becomes nullable). It changes no existing row, and pods still on
-the old image keep working, **as long as no viewer service account exists**. An old pod cannot
-read a viewer's NULL capability: that viewer's requests fail closed with `unauthenticated` on
-an old pod, and `ListServiceAccounts` for its org answers `Internal`. **Do not create viewer
-service accounts until every replica runs v0.20.** Nothing else changes during the rollout.
+### 1. Before you upgrade: run the tenant preflight (strict tenant mode only)
 
-#### Saves checked against your collectors' Alloy versions
+Strict tenant mode now checks more constructs at save time, and **re-checks every stored pipeline
+each time it is served** (details below). Find out which pipelines that affects before you
+upgrade: run `shepherd admin tenant-preflight` **with the v0.20 image** against a copy of your
+database brought to the new schema with that image's `shepherd migrate up` (the preflight reads
+the new module cache table), using the server's configuration; it starts no server. If that is
+awkward, run it right after the upgrade from a server pod:
 
-Pipeline saves are now also checked against the Alloy version of every active instance of each
-collector they reach (#375). If part of your fleet runs an older Alloy than the pinned v1.21.2, a
-save that uses a component or attribute that release lacks is refused, naming the collector and
-version, where it used to be accepted and then rejected by that collector. Nothing to do at
-upgrade; before relying on newer components, check the Collectors list's Version column and
-upgrade older collectors. Migration `0044` adds nullable columns only, and pods on the old image
-keep working during the rollout.
+```sh
+kubectl -n shepherd exec svc/shepherd -- /usr/local/bin/shepherd admin tenant-preflight
+```
 
-#### Strict tenant mode checks more, including pipelines already saved
+It checks every organisation as strict tenant mode would, lists each item with the reason and exits
+non-zero while anything is listed. For an organisation in strict tenant mode, the pipelines it
+lists are exactly the ones v0.20 leaves out of its collectors' served config. Fix each one (the
+reason says what to change), or disable it.
 
-Only for organisations in strict tenant mode (or every org, with `tenants.require_owned`). The
-tenant check now also covers:
+**With `tenants.require_owned: true`, the server refuses to start while the preflight lists
+anything**, as before — now including the pipelines the stricter check refuses. New pods would
+crash-loop while the old ones keep serving, so clear the list first, or set
+`config.tenants.require_owned: false` for the upgrade, fix the listed pipelines, and turn it back
+on.
 
-- `relabel_rules` attributes given rules in place rather than a `loki.relabel` component's `rules`;
-- `otelcol.exporter.loki`, which is served through an added `__tenant_id__` drop;
-- label and header maps computed at runtime (`external_labels = encoding.from_json(…)`, a source's
-  `labels` from another component's export, and the like), and `loki.enrich` without a
-  `labels_to_copy` list that leaves out `__tenant_id__`;
-- `stage.regex` and `stage.pattern` with `labels_from_groups = true`, whose expression must be a
-  literal with no group named `__tenant_id__`, and `loki.secretfilter`'s `origin_label`;
-- import blocks inside a `foreach` template, the other components there, and module arguments
-  given from a template (refused: the check cannot read them).
+### 2. Upgrade: migrations 0042–0046
 
-`loki.source.podlogs` is accepted as before: the source drops `__tenant_id__` from what it reads.
-The relabelings in a PodLogs resource live in the cluster, outside Shepherd's check.
+```sh
+helm upgrade shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.24.0 \
+  --namespace shepherd --reuse-values
+```
 
-These apply to saves, and **also to pipelines already saved**: each time a strict org's config is
-served, every enabled pipeline is checked again, and one that fails is **left out of every
-collector's served config until it is fixed** — listed in the config's header under *Excluded -
-strict tenant check*, on the pipeline page and in the collector's Reconciliation tab, and audited
-once. It stays saved and enabled; saving a fix serves it again. If the check cannot finish in
-time, that collector keeps its last good config (a recorded recompute failure) rather than being
-served a config without the pipeline. Boot recomputes every strict org, so only a check that
-stays unable to finish keeps a collector on a config from before the upgrade; and while one
-pipeline's check cannot finish, that org's collectors receive no config updates. Turning strict
-mode off clears the exclusions.
+The migration Job (a `pre-upgrade` hook, on by default) applies them before the new pods start;
+if you turned it off, run `shepherd migrate up` yourself first. All five are additive and quick,
+and pods still on the old image keep working against them:
 
-Run `shepherd admin tenant-preflight` with the new version **before upgrading** (point it at your
-database with the new image), or right after: it runs the same check and lists exactly the
-pipelines that would be left out, with the reason. With `tenants.require_owned` on, the server
-**refuses to start** while that list is not empty, as it did before, so fix or disable those
-pipelines first. Migration `0045` adds a new table only, and pods on the old image keep working
+- `0042` lets a service account hold the viewer tier, with no capability:
+  `service_accounts.capability` becomes nullable and a constraint ties a NULL capability to the
+  viewer tier. No existing row changes. Its down migration **deletes viewer service accounts**
+  rather than widening them.
+- `0043` creates `org_import_repositories` (each org's allowed `import.git` repositories) and
+  `pinned_import_modules` (the fetched module cache). Its down migration drops both.
+- `0044` adds the nullable `collectors.version_warning*` / `version_checked_*` columns behind
+  `Collector.version_warning`. Its down migration drops them.
+- `0045` creates `pipeline_tenant_exclusions`, the pipelines the serve-time strict check leaves
+  out now. Its down migration drops it.
+- `0046` adds a nullable `beacon_inventory.instance_reported_at`. Rows written before the upgrade
+  (or by an old pod during the rollout) have none, and Reconciliation judges them as before until
+  the instance next reports. Its down migration drops it.
+
+#### Viewer service accounts: create them only after every replica runs v0.20
+
+A pod on the old image cannot read a viewer's NULL capability: that viewer's requests fail closed
+(`unauthenticated`) on an old pod, and `ListServiceAccounts` for its org answers `Internal`.
+**Do not create viewer service accounts until every replica runs v0.20.** Nothing else changes
 during the rollout.
+
+### 3. After the upgrade: check what strict tenant mode left out
+
+Run `shepherd admin tenant-preflight` again from a server pod; it should list what you expected
+from step 1, and nothing new. Each pipeline still listed for a strict organisation is not served.
+You can see that in four places:
+
+- **The served config's header** lists it under `// Excluded (N) - strict tenant check:` with the
+  pipeline's name and the reason (the collector page's served config shows it).
+- **The collector's Reconciliation tab** shows a `strict_tenant_excluded` finding for it.
+- **The pipeline page** says it is excluded and why.
+- **The audit log** records `pipeline.tenant_check_excluded` once when it is left out, and
+  `pipeline.tenant_check_cleared` once when it is served again — never once per recompute.
+
+The pipeline stays saved and enabled; saving a fix serves it again on the collectors' next poll.
+Turning strict tenant mode off for the organisation clears its exclusions. Boot marks every strict
+organisation's served configs for a recompute, so each collector is checked on its next poll.
+
+### What strict tenant mode now checks
+
+Only for organisations in strict tenant mode, or every organisation with `tenants.require_owned`.
+Strict tenant mode now also refuses label and header values it cannot read at save time. A strict
+organisation's pipeline must now:
+
+- give attributes whose entries become labels or headers (`external_labels`, a source's
+  `labels`, `stage.static_labels` `values`, `faro.receiver`'s `extra_log_labels` and the like) as
+  object literals, or as module arguments given object literals;
+- give `relabel_rules` (on `loki.source.syslog`, `.journal`, `.kafka` and the other Loki sources
+  that take one) as a reference to a `loki.relabel` or `discovery.relabel` component's `rules` in
+  the same pipeline or declare — move rules written in place into a `loki.relabel` component;
+- give `stage.regex` / `stage.pattern` with `labels_from_groups = true` a literal expression,
+  `loki.secretfilter` a literal `origin_label`, and `loki.enrich` a `labels_to_copy` list without
+  `__tenant_id__`;
+- give `otelcol.exporter.loki` a `forward_to` list of component receivers;
+- keep import blocks at the top level or directly in a `declare`. Components inside a `foreach`
+  template are checked like those at the top level; an import block there, and a module argument
+  given from a template, are refused.
+
+**`loki.source.podlogs` is accepted as before:** the source drops `__tenant_id__` from what it
+reads. The relabelings in a PodLogs resource live in the cluster, outside Shepherd's check.
+
+**Some strict organisations' collectors reload once.** In a strict organisation, Shepherd now
+serves a pipeline with a `labelmap` rule followed by a rule that drops `__tenant_id__`, each
+`otelcol.exporter.loki` through an added `loki.process "shepherd_tenant_drop_<label>"`, and each
+pinned `import.git` as the `import.string` it checked (below). Collectors serving such a pipeline
+get new bytes once and reload once. The stored pipeline text is unchanged. The
+grafana/k8s-monitoring chart's rendered output is accepted as it is.
+
+**When the check cannot finish in time.** A serve-time check that hits its time limit (tried
+three times) has no verdict. It never excludes the pipeline: that collector's recompute fails,
+is recorded as a recompute failure, and the collector **keeps its last good config**. While one
+pipeline's check cannot finish, its organisation's collectors receive no config updates; a
+collector last served before the upgrade stays on that config until the check finishes.
+
+### Pinned `import.git` for strict organisations (optional)
+
+Nothing to do unless you want it. A strict organisation's pipelines may now use `import.git`
+when `revision` is a full 40-character commit SHA and `repository` is on the organisation's
+allowlist, which **only an app admin** keeps, on Admin → Organisations (Edit) or with
+`AdminService.AddOrgImportRepository` / `RemoveOrgImportRepository` (audited as
+`org.import_repository.add` / `.remove`). An entry can name one of the organisation's git
+credentials for a private repository. Shepherd fetches and checks the module when the pipeline is
+saved, synced or enabled, and serves it to strict organisations inlined as an `import.string`, so
+those collectors need no access to the module repository. Branches, tags, short SHAs,
+`import.http` and `import.file` stay refused. An allowlist entry cannot be removed while an
+enabled pipeline of a strict organisation imports from it.
+
+### Saves checked against your collectors' Alloy versions
+
+Pipeline saves are now also checked against the Alloy version of every active instance (seen
+within `agent.inactive_after`) of each collector they reach. If part of your fleet runs an older
+Alloy than the pinned v1.21.2, a save that uses a component, block or attribute that release lacks
+is **refused**, naming the collector, the version and the item, where it used to be accepted and
+then rejected by that collector. Schemas ship for every Alloy patch from v1.18.0 to v1.21.2. A
+version without its own schema is checked against the **nearest older** shipped one (a v1.20.5
+against v1.20.1, a v1.17.x against v1.18.0), with a warning that the check is an approximation;
+a version newer than every shipped schema, a pre-release, or no reported version is checked
+against the pinned schema, with a warning. A mismatch a collector is already served refuses only
+changes to the pipeline that holds it. An older instance that joins after a save keeps being
+served and its collector is flagged (`Collector.version_warning`, MISMATCH or NOTE on the
+Collectors list). Nothing to do at upgrade; before relying on newer components, check the
+Collectors list's Version column and upgrade older collectors.
+
+### New chart value: `config.agent.refusal_visible_for`
+
+Additive, default `"15m"` (between `"5m"` and `"24h"`; `agent.refusal_visible_for` in the server
+config). A refused collector poll now stays visible on the Collectors list and the collector page
+for this long, even while other instances of the same collector poll successfully; before, any
+passing poll cleared it at once. Nothing to do.
+
+### Rolling back
+
+`helm rollback` to chart 0.23.x works on the migrated schema: v0.19.x ignores the new tables and
+columns. Delete any viewer service accounts first (v0.19.x cannot read them, see step 2).
+v0.19.x does not run the serve-time strict check, so the pipelines v0.20 left out are served
+again on the next recompute, and pinned `import.git` pipelines are served as stored. To remove
+the schema changes too, run `shepherd migrate down` five times with the v0.20 image before rolling
+back; that deletes viewer service accounts, the import allowlists and module cache, the
+collectors' version warnings, the exclusion records and the beacon report times.
 
 ## 0.22.x → 0.23.0
 

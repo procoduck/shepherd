@@ -112,7 +112,7 @@
       <h2 id="installing">Installing</h2>
       <div class="code-block" data-lang="shell">
         <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
-        <pre><code>helm install shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.23.1 \
+        <pre><code>helm install shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.24.0 \
   --namespace shepherd --create-namespace \
   --set existingSecret=shepherd-secrets</code></pre>
       </div>
@@ -124,8 +124,8 @@
         release it was published for.
       </p>
       <p class="note">
-        <strong>Chart version is not the app version.</strong> <code>--version 0.23.1</code> is the
-        <em>chart&rsquo;s</em>; Shepherd&rsquo;s is the chart&rsquo;s <code>appVersion</code> (<code>0.19.1</code> for chart <code>0.23.1</code>). They move independently, so a
+        <strong>Chart version is not the app version.</strong> <code>--version 0.24.0</code> is the
+        <em>chart&rsquo;s</em>; Shepherd&rsquo;s is the chart&rsquo;s <code>appVersion</code> (<code>0.20.0</code> for chart <code>0.24.0</code>). They move independently, so a
         chart-only change bumps only the chart. Run
         <code>helm show chart oci://ghcr.io/procoduck/charts/shepherd</code> to see which Shepherd
         release a chart version installs.
@@ -174,7 +174,7 @@
       <p>
         Nothing is exposed outside the cluster unless you ask for it. To see exactly what an install
         would create before creating it, render it locally:
-        <code>helm template shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.23.1</code>.
+        <code>helm template shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.24.0</code>.
       </p>
 
       <h2 id="migrations">Migrations run before the new code</h2>
@@ -268,6 +268,21 @@ kubectl -n shepherd port-forward svc/shepherd 8080:8080</code></pre>
         needs operator action has its own section in
         <a href="https://github.com/procoduck/shepherd/blob/main/deploy/helm/shepherd/UPGRADING.md">UPGRADING.md</a>.
         Migrations run ahead of the new pods automatically.
+      </p>
+
+      <h3 id="upgrading-to-0-24">Upgrading to chart 0.24.0: run the tenant preflight if you use strict tenant mode</h3>
+      <p>
+        An ordinary <code>helm upgrade</code>: five additive migrations
+        (<code>0042</code>&ndash;<code>0046</code>) run ahead of the new pods, and organisations not
+        in strict tenant mode are served the same bytes, so there is no fleet-wide reload. Strict
+        tenant mode now checks more at save time and re-checks every stored pipeline when it is
+        served; a pipeline saved under an earlier version that no longer passes is left out of
+        served config until it is fixed, and listed in the served header, the pipeline page and
+        the Reconciliation tab. Run <code>shepherd admin tenant-preflight</code> before and after
+        the upgrade; with <code>tenants.require_owned</code> on, the server does not start while it
+        lists anything. Create viewer service accounts only once every replica runs v0.20. Saves
+        are now checked against the Alloy versions your collectors run. Details in
+        <a href="https://github.com/procoduck/shepherd/blob/main/deploy/helm/shepherd/UPGRADING.md">UPGRADING.md</a>.
       </p>
 
       <h3 id="upgrading-to-0-23">Upgrading to chart 0.23.0: bind your agent tokens</h3>
@@ -365,7 +380,7 @@ kubectl -n shepherd port-forward svc/shepherd 8080:8080</code></pre>
         <pre><code>kubectl -n shepherd label pod \
   -l 'app.kubernetes.io/instance=shepherd,app.kubernetes.io/name=shepherd,!app.kubernetes.io/component' \
   app.kubernetes.io/component=server
-helm upgrade shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.23.1 \
+helm upgrade shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.24.0 \
   --namespace shepherd --reuse-values</code></pre>
       </div>
       <p>
@@ -542,6 +557,7 @@ kubectl -n shepherd logs job/shepherd-migrate     # if the release failed</code>
         <li><a href="#migrations">Migrations run before the new code</a></li>
         <li><a href="#exposing-shepherd">Exposing Shepherd</a></li>
         <li><a href="#upgrading">Upgrading</a></li>
+        <li class="sub"><a href="#upgrading-to-0-24">Upgrading to chart 0.24.0: run the tenant preflight if you use strict tenant mode</a></li>
         <li class="sub"><a href="#upgrading-to-0-23">Upgrading to chart 0.23.0: bind your agent tokens</a></li>
         <li class="sub"><a href="#upgrading-to-0-22">Upgrading to chart 0.22.0: local sign-in and removed git files</a></li>
         <li class="sub"><a href="#upgrading-to-0-21">Upgrading to chart 0.21.0: one fleet reload</a></li>
@@ -560,7 +576,7 @@ kubectl -n shepherd logs job/shepherd-migrate     # if the release failed</code>
 <footer>
   <div class="wrap">
     <div class="foot-left">
-      <span class="pill">v0.19.1</span>
+      <span class="pill">v0.20.0</span>
       <span>self-hosted Grafana Alloy fleet manager</span>
     </div>
     <div class="foot-links">
