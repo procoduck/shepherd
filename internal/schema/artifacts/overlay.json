@@ -46,6 +46,10 @@
         "paths": [],
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
       },
+      "strict": {
+        "class": "allowed",
+        "reason": "eBPF instrumentation emitting OTLP metrics and traces and sending nothing itself; OTLP attributes carry no tenant: a Loki label is made from them only by otelcol.exporter.loki, which the strict served form routes through a __tenant_id__ drop"
+      },
       "terminal_ok": false
     },
     "database_observability.mysql": {
@@ -53,6 +57,14 @@
       "doc": "Collects observability data from MySQL databases.",
       "icon": "database",
       "sim_unsupported": "connects to a real MySQL instance via data_source_name, a required secret; nothing on sim_keep can carry a secret (rule K drops every secret-typed attribute regardless of the allowlist), so a kept-but-empty data_source_name is not an option — the render would be missing a required attribute instead. Availability fix, VB-1 §6.4",
+      "strict": {
+        "checks": [
+          "relabel_rules",
+          "targets"
+        ],
+        "class": "checked",
+        "reason": "writes log entries with fixed label names (job, instance, server_id, engine, op) through its per-database relabel rules, which are checked; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends)"
+      },
       "terminal_ok": false
     },
     "database_observability.postgres": {
@@ -60,6 +72,14 @@
       "doc": "Collects observability data from PostgreSQL databases.",
       "icon": "database",
       "sim_unsupported": "connects to a real PostgreSQL instance via data_source_name, a required secret; nothing on sim_keep can carry a secret (rule K drops every secret-typed attribute regardless of the allowlist), so a kept-but-empty data_source_name is not an option — the render would be missing a required attribute instead. Availability fix, VB-1 §6.4",
+      "strict": {
+        "checks": [
+          "relabel_rules",
+          "targets"
+        ],
+        "class": "checked",
+        "reason": "writes log entries with fixed label names (job, instance, server_id, engine, op) through its per-database relabel rules, which are checked; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends)"
+      },
       "terminal_ok": false
     },
     "database_observability.sql_server": {
@@ -67,6 +87,14 @@
       "doc": "Collects observability data from Microsoft SQL Server databases (experimental).",
       "icon": "database",
       "sim_unsupported": "connects to a real SQL Server instance via data_source_name, a required secret; nothing on sim_keep can carry a secret (rule K drops every secret-typed attribute regardless of the allowlist), so a kept-but-empty data_source_name is not an option — the render would be missing a required attribute instead. Availability fix, VB-1 §6.4",
+      "strict": {
+        "checks": [
+          "relabel_rules",
+          "targets"
+        ],
+        "class": "checked",
+        "reason": "writes log entries with fixed label names (job, instance, server_id, engine, op) through its per-database relabel rules, which are checked; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends)"
+      },
       "terminal_ok": false
     },
     "discovery.aws": {
@@ -77,6 +105,13 @@
       },
       "doc": "Discovers AWS targets (ECS, etc.).",
       "icon": "cloud",
+      "strict": {
+        "checks": [
+          "headers"
+        ],
+        "class": "checked",
+        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); the headers of its API requests are checked"
+      },
       "terminal_ok": false
     },
     "discovery.azure": {
@@ -87,6 +122,13 @@
       },
       "doc": "Discovers Azure virtual machines.",
       "icon": "cloud",
+      "strict": {
+        "checks": [
+          "headers"
+        ],
+        "class": "checked",
+        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); the headers of its API requests are checked"
+      },
       "terminal_ok": false
     },
     "discovery.consul": {
@@ -97,6 +139,13 @@
       },
       "doc": "Discovers services registered in Consul.",
       "icon": "server",
+      "strict": {
+        "checks": [
+          "headers"
+        ],
+        "class": "checked",
+        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); the headers of its API requests are checked"
+      },
       "terminal_ok": false
     },
     "discovery.consulagent": {
@@ -107,6 +156,10 @@
       },
       "doc": "Discovers services from the local Consul agent.",
       "icon": "server",
+      "strict": {
+        "class": "allowed",
+        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); it sends no data"
+      },
       "terminal_ok": false
     },
     "discovery.digitalocean": {
@@ -117,6 +170,13 @@
       },
       "doc": "Discovers DigitalOcean Droplets.",
       "icon": "cloud",
+      "strict": {
+        "checks": [
+          "headers"
+        ],
+        "class": "checked",
+        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); the headers of its API requests are checked"
+      },
       "terminal_ok": false
     },
     "discovery.dns": {
@@ -127,6 +187,10 @@
       },
       "doc": "Discovers targets via DNS SRV/A/AAAA records.",
       "icon": "server",
+      "strict": {
+        "class": "allowed",
+        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); it sends no data"
+      },
       "terminal_ok": false
     },
     "discovery.docker": {
@@ -140,6 +204,13 @@
       "port_display_order": [
         "targets"
       ],
+      "strict": {
+        "checks": [
+          "headers"
+        ],
+        "class": "checked",
+        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); the headers of its API requests are checked"
+      },
       "terminal_ok": false
     },
     "discovery.dockerswarm": {
@@ -150,6 +221,13 @@
       },
       "doc": "Discovers Docker Swarm services and tasks.",
       "icon": "docker",
+      "strict": {
+        "checks": [
+          "headers"
+        ],
+        "class": "checked",
+        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); the headers of its API requests are checked"
+      },
       "terminal_ok": false
     },
     "discovery.ec2": {
@@ -163,6 +241,13 @@
       "port_display_order": [
         "targets"
       ],
+      "strict": {
+        "checks": [
+          "headers"
+        ],
+        "class": "checked",
+        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); the headers of its API requests are checked"
+      },
       "terminal_ok": false
     },
     "discovery.eureka": {
@@ -173,6 +258,13 @@
       },
       "doc": "Discovers services registered in Eureka.",
       "icon": "server",
+      "strict": {
+        "checks": [
+          "headers"
+        ],
+        "class": "checked",
+        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); the headers of its API requests are checked"
+      },
       "terminal_ok": false
     },
     "discovery.file": {
@@ -183,6 +275,10 @@
       },
       "doc": "Reads scrape targets from a file (JSON or YAML).",
       "icon": "file",
+      "strict": {
+        "class": "allowed",
+        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); it sends no data"
+      },
       "terminal_ok": false
     },
     "discovery.gce": {
@@ -193,6 +289,10 @@
       },
       "doc": "Discovers Google Cloud Engine instances.",
       "icon": "cloud",
+      "strict": {
+        "class": "allowed",
+        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); it sends no data"
+      },
       "terminal_ok": false
     },
     "discovery.hetzner": {
@@ -203,6 +303,13 @@
       },
       "doc": "Discovers Hetzner Cloud and Robot servers.",
       "icon": "cloud",
+      "strict": {
+        "checks": [
+          "headers"
+        ],
+        "class": "checked",
+        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); the headers of its API requests are checked"
+      },
       "terminal_ok": false
     },
     "discovery.http": {
@@ -213,6 +320,13 @@
       },
       "doc": "Discovers targets from an HTTP endpoint returning JSON.",
       "icon": "server",
+      "strict": {
+        "checks": [
+          "headers"
+        ],
+        "class": "checked",
+        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); the headers of its API requests are checked"
+      },
       "terminal_ok": false
     },
     "discovery.ionos": {
@@ -223,6 +337,13 @@
       },
       "doc": "Discovers IONOS Cloud virtual machines.",
       "icon": "cloud",
+      "strict": {
+        "checks": [
+          "headers"
+        ],
+        "class": "checked",
+        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); the headers of its API requests are checked"
+      },
       "terminal_ok": false
     },
     "discovery.kubelet": {
@@ -233,6 +354,13 @@
       },
       "doc": "Discovers pods running on the local kubelet.",
       "icon": "k8s",
+      "strict": {
+        "checks": [
+          "headers"
+        ],
+        "class": "checked",
+        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); the headers of its API requests are checked"
+      },
       "terminal_ok": false
     },
     "discovery.kubernetes": {
@@ -318,6 +446,13 @@
       "port_display_order": [
         "targets"
       ],
+      "strict": {
+        "checks": [
+          "headers"
+        ],
+        "class": "checked",
+        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); the headers of its API requests are checked"
+      },
       "terminal_ok": false
     },
     "discovery.kuma": {
@@ -328,6 +463,13 @@
       },
       "doc": "Discovers services in a Kuma service mesh.",
       "icon": "server",
+      "strict": {
+        "checks": [
+          "headers"
+        ],
+        "class": "checked",
+        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); the headers of its API requests are checked"
+      },
       "terminal_ok": false
     },
     "discovery.lightsail": {
@@ -338,6 +480,13 @@
       },
       "doc": "Discovers Amazon Lightsail instances.",
       "icon": "cloud",
+      "strict": {
+        "checks": [
+          "headers"
+        ],
+        "class": "checked",
+        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); the headers of its API requests are checked"
+      },
       "terminal_ok": false
     },
     "discovery.linode": {
@@ -348,6 +497,13 @@
       },
       "doc": "Discovers Linode instances.",
       "icon": "cloud",
+      "strict": {
+        "checks": [
+          "headers"
+        ],
+        "class": "checked",
+        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); the headers of its API requests are checked"
+      },
       "terminal_ok": false
     },
     "discovery.marathon": {
@@ -358,6 +514,13 @@
       },
       "doc": "Discovers Marathon tasks.",
       "icon": "server",
+      "strict": {
+        "checks": [
+          "headers"
+        ],
+        "class": "checked",
+        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); the headers of its API requests are checked"
+      },
       "terminal_ok": false
     },
     "discovery.nerve": {
@@ -368,6 +531,10 @@
       },
       "doc": "Discovers Nerve services via Zookeeper.",
       "icon": "server",
+      "strict": {
+        "class": "allowed",
+        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); it sends no data"
+      },
       "terminal_ok": false
     },
     "discovery.nomad": {
@@ -378,6 +545,13 @@
       },
       "doc": "Discovers Nomad services.",
       "icon": "server",
+      "strict": {
+        "checks": [
+          "headers"
+        ],
+        "class": "checked",
+        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); the headers of its API requests are checked"
+      },
       "terminal_ok": false
     },
     "discovery.openstack": {
@@ -388,6 +562,10 @@
       },
       "doc": "Discovers OpenStack instances.",
       "icon": "cloud",
+      "strict": {
+        "class": "allowed",
+        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); it sends no data"
+      },
       "terminal_ok": false
     },
     "discovery.ovhcloud": {
@@ -398,6 +576,10 @@
       },
       "doc": "Discovers OVHcloud VPS and dedicated servers.",
       "icon": "cloud",
+      "strict": {
+        "class": "allowed",
+        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); it sends no data"
+      },
       "terminal_ok": false
     },
     "discovery.process": {
@@ -412,6 +594,10 @@
         "paths": [],
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
       },
+      "strict": {
+        "class": "allowed",
+        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); it sends no data"
+      },
       "terminal_ok": false
     },
     "discovery.puppetdb": {
@@ -422,6 +608,13 @@
       },
       "doc": "Discovers targets from PuppetDB.",
       "icon": "server",
+      "strict": {
+        "checks": [
+          "headers"
+        ],
+        "class": "checked",
+        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); the headers of its API requests are checked"
+      },
       "terminal_ok": false
     },
     "discovery.relabel": {
@@ -454,6 +647,14 @@
           "reason": "a relabel destination LABEL name. It CAN be __address__, which retargets the scrape at runtime — the value is computed from replacement and the source labels, so no gate over the rendered config bounds it. Kept because relabel is the thing S3 exists to simulate; the sandbox network is what denies the reach (e2e/sandbox_egress_test.go)."
         }
       ],
+      "strict": {
+        "checks": [
+          "relabel_rules",
+          "targets"
+        ],
+        "class": "checked",
+        "reason": "relabels targets with rule blocks, which are checked; its rules export is the only form relabel_rules attributes may take in strict mode"
+      },
       "terminal_ok": false
     },
     "discovery.scaleway": {
@@ -464,6 +665,13 @@
       },
       "doc": "Discovers Scaleway instances and Baremetal servers.",
       "icon": "cloud",
+      "strict": {
+        "checks": [
+          "headers"
+        ],
+        "class": "checked",
+        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); the headers of its API requests are checked"
+      },
       "terminal_ok": false
     },
     "discovery.serverset": {
@@ -474,6 +682,10 @@
       },
       "doc": "Discovers Finagle Serversets via Zookeeper.",
       "icon": "server",
+      "strict": {
+        "class": "allowed",
+        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); it sends no data"
+      },
       "terminal_ok": false
     },
     "discovery.triton": {
@@ -484,6 +696,10 @@
       },
       "doc": "Discovers Triton container targets.",
       "icon": "cloud",
+      "strict": {
+        "class": "allowed",
+        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); it sends no data"
+      },
       "terminal_ok": false
     },
     "discovery.uyuni": {
@@ -494,6 +710,13 @@
       },
       "doc": "Discovers targets from Uyuni/SUSE Manager.",
       "icon": "server",
+      "strict": {
+        "checks": [
+          "headers"
+        ],
+        "class": "checked",
+        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); the headers of its API requests are checked"
+      },
       "terminal_ok": false
     },
     "faro.receiver": {
@@ -504,6 +727,13 @@
         "paths": [],
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
       },
+      "strict": {
+        "checks": [
+          "label_maps"
+        ],
+        "class": "checked",
+        "reason": "labels each log entry only with the extra_log_labels names, a label map that is checked (a client sets values, never names); traces are OTLP"
+      },
       "terminal_ok": false
     },
     "local.file": {
@@ -512,6 +742,10 @@
       "icon": "file",
       "sim_secret_source": {
         "mode": "literal"
+      },
+      "strict": {
+        "class": "allowed",
+        "reason": "exports a file's contents; wherever its exported value reaches a tenant, header, label map or import the lint refuses it as unreadable"
       }
     },
     "local.file_match": {
@@ -522,6 +756,10 @@
       },
       "doc": "Finds files matching glob patterns and exposes them as targets.",
       "icon": "file",
+      "strict": {
+        "class": "allowed",
+        "reason": "exports file targets; loki.source.file drops every reserved label of a target"
+      },
       "terminal_ok": false
     },
     "loki.echo": {
@@ -536,6 +774,10 @@
       "sim_keep": {
         "keep_subtree": true,
         "reason": "measured clean: no attribute at any depth is credential-, address-, header- or filesystem-shaped, and the whole body is pipeline semantics the user must still see"
+      },
+      "strict": {
+        "class": "allowed",
+        "reason": "prints entries to the collector's log and sends nothing"
       },
       "terminal_ok": true
     },
@@ -561,6 +803,14 @@
           "reason": "the LABEL NAME the enrichment matches log entries against, not a network target; it is required, so dropping it leaves a config the sandbox cannot load. Availability fix, VB-1 §6.4"
         }
       ],
+      "strict": {
+        "checks": [
+          "enrich_labels",
+          "targets"
+        ],
+        "class": "checked",
+        "reason": "copies its targets' labels onto log entries; labels_to_copy must be a literal list without __tenant_id__"
+      },
       "terminal_ok": false
     },
     "loki.process": {
@@ -574,6 +824,15 @@
       "sim_keep": {
         "keep_subtree": true,
         "reason": "measured clean: no attribute at any depth is credential-, address-, header- or filesystem-shaped, and the whole body is pipeline semantics the user must still see"
+      },
+      "strict": {
+        "checks": [
+          "group_labels",
+          "label_maps",
+          "tenant_attributes"
+        ],
+        "class": "checked",
+        "reason": "stage.tenant, stage.labels, stage.static_labels, labels_from_groups and stage.truncate label rules are the stages that set the tenant, name labels or rewrite label values, each checked; the others write the extracted map or structured metadata"
       },
       "terminal_ok": false
     },
@@ -595,6 +854,13 @@
           "reason": "a relabel destination LABEL name. It CAN be __address__, which retargets the scrape at runtime — the value is computed from replacement and the source labels, so no gate over the rendered config bounds it. Kept because relabel is the thing S3 exists to simulate; the sandbox network is what denies the reach (e2e/sandbox_egress_test.go)."
         }
       ],
+      "strict": {
+        "checks": [
+          "relabel_rules"
+        ],
+        "class": "checked",
+        "reason": "relabels entries with rule blocks, which are checked (and served with a __tenant_id__ drop after each labelmap)"
+      },
       "terminal_ok": false
     },
     "loki.rules.kubernetes": {
@@ -602,6 +868,15 @@
       "doc": "Manages Loki alerting and recording rules in Kubernetes.",
       "icon": "k8s",
       "sim_unsupported": "reconciles PrometheusRule objects from a live Kubernetes API into a real Loki ruler; the sandbox has neither, and its required address attribute names a production host",
+      "strict": {
+        "checks": [
+          "headers",
+          "label_maps",
+          "tenant_attributes"
+        ],
+        "class": "checked",
+        "reason": "syncs PrometheusRule objects to the Loki ruler under its tenant_id and headers, both checked"
+      },
       "terminal_ok": true
     },
     "loki.secretfilter": {
@@ -611,6 +886,13 @@
       "sim_keep": {
         "keep_subtree": true,
         "reason": "measured clean: no attribute at any depth is credential-, address-, header- or filesystem-shaped, and the whole body is pipeline semantics the user must still see"
+      },
+      "strict": {
+        "checks": [
+          "secretfilter_origin"
+        ],
+        "class": "checked",
+        "reason": "redacts secrets in the line; the one label it sets is fixed (secretfilter) and origin_label, which it reads, is checked"
       },
       "terminal_ok": false
     },
@@ -622,6 +904,15 @@
         "paths": [],
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
       },
+      "strict": {
+        "checks": [
+          "label_maps",
+          "push_source",
+          "relabel_rules"
+        ],
+        "class": "checked",
+        "reason": "turns the X-Scope-OrgID a client sends into __tenant_id__; accepted only when every path to a loki.write overwrites or drops it; its labels and relabel_rules are checked"
+      },
       "terminal_ok": false
     },
     "loki.source.awsfirehose": {
@@ -631,6 +922,14 @@
       "sim_keep": {
         "paths": [],
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
+      "strict": {
+        "checks": [
+          "push_source",
+          "relabel_rules"
+        ],
+        "class": "checked",
+        "reason": "turns the X-Scope-OrgID a client sends into __tenant_id__; accepted only when every path to a loki.write overwrites or drops it; its labels and relabel_rules are checked"
       },
       "terminal_ok": false
     },
@@ -642,6 +941,14 @@
         "paths": [],
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
       },
+      "strict": {
+        "checks": [
+          "label_maps",
+          "relabel_rules"
+        ],
+        "class": "checked",
+        "reason": "drops every label starting with __ from an entry after relabeling (Alloy v1.21.2 azure_event_hubs/internal/parser/parser.go), so the data cannot set __tenant_id__; its labels and relabel_rules are checked"
+      },
       "terminal_ok": false
     },
     "loki.source.cloudflare": {
@@ -651,6 +958,13 @@
       "sim_keep": {
         "paths": [],
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
+      "strict": {
+        "checks": [
+          "label_maps"
+        ],
+        "class": "checked",
+        "reason": "labels entries only with its labels map, which is checked; the log fields go into the line"
       },
       "terminal_ok": false
     },
@@ -662,6 +976,16 @@
       },
       "doc": "Collects logs from Docker containers.",
       "icon": "docker",
+      "strict": {
+        "checks": [
+          "headers",
+          "label_maps",
+          "relabel_rules",
+          "targets"
+        ],
+        "class": "checked",
+        "reason": "drops every label starting with __ from an entry after relabeling (Alloy v1.21.2 docker/tailer.go), so the data cannot set __tenant_id__; its labels, relabel_rules and API headers are checked"
+      },
       "terminal_ok": false
     },
     "loki.source.file": {
@@ -676,6 +1000,13 @@
         "targets",
         "forward_to"
       ],
+      "strict": {
+        "checks": [
+          "targets"
+        ],
+        "class": "checked",
+        "reason": "labels entries with its targets' labels less every reserved one (NonReservedLabelSet), so a target cannot carry __tenant_id__"
+      },
       "terminal_ok": false
     },
     "loki.source.gcplog": {
@@ -685,6 +1016,15 @@
       "sim_keep": {
         "paths": [],
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
+      "strict": {
+        "checks": [
+          "label_maps",
+          "push_source",
+          "relabel_rules"
+        ],
+        "class": "checked",
+        "reason": "turns the X-Scope-OrgID a client sends into __tenant_id__; accepted only when every path to a loki.write overwrites or drops it; its labels and relabel_rules are checked"
       },
       "terminal_ok": false
     },
@@ -696,6 +1036,13 @@
         "paths": [],
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
       },
+      "strict": {
+        "checks": [
+          "relabel_rules"
+        ],
+        "class": "checked",
+        "reason": "drops every label starting with __ from an entry after relabeling (Alloy v1.21.2 gelf/internal/target/gelftarget.go), so the data cannot set __tenant_id__; its labels and relabel_rules are checked"
+      },
       "terminal_ok": false
     },
     "loki.source.heroku": {
@@ -705,6 +1052,15 @@
       "sim_keep": {
         "paths": [],
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
+      "strict": {
+        "checks": [
+          "label_maps",
+          "push_source",
+          "relabel_rules"
+        ],
+        "class": "checked",
+        "reason": "turns the X-Scope-OrgID a client sends into __tenant_id__; accepted only when every path to a loki.write overwrites or drops it; its labels and relabel_rules are checked"
       },
       "terminal_ok": false
     },
@@ -716,6 +1072,14 @@
         "paths": [],
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
       },
+      "strict": {
+        "checks": [
+          "label_maps",
+          "relabel_rules"
+        ],
+        "class": "checked",
+        "reason": "drops every label starting with __ from an entry after relabeling (Alloy v1.21.2 journal/tailer.go), so the data cannot set __tenant_id__; its labels and relabel_rules are checked"
+      },
       "terminal_ok": false
     },
     "loki.source.kafka": {
@@ -725,6 +1089,14 @@
       "sim_keep": {
         "paths": [],
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
+      "strict": {
+        "checks": [
+          "label_maps",
+          "relabel_rules"
+        ],
+        "class": "checked",
+        "reason": "drops every label starting with __ from an entry after relabeling (Alloy v1.21.2 internal/kafkatarget/formatter.go), so the data cannot set __tenant_id__; its labels and relabel_rules are checked"
       },
       "terminal_ok": false
     },
@@ -740,6 +1112,14 @@
         "targets",
         "forward_to"
       ],
+      "strict": {
+        "checks": [
+          "headers",
+          "targets"
+        ],
+        "class": "checked",
+        "reason": "kubetail drops every reserved label but __meta_* from a target before it labels an entry; its Kubernetes API headers are checked"
+      },
       "terminal_ok": false
     },
     "loki.source.kubernetes_events": {
@@ -749,6 +1129,13 @@
       "sim_keep": {
         "paths": [],
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
+      "strict": {
+        "checks": [
+          "headers"
+        ],
+        "class": "checked",
+        "reason": "labels events with fixed names (namespace, job, instance); its Kubernetes API headers are checked"
       },
       "terminal_ok": false
     },
@@ -760,6 +1147,13 @@
       },
       "doc": "Collects pod logs via PodLogs CRD.",
       "icon": "k8s",
+      "strict": {
+        "checks": [
+          "headers"
+        ],
+        "class": "checked",
+        "reason": "kubetail drops every reserved label but __meta_* after the PodLogs relabelings, so neither the cluster's objects nor the logs set __tenant_id__; its Kubernetes API headers are checked"
+      },
       "terminal_ok": false
     },
     "loki.source.syslog": {
@@ -770,6 +1164,14 @@
         "paths": [],
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
       },
+      "strict": {
+        "checks": [
+          "label_maps",
+          "relabel_rules"
+        ],
+        "class": "checked",
+        "reason": "drops every label starting with __ from an entry after relabeling (Alloy v1.21.2 syslog/internal/syslogtarget/syslogtarget.go), so the data cannot set __tenant_id__; its labels and relabel_rules are checked"
+      },
       "terminal_ok": false
     },
     "loki.source.windowsevent": {
@@ -779,6 +1181,13 @@
       "sim_keep": {
         "paths": [],
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
+      "strict": {
+        "checks": [
+          "label_maps"
+        ],
+        "class": "checked",
+        "reason": "drops every label starting with __ from an entry after relabeling (Alloy v1.21.2 windowsevent/target.go), so the data cannot set __tenant_id__; its labels and relabel_rules are checked"
       },
       "terminal_ok": false
     },
@@ -826,6 +1235,15 @@
           "wal.drain_timeout"
         ]
       },
+      "strict": {
+        "checks": [
+          "headers",
+          "label_maps",
+          "tenant_attributes"
+        ],
+        "class": "checked",
+        "reason": "sends under its endpoint tenant_id, its headers' X-Scope-OrgID and each entry's __tenant_id__, each checked where it is set; its external_labels are checked"
+      },
       "terminal_ok": true
     },
     "mimir.alerts.kubernetes": {
@@ -833,6 +1251,13 @@
       "doc": "Manages Mimir alerting rules from Kubernetes resources (experimental).",
       "icon": "metrics",
       "sim_unsupported": "reconciles alertmanager configuration from a live Kubernetes API into a real Mimir; the sandbox has neither, and its required address attribute names a production host",
+      "strict": {
+        "checks": [
+          "headers"
+        ],
+        "class": "checked",
+        "reason": "sends AlertmanagerConfig objects to the Mimir Alertmanager under its http_headers' X-Scope-OrgID, which is checked"
+      },
       "terminal_ok": true
     },
     "mimir.rules.kubernetes": {
@@ -840,6 +1265,15 @@
       "doc": "Manages Mimir recording and alerting rules from Kubernetes resources.",
       "icon": "metrics",
       "sim_unsupported": "reconciles PrometheusRule objects from a live Kubernetes API into a real Mimir ruler; the sandbox has neither, and its required address attribute names a production host",
+      "strict": {
+        "checks": [
+          "headers",
+          "label_maps",
+          "tenant_attributes"
+        ],
+        "class": "checked",
+        "reason": "syncs PrometheusRule objects to the Mimir ruler under its tenant_id and headers, both checked"
+      },
       "terminal_ok": true
     },
     "otelcol.auth.basic": {
@@ -848,6 +1282,10 @@
       "icon": "lock",
       "sim_secret_source": {
         "mode": "drop_ref"
+      },
+      "strict": {
+        "class": "allowed",
+        "reason": "sends an Authorization header with basic credentials, never X-Scope-OrgID"
       }
     },
     "otelcol.auth.bearer": {
@@ -856,6 +1294,13 @@
       "icon": "lock",
       "sim_secret_source": {
         "mode": "drop_ref"
+      },
+      "strict": {
+        "checks": [
+          "auth_bearer"
+        ],
+        "class": "checked",
+        "reason": "sends its token in header (Authorization by default); as X-Scope-OrgID only with an empty scheme, the token then being a tenant that is checked"
       }
     },
     "otelcol.auth.google": {
@@ -864,6 +1309,10 @@
       "icon": "cloud",
       "sim_secret_source": {
         "mode": "drop_ref"
+      },
+      "strict": {
+        "class": "refused",
+        "reason": "token_header may name X-Scope-OrgID, and the token it then sends there is fetched from Google at run time; the lint does not read token_header"
       }
     },
     "otelcol.auth.headers": {
@@ -872,6 +1321,13 @@
       "icon": "lock",
       "sim_secret_source": {
         "mode": "drop_ref"
+      },
+      "strict": {
+        "checks": [
+          "auth_headers"
+        ],
+        "class": "checked",
+        "reason": "sets request headers; an X-Scope-OrgID header's value is checked and from_context / from_attribute for it are refused"
       }
     },
     "otelcol.auth.oauth2": {
@@ -880,6 +1336,10 @@
       "icon": "lock",
       "sim_secret_source": {
         "mode": "drop_ref"
+      },
+      "strict": {
+        "class": "allowed",
+        "reason": "sends an Authorization bearer token from its token endpoint; its token request settings go to that endpoint only"
       }
     },
     "otelcol.auth.sigv4": {
@@ -888,6 +1348,10 @@
       "icon": "cloud",
       "sim_secret_source": {
         "mode": "drop_ref"
+      },
+      "strict": {
+        "class": "allowed",
+        "reason": "signs requests with AWS SigV4 (Authorization and X-Amz-* headers), never X-Scope-OrgID"
       }
     },
     "otelcol.connector.count": {
@@ -918,6 +1382,10 @@
           "debug_metrics.level"
         ]
       },
+      "strict": {
+        "class": "allowed",
+        "reason": "derives OTLP telemetry from OTLP telemetry and sends nothing itself; OTLP attributes carry no tenant: a Loki label is made from them only by otelcol.exporter.loki, which the strict served form routes through a __tenant_id__ drop"
+      },
       "terminal_ok": false
     },
     "otelcol.connector.host_info": {
@@ -934,6 +1402,10 @@
           "debug_metrics.level"
         ]
       },
+      "strict": {
+        "class": "allowed",
+        "reason": "derives OTLP telemetry from OTLP telemetry and sends nothing itself; OTLP attributes carry no tenant: a Loki label is made from them only by otelcol.exporter.loki, which the strict served form routes through a __tenant_id__ drop"
+      },
       "terminal_ok": false
     },
     "otelcol.connector.servicegraph": {
@@ -943,6 +1415,10 @@
       "sim_keep": {
         "keep_subtree": true,
         "reason": "measured clean: no attribute at any depth is credential-, address-, header- or filesystem-shaped, and the whole body is pipeline semantics the user must still see"
+      },
+      "strict": {
+        "class": "allowed",
+        "reason": "derives OTLP telemetry from OTLP telemetry and sends nothing itself; OTLP attributes carry no tenant: a Loki label is made from them only by otelcol.exporter.loki, which the strict served form routes through a __tenant_id__ drop"
       },
       "terminal_ok": false
     },
@@ -1002,6 +1478,10 @@
           "debug_metrics.level"
         ]
       },
+      "strict": {
+        "class": "allowed",
+        "reason": "derives OTLP telemetry from OTLP telemetry and sends nothing itself; OTLP attributes carry no tenant: a Loki label is made from them only by otelcol.exporter.loki, which the strict served form routes through a __tenant_id__ drop"
+      },
       "terminal_ok": false
     },
     "otelcol.connector.spanlogs": {
@@ -1024,6 +1504,10 @@
           "output.traces"
         ]
       },
+      "strict": {
+        "class": "allowed",
+        "reason": "derives OTLP telemetry from OTLP telemetry and sends nothing itself; OTLP attributes carry no tenant: a Loki label is made from them only by otelcol.exporter.loki, which the strict served form routes through a __tenant_id__ drop"
+      },
       "terminal_ok": false
     },
     "otelcol.connector.spanmetrics": {
@@ -1034,6 +1518,10 @@
         "keep_subtree": true,
         "reason": "measured clean: no attribute at any depth is credential-, address-, header- or filesystem-shaped, and the whole body is pipeline semantics the user must still see"
       },
+      "strict": {
+        "class": "allowed",
+        "reason": "derives OTLP telemetry from OTLP telemetry and sends nothing itself; OTLP attributes carry no tenant: a Loki label is made from them only by otelcol.exporter.loki, which the strict served form routes through a __tenant_id__ drop"
+      },
       "terminal_ok": false
     },
     "otelcol.encoding.jsonlog": {
@@ -1042,6 +1530,10 @@
       "icon": "file",
       "sim_secret_source": {
         "mode": "drop_ref"
+      },
+      "strict": {
+        "class": "allowed",
+        "reason": "an encoding extension other components use to read or write payloads; sends nothing"
       }
     },
     "otelcol.encoding.text": {
@@ -1050,18 +1542,30 @@
       "icon": "file",
       "sim_secret_source": {
         "mode": "drop_ref"
+      },
+      "strict": {
+        "class": "allowed",
+        "reason": "an encoding extension other components use to read or write payloads; sends nothing"
       }
     },
     "otelcol.exporter.awss3": {
       "category": "destinations",
       "doc": "Exports telemetry data to AWS S3 (experimental).",
       "icon": "cloud",
+      "strict": {
+        "class": "allowed",
+        "reason": "writes OTLP data to an S3 bucket, SigV4-signed: no X-Scope-OrgID and no Loki label"
+      },
       "terminal_ok": true
     },
     "otelcol.exporter.datadog": {
       "category": "destinations",
       "doc": "Exports metrics and traces to Datadog (experimental).",
       "icon": "datadog",
+      "strict": {
+        "class": "allowed",
+        "reason": "sends to the Datadog API with its API key: no X-Scope-OrgID and no Loki label"
+      },
       "terminal_ok": true
     },
     "otelcol.exporter.debug": {
@@ -1076,6 +1580,10 @@
       "sim_keep": {
         "keep_subtree": true,
         "reason": "measured clean: no attribute at any depth is credential-, address-, header- or filesystem-shaped, and the whole body is pipeline semantics the user must still see"
+      },
+      "strict": {
+        "class": "allowed",
+        "reason": "prints telemetry to the collector's log and sends nothing"
       },
       "terminal_ok": true
     },
@@ -1127,6 +1635,13 @@
           "debug_metrics.level"
         ]
       },
+      "strict": {
+        "checks": [
+          "headers"
+        ],
+        "class": "checked",
+        "reason": "sends to a Faro receiver; its client headers are checked"
+      },
       "terminal_ok": true
     },
     "otelcol.exporter.file": {
@@ -1160,30 +1675,53 @@
           "debug_metrics.level"
         ]
       },
+      "strict": {
+        "class": "allowed",
+        "reason": "writes telemetry to a file on the collector and sends nothing"
+      },
       "terminal_ok": true
     },
     "otelcol.exporter.googlecloud": {
       "category": "destinations",
       "doc": "Exports metrics and traces to Google Cloud (experimental).",
       "icon": "cloud",
+      "strict": {
+        "class": "allowed",
+        "reason": "sends to Google Cloud Monitoring, Logging and Trace with Google credentials: no X-Scope-OrgID and no Loki label"
+      },
       "terminal_ok": true
     },
     "otelcol.exporter.googlecloudpubsub": {
       "category": "destinations",
       "doc": "Exports telemetry to Google Cloud Pub/Sub (experimental).",
       "icon": "cloud",
+      "strict": {
+        "class": "allowed",
+        "reason": "publishes to Google Cloud Pub/Sub: no X-Scope-OrgID and no Loki label"
+      },
       "terminal_ok": true
     },
     "otelcol.exporter.kafka": {
       "category": "destinations",
       "doc": "Exports telemetry data to a Kafka topic.",
       "icon": "kafka",
+      "strict": {
+        "class": "allowed",
+        "reason": "produces Kafka records, not HTTP requests: no X-Scope-OrgID and no Loki label"
+      },
       "terminal_ok": true
     },
     "otelcol.exporter.loadbalancing": {
       "category": "destinations",
       "doc": "Routes spans to backend exporters based on trace ID for consistent tail sampling.",
       "icon": "upload",
+      "strict": {
+        "checks": [
+          "headers"
+        ],
+        "class": "checked",
+        "reason": "routes to OTLP backends through a nested otlp exporter whose client headers are checked (an auth extension is classified on its own)"
+      },
       "terminal_ok": true
     },
     "otelcol.exporter.loki": {
@@ -1205,6 +1743,13 @@
       "sim_keep": {
         "keep_subtree": true,
         "reason": "measured clean: no attribute at any depth is credential-, address-, header- or filesystem-shaped, and the whole body is pipeline semantics the user must still see"
+      },
+      "strict": {
+        "checks": [
+          "push_source"
+        ],
+        "class": "checked",
+        "reason": "turns the OTLP attributes its loki.*.labels hints name, possibly __tenant_id__, into Loki labels; the strict served form drops __tenant_id__ after it, and its forward_to must be a list of receivers"
       },
       "terminal_ok": false
     },
@@ -1257,6 +1802,13 @@
           "client.keepalive.ping_response_timeout",
           "client.keepalive.ping_without_stream"
         ]
+      },
+      "strict": {
+        "checks": [
+          "headers"
+        ],
+        "class": "checked",
+        "reason": "sends OTLP under its client headers' X-Scope-OrgID, which is checked (an auth extension is classified on its own)"
       },
       "terminal_ok": true
     },
@@ -1312,6 +1864,13 @@
           "debug_metrics.level"
         ]
       },
+      "strict": {
+        "checks": [
+          "headers"
+        ],
+        "class": "checked",
+        "reason": "sends OTLP under its client headers' X-Scope-OrgID, which is checked (an auth extension is classified on its own)"
+      },
       "terminal_ok": true
     },
     "otelcol.exporter.prometheus": {
@@ -1340,12 +1899,20 @@
           "reason": "declared bool: whether to emit the target_info metric, not an address"
         }
       ],
+      "strict": {
+        "class": "allowed",
+        "reason": "converts OTLP metrics to Prometheus samples; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends)"
+      },
       "terminal_ok": true
     },
     "otelcol.exporter.splunkhec": {
       "category": "destinations",
       "doc": "Exports telemetry to Splunk HEC (experimental).",
       "icon": "upload",
+      "strict": {
+        "class": "allowed",
+        "reason": "sends to Splunk HEC with its token: no X-Scope-OrgID and no Loki label"
+      },
       "terminal_ok": true
     },
     "otelcol.exporter.syslog": {
@@ -1392,6 +1959,10 @@
           "debug_metrics.level"
         ]
       },
+      "strict": {
+        "class": "allowed",
+        "reason": "sends syslog messages over TCP or UDP, not HTTP requests: no X-Scope-OrgID and no Loki label"
+      },
       "terminal_ok": true
     },
     "otelcol.extension.jaeger_remote_sampling": {
@@ -1400,6 +1971,13 @@
       "icon": "traces",
       "sim_secret_source": {
         "mode": "drop_ref"
+      },
+      "strict": {
+        "checks": [
+          "headers"
+        ],
+        "class": "checked",
+        "reason": "serves Jaeger sampling strategies and sends no telemetry; the headers of its remote strategy source are checked"
       }
     },
     "otelcol.processor.attributes": {
@@ -1446,6 +2024,10 @@
           "debug_metrics.level"
         ]
       },
+      "strict": {
+        "class": "allowed",
+        "reason": "transforms OTLP telemetry and sends nothing itself; OTLP attributes carry no tenant: a Loki label is made from them only by otelcol.exporter.loki, which the strict served form routes through a __tenant_id__ drop"
+      },
       "terminal_ok": false
     },
     "otelcol.processor.batch": {
@@ -1462,6 +2044,10 @@
         "keep_subtree": true,
         "reason": "measured clean: no attribute at any depth is credential-, address-, header- or filesystem-shaped, and the whole body is pipeline semantics the user must still see"
       },
+      "strict": {
+        "class": "allowed",
+        "reason": "transforms OTLP telemetry and sends nothing itself; OTLP attributes carry no tenant: a Loki label is made from them only by otelcol.exporter.loki, which the strict served form routes through a __tenant_id__ drop"
+      },
       "terminal_ok": false
     },
     "otelcol.processor.cumulativetodelta": {
@@ -1475,6 +2061,10 @@
         "keep_subtree": true,
         "reason": "measured clean: no attribute at any depth is credential-, address-, header- or filesystem-shaped, and the whole body is pipeline semantics the user must still see"
       },
+      "strict": {
+        "class": "allowed",
+        "reason": "transforms OTLP telemetry and sends nothing itself; OTLP attributes carry no tenant: a Loki label is made from them only by otelcol.exporter.loki, which the strict served form routes through a __tenant_id__ drop"
+      },
       "terminal_ok": false
     },
     "otelcol.processor.deltatocumulative": {
@@ -1487,6 +2077,10 @@
       "sim_keep": {
         "keep_subtree": true,
         "reason": "measured clean: no attribute at any depth is credential-, address-, header- or filesystem-shaped, and the whole body is pipeline semantics the user must still see"
+      },
+      "strict": {
+        "class": "allowed",
+        "reason": "transforms OTLP telemetry and sends nothing itself; OTLP attributes carry no tenant: a Loki label is made from them only by otelcol.exporter.loki, which the strict served form routes through a __tenant_id__ drop"
       },
       "terminal_ok": false
     },
@@ -1510,6 +2104,13 @@
           "output.traces"
         ]
       },
+      "strict": {
+        "checks": [
+          "targets"
+        ],
+        "class": "checked",
+        "reason": "adds its targets' labels to OTLP resource attributes; OTLP attributes carry no tenant: a Loki label is made from them only by otelcol.exporter.loki, which the strict served form routes through a __tenant_id__ drop"
+      },
       "terminal_ok": false
     },
     "otelcol.processor.filter": {
@@ -1526,6 +2127,10 @@
         "keep_subtree": true,
         "reason": "measured clean: no attribute at any depth is credential-, address-, header- or filesystem-shaped, and the whole body is pipeline semantics the user must still see"
       },
+      "strict": {
+        "class": "allowed",
+        "reason": "transforms OTLP telemetry and sends nothing itself; OTLP attributes carry no tenant: a Loki label is made from them only by otelcol.exporter.loki, which the strict served form routes through a __tenant_id__ drop"
+      },
       "terminal_ok": false
     },
     "otelcol.processor.groupbyattrs": {
@@ -1535,6 +2140,10 @@
       "sim_keep": {
         "keep_subtree": true,
         "reason": "measured clean: no attribute at any depth is credential-, address-, header- or filesystem-shaped, and the whole body is pipeline semantics the user must still see"
+      },
+      "strict": {
+        "class": "allowed",
+        "reason": "transforms OTLP telemetry and sends nothing itself; OTLP attributes carry no tenant: a Loki label is made from them only by otelcol.exporter.loki, which the strict served form routes through a __tenant_id__ drop"
       },
       "terminal_ok": false
     },
@@ -1548,6 +2157,10 @@
       "sim_keep": {
         "keep_subtree": true,
         "reason": "measured clean: no attribute at any depth is credential-, address-, header- or filesystem-shaped, and the whole body is pipeline semantics the user must still see"
+      },
+      "strict": {
+        "class": "allowed",
+        "reason": "transforms OTLP telemetry and sends nothing itself; OTLP attributes carry no tenant: a Loki label is made from them only by otelcol.exporter.loki, which the strict served form routes through a __tenant_id__ drop"
       },
       "terminal_ok": false
     },
@@ -1586,6 +2199,10 @@
           "debug_metrics.level"
         ]
       },
+      "strict": {
+        "class": "allowed",
+        "reason": "transforms OTLP telemetry and sends nothing itself; OTLP attributes carry no tenant: a Loki label is made from them only by otelcol.exporter.loki, which the strict served form routes through a __tenant_id__ drop"
+      },
       "terminal_ok": false
     },
     "otelcol.processor.memory_limiter": {
@@ -1595,6 +2212,10 @@
       "sim_keep": {
         "keep_subtree": true,
         "reason": "measured clean: no attribute at any depth is credential-, address-, header- or filesystem-shaped, and the whole body is pipeline semantics the user must still see"
+      },
+      "strict": {
+        "class": "allowed",
+        "reason": "transforms OTLP telemetry and sends nothing itself; OTLP attributes carry no tenant: a Loki label is made from them only by otelcol.exporter.loki, which the strict served form routes through a __tenant_id__ drop"
       },
       "terminal_ok": false
     },
@@ -1609,6 +2230,10 @@
         "keep_subtree": true,
         "reason": "measured clean: no attribute at any depth is credential-, address-, header- or filesystem-shaped, and the whole body is pipeline semantics the user must still see"
       },
+      "strict": {
+        "class": "allowed",
+        "reason": "transforms OTLP telemetry and sends nothing itself; OTLP attributes carry no tenant: a Loki label is made from them only by otelcol.exporter.loki, which the strict served form routes through a __tenant_id__ drop"
+      },
       "terminal_ok": false
     },
     "otelcol.processor.probabilistic_sampler": {
@@ -1618,6 +2243,10 @@
       "sim_keep": {
         "keep_subtree": true,
         "reason": "measured clean: no attribute at any depth is credential-, address-, header- or filesystem-shaped, and the whole body is pipeline semantics the user must still see"
+      },
+      "strict": {
+        "class": "allowed",
+        "reason": "transforms OTLP telemetry and sends nothing itself; OTLP attributes carry no tenant: a Loki label is made from them only by otelcol.exporter.loki, which the strict served form routes through a __tenant_id__ drop"
       },
       "terminal_ok": false
     },
@@ -1655,6 +2284,10 @@
         ],
         "reason": "redaction policy is what the user must still see in a sandbox render; hmac_key is the one secret-typed attribute and is left off the list (rule K drops it regardless). Added with the v1.19.2 bump, 2026-09-14."
       },
+      "strict": {
+        "class": "allowed",
+        "reason": "transforms OTLP telemetry and sends nothing itself; OTLP attributes carry no tenant: a Loki label is made from them only by otelcol.exporter.loki, which the strict served form routes through a __tenant_id__ drop"
+      },
       "terminal_ok": false
     },
     "otelcol.processor.resourcedetection": {
@@ -1662,6 +2295,10 @@
       "doc": "Auto-detects and attaches resource attributes (cloud, k8s, host, etc.).",
       "icon": "transform",
       "sim_unsupported": "detects the SANDBOX host, cloud and Kubernetes environment, so every resource attribute it adds would describe the simulator instead of the user's fleet (VB-1 §6.5 refuses that fidelity lie); it also reaches consul.address and openshift.address and carries an openshift.token",
+      "strict": {
+        "class": "allowed",
+        "reason": "transforms OTLP telemetry and sends nothing itself; OTLP attributes carry no tenant: a Loki label is made from them only by otelcol.exporter.loki, which the strict served form routes through a __tenant_id__ drop"
+      },
       "terminal_ok": false
     },
     "otelcol.processor.span": {
@@ -1712,6 +2349,10 @@
           "debug_metrics.disable_high_cardinality_metrics",
           "debug_metrics.level"
         ]
+      },
+      "strict": {
+        "class": "allowed",
+        "reason": "transforms OTLP telemetry and sends nothing itself; OTLP attributes carry no tenant: a Loki label is made from them only by otelcol.exporter.loki, which the strict served form routes through a __tenant_id__ drop"
       },
       "terminal_ok": false
     },
@@ -1896,6 +2537,10 @@
           "debug_metrics.level"
         ]
       },
+      "strict": {
+        "class": "allowed",
+        "reason": "transforms OTLP telemetry and sends nothing itself; OTLP attributes carry no tenant: a Loki label is made from them only by otelcol.exporter.loki, which the strict served form routes through a __tenant_id__ drop"
+      },
       "terminal_ok": false
     },
     "otelcol.processor.transform": {
@@ -1912,6 +2557,10 @@
         "keep_subtree": true,
         "reason": "measured clean: no attribute at any depth is credential-, address-, header- or filesystem-shaped, and the whole body is pipeline semantics the user must still see"
       },
+      "strict": {
+        "class": "allowed",
+        "reason": "transforms OTLP telemetry and sends nothing itself; OTLP attributes carry no tenant: a Loki label is made from them only by otelcol.exporter.loki, which the strict served form routes through a __tenant_id__ drop"
+      },
       "terminal_ok": false
     },
     "otelcol.receiver.awscloudwatch": {
@@ -1922,6 +2571,10 @@
         "logs"
       ],
       "sim_unsupported": "polls the real AWS CloudWatch API for a real region, a required attribute; the capture harness cannot emulate AWS. Availability fix, VB-1 §6.4",
+      "strict": {
+        "class": "allowed",
+        "reason": "receives or collects telemetry as OTLP, keeping no client header (otelcol.auth.headers' from_context is refused); OTLP attributes carry no tenant: a Loki label is made from them only by otelcol.exporter.loki, which the strict served form routes through a __tenant_id__ drop"
+      },
       "terminal_ok": false
     },
     "otelcol.receiver.awsecscontainermetrics": {
@@ -1935,6 +2588,10 @@
         "paths": [],
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
       },
+      "strict": {
+        "class": "allowed",
+        "reason": "receives or collects telemetry as OTLP, keeping no client header (otelcol.auth.headers' from_context is refused); OTLP attributes carry no tenant: a Loki label is made from them only by otelcol.exporter.loki, which the strict served form routes through a __tenant_id__ drop"
+      },
       "terminal_ok": false
     },
     "otelcol.receiver.awss3": {
@@ -1942,6 +2599,10 @@
       "doc": "Receives telemetry from AWS S3 (experimental).",
       "icon": "cloud",
       "sim_unsupported": "reads from a real S3 bucket via s3downloader.s3_bucket/s3_prefix, both required; the capture harness cannot emulate S3 — the same reason otelcol.exporter.awss3 has no sim_destination. Availability fix, VB-1 §6.4",
+      "strict": {
+        "class": "allowed",
+        "reason": "receives or collects telemetry as OTLP, keeping no client header (otelcol.auth.headers' from_context is refused); OTLP attributes carry no tenant: a Loki label is made from them only by otelcol.exporter.loki, which the strict served form routes through a __tenant_id__ drop"
+      },
       "terminal_ok": false
     },
     "otelcol.receiver.cloudflare": {
@@ -1962,6 +2623,10 @@
           "reason": "the local bind address this HTTP receiver listens on for Cloudflare Logpush requests, not an outbound target; it is required, so dropping it leaves a config the sandbox cannot load. Reachability is bounded by the sandbox's network, not this transform (e2e/sandbox_egress_test.go). Availability fix, VB-1 §6.4"
         }
       ],
+      "strict": {
+        "class": "allowed",
+        "reason": "receives or collects telemetry as OTLP, keeping no client header (otelcol.auth.headers' from_context is refused); OTLP attributes carry no tenant: a Loki label is made from them only by otelcol.exporter.loki, which the strict served form routes through a __tenant_id__ drop"
+      },
       "terminal_ok": false
     },
     "otelcol.receiver.datadog": {
@@ -1972,6 +2637,10 @@
         "paths": [],
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
       },
+      "strict": {
+        "class": "allowed",
+        "reason": "receives or collects telemetry as OTLP, keeping no client header (otelcol.auth.headers' from_context is refused); OTLP attributes carry no tenant: a Loki label is made from them only by otelcol.exporter.loki, which the strict served form routes through a __tenant_id__ drop"
+      },
       "terminal_ok": false
     },
     "otelcol.receiver.faro": {
@@ -1981,6 +2650,10 @@
       "sim_keep": {
         "paths": [],
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
+      "strict": {
+        "class": "allowed",
+        "reason": "receives or collects telemetry as OTLP, keeping no client header (otelcol.auth.headers' from_context is refused); OTLP attributes carry no tenant: a Loki label is made from them only by otelcol.exporter.loki, which the strict served form routes through a __tenant_id__ drop"
       },
       "terminal_ok": false
     },
@@ -1996,6 +2669,10 @@
           "include"
         ]
       },
+      "strict": {
+        "class": "allowed",
+        "reason": "receives or collects telemetry as OTLP, keeping no client header (otelcol.auth.headers' from_context is refused); OTLP attributes carry no tenant: a Loki label is made from them only by otelcol.exporter.loki, which the strict served form routes through a __tenant_id__ drop"
+      },
       "terminal_ok": false
     },
     "otelcol.receiver.filelog": {
@@ -2009,6 +2686,10 @@
         "paths": [
           "include"
         ]
+      },
+      "strict": {
+        "class": "allowed",
+        "reason": "receives or collects telemetry as OTLP, keeping no client header (otelcol.auth.headers' from_context is refused); OTLP attributes carry no tenant: a Loki label is made from them only by otelcol.exporter.loki, which the strict served form routes through a __tenant_id__ drop"
       },
       "terminal_ok": false
     },
@@ -2027,6 +2708,10 @@
           "reason": "the local bind address this receiver listens on for the Fluent Forward protocol, not an outbound target; it is required, so dropping it leaves a config the sandbox cannot load. Reachability is bounded by the sandbox's network, not this transform (e2e/sandbox_egress_test.go). Availability fix, VB-1 §6.4"
         }
       ],
+      "strict": {
+        "class": "allowed",
+        "reason": "receives or collects telemetry as OTLP, keeping no client header (otelcol.auth.headers' from_context is refused); OTLP attributes carry no tenant: a Loki label is made from them only by otelcol.exporter.loki, which the strict served form routes through a __tenant_id__ drop"
+      },
       "terminal_ok": false
     },
     "otelcol.receiver.googlecloudpubsub": {
@@ -2034,6 +2719,10 @@
       "doc": "Receives telemetry from Google Cloud Pub/Sub (experimental).",
       "icon": "cloud",
       "sim_unsupported": "reads from a real Google Cloud Pub/Sub subscription, a required attribute; the capture harness cannot emulate Pub/Sub — the same reason otelcol.exporter.googlecloudpubsub has no sim_destination. Availability fix, VB-1 §6.4",
+      "strict": {
+        "class": "allowed",
+        "reason": "receives or collects telemetry as OTLP, keeping no client header (otelcol.auth.headers' from_context is refused); OTLP attributes carry no tenant: a Loki label is made from them only by otelcol.exporter.loki, which the strict served form routes through a __tenant_id__ drop"
+      },
       "terminal_ok": false
     },
     "otelcol.receiver.influxdb": {
@@ -2046,6 +2735,10 @@
       "sim_keep": {
         "paths": [],
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
+      "strict": {
+        "class": "allowed",
+        "reason": "receives or collects telemetry as OTLP, keeping no client header (otelcol.auth.headers' from_context is refused); OTLP attributes carry no tenant: a Loki label is made from them only by otelcol.exporter.loki, which the strict served form routes through a __tenant_id__ drop"
       },
       "terminal_ok": false
     },
@@ -2060,6 +2753,10 @@
         "paths": [],
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
       },
+      "strict": {
+        "class": "allowed",
+        "reason": "receives or collects telemetry as OTLP, keeping no client header (otelcol.auth.headers' from_context is refused); OTLP attributes carry no tenant: a Loki label is made from them only by otelcol.exporter.loki, which the strict served form routes through a __tenant_id__ drop"
+      },
       "terminal_ok": false
     },
     "otelcol.receiver.kafka": {
@@ -2067,6 +2764,10 @@
       "doc": "Reads telemetry data from a Kafka topic.",
       "icon": "kafka",
       "sim_unsupported": "connects to real Kafka brokers via brokers, a required attribute; the capture harness cannot emulate a Kafka cluster — the same reason otelcol.exporter.kafka has no sim_destination. Availability fix, VB-1 §6.4",
+      "strict": {
+        "class": "allowed",
+        "reason": "receives or collects telemetry as OTLP, keeping no client header (otelcol.auth.headers' from_context is refused); OTLP attributes carry no tenant: a Loki label is made from them only by otelcol.exporter.loki, which the strict served form routes through a __tenant_id__ drop"
+      },
       "terminal_ok": false
     },
     "otelcol.receiver.loki": {
@@ -2080,6 +2781,10 @@
         "paths": [],
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
       },
+      "strict": {
+        "class": "allowed",
+        "reason": "converts Loki entries to OTLP logs, their labels becoming OTLP attributes; OTLP attributes carry no tenant: a Loki label is made from them only by otelcol.exporter.loki, which the strict served form routes through a __tenant_id__ drop"
+      },
       "terminal_ok": false
     },
     "otelcol.receiver.nginx": {
@@ -2090,6 +2795,10 @@
         "metrics"
       ],
       "sim_unsupported": "scrapes a real nginx status endpoint via endpoint, a required attribute; the capture harness cannot emulate an nginx server. Availability fix, VB-1 §6.4",
+      "strict": {
+        "class": "allowed",
+        "reason": "receives or collects telemetry as OTLP, keeping no client header (otelcol.auth.headers' from_context is refused); OTLP attributes carry no tenant: a Loki label is made from them only by otelcol.exporter.loki, which the strict served form routes through a __tenant_id__ drop"
+      },
       "terminal_ok": false
     },
     "otelcol.receiver.otlp": {
@@ -2105,6 +2814,10 @@
         "paths": [],
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
       },
+      "strict": {
+        "class": "allowed",
+        "reason": "receives or collects telemetry as OTLP, keeping no client header (otelcol.auth.headers' from_context is refused); OTLP attributes carry no tenant: a Loki label is made from them only by otelcol.exporter.loki, which the strict served form routes through a __tenant_id__ drop"
+      },
       "terminal_ok": false
     },
     "otelcol.receiver.prometheus": {
@@ -2118,6 +2831,10 @@
         "paths": [],
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
       },
+      "strict": {
+        "class": "allowed",
+        "reason": "converts Prometheus samples to OTLP metrics; OTLP attributes carry no tenant: a Loki label is made from them only by otelcol.exporter.loki, which the strict served form routes through a __tenant_id__ drop"
+      },
       "terminal_ok": false
     },
     "otelcol.receiver.solace": {
@@ -2128,6 +2845,10 @@
         "traces"
       ],
       "sim_unsupported": "connects to a real Solace PubSub+ broker via queue, a required attribute; the capture harness cannot emulate a Solace broker. Availability fix, VB-1 §6.4",
+      "strict": {
+        "class": "allowed",
+        "reason": "receives or collects telemetry as OTLP, keeping no client header (otelcol.auth.headers' from_context is refused); OTLP attributes carry no tenant: a Loki label is made from them only by otelcol.exporter.loki, which the strict served form routes through a __tenant_id__ drop"
+      },
       "terminal_ok": false
     },
     "otelcol.receiver.splunkhec": {
@@ -2137,6 +2858,10 @@
       "sim_keep": {
         "paths": [],
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
+      "strict": {
+        "class": "allowed",
+        "reason": "receives or collects telemetry as OTLP, keeping no client header (otelcol.auth.headers' from_context is refused); OTLP attributes carry no tenant: a Loki label is made from them only by otelcol.exporter.loki, which the strict served form routes through a __tenant_id__ drop"
       },
       "terminal_ok": false
     },
@@ -2150,6 +2875,10 @@
       "sim_keep": {
         "paths": [],
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
+      "strict": {
+        "class": "allowed",
+        "reason": "receives or collects telemetry as OTLP, keeping no client header (otelcol.auth.headers' from_context is refused); OTLP attributes carry no tenant: a Loki label is made from them only by otelcol.exporter.loki, which the strict served form routes through a __tenant_id__ drop"
       },
       "terminal_ok": false
     },
@@ -2171,6 +2900,10 @@
           "reason": "the local bind address this receiver listens on for incoming TCP log connections, not an outbound target; it is required, so dropping it leaves a config the sandbox cannot load. Reachability is bounded by the sandbox's network, not this transform (e2e/sandbox_egress_test.go). Availability fix, VB-1 §6.4"
         }
       ],
+      "strict": {
+        "class": "allowed",
+        "reason": "receives or collects telemetry as OTLP, keeping no client header (otelcol.auth.headers' from_context is refused); OTLP attributes carry no tenant: a Loki label is made from them only by otelcol.exporter.loki, which the strict served form routes through a __tenant_id__ drop"
+      },
       "terminal_ok": false
     },
     "otelcol.receiver.vcenter": {
@@ -2181,6 +2914,10 @@
         "metrics"
       ],
       "sim_unsupported": "connects to a real vCenter instance and requires credentials (endpoint, username, and password, a required secret); the capture harness cannot emulate a vCenter API. Availability fix, VB-1 §6.4",
+      "strict": {
+        "class": "allowed",
+        "reason": "receives or collects telemetry as OTLP, keeping no client header (otelcol.auth.headers' from_context is refused); OTLP attributes carry no tenant: a Loki label is made from them only by otelcol.exporter.loki, which the strict served form routes through a __tenant_id__ drop"
+      },
       "terminal_ok": false
     },
     "otelcol.receiver.zipkin": {
@@ -2194,6 +2931,10 @@
         "paths": [],
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
       },
+      "strict": {
+        "class": "allowed",
+        "reason": "receives or collects telemetry as OTLP, keeping no client header (otelcol.auth.headers' from_context is refused); OTLP attributes carry no tenant: a Loki label is made from them only by otelcol.exporter.loki, which the strict served form routes through a __tenant_id__ drop"
+      },
       "terminal_ok": false
     },
     "otelcol.storage.file": {
@@ -2202,6 +2943,10 @@
       "icon": "file",
       "sim_secret_source": {
         "mode": "drop_ref"
+      },
+      "strict": {
+        "class": "allowed",
+        "reason": "a storage extension other components keep state in; sends nothing"
       }
     },
     "prometheus.echo": {
@@ -2216,6 +2961,10 @@
       "sim_keep": {
         "keep_subtree": true,
         "reason": "measured clean: no attribute at any depth is credential-, address-, header- or filesystem-shaped, and the whole body is pipeline semantics the user must still see"
+      },
+      "strict": {
+        "class": "allowed",
+        "reason": "prints samples to the collector's log and sends nothing"
       },
       "terminal_ok": true
     },
@@ -2234,6 +2983,13 @@
           "forward_to"
         ]
       },
+      "strict": {
+        "checks": [
+          "targets"
+        ],
+        "class": "checked",
+        "reason": "copies target labels onto metrics; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends)"
+      },
       "terminal_ok": false
     },
     "prometheus.exporter.apache": {
@@ -2244,6 +3000,10 @@
         "paths": [],
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
       },
+      "strict": {
+        "class": "allowed",
+        "reason": "exposes metrics for a scrape and sends no data; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends)"
+      },
       "terminal_ok": false
     },
     "prometheus.exporter.azure": {
@@ -2251,6 +3011,10 @@
       "doc": "Exposes Azure Monitor metrics.",
       "icon": "cloud",
       "sim_unsupported": "polls the real Azure Monitor API for a real subscription (subscriptions, resource_type and metrics are all required); the capture harness cannot emulate Azure. Availability fix, VB-1 §6.4",
+      "strict": {
+        "class": "allowed",
+        "reason": "exposes metrics for a scrape and sends no data; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends)"
+      },
       "terminal_ok": false
     },
     "prometheus.exporter.blackbox": {
@@ -2261,6 +3025,15 @@
         "targets"
       ],
       "sim_unsupported": "probes a destination the user names, and its target list is not a Prometheus label set: the probe address rides in an ordinary \"address\" key, which the target_set class does not touch (it forces __address__ and __scheme__ only). Keeping the list shipped the authored probe destination into the sandbox; dropping it leaves an exporter that probes nothing and reports every target down, which VB-1 §6.5 refuses as a fidelity lie. Round-2 HIGH",
+      "strict": {
+        "checks": [
+          "blackbox_config",
+          "label_maps",
+          "targets"
+        ],
+        "class": "checked",
+        "reason": "a probe sends the requests its modules define (headers, bodies, tcp query_response), so the modules must be a literal config naming no X-Scope-OrgID header and no query_response; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends)"
+      },
       "terminal_ok": false
     },
     "prometheus.exporter.cadvisor": {
@@ -2271,6 +3044,10 @@
         "paths": [],
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
       },
+      "strict": {
+        "class": "allowed",
+        "reason": "exposes metrics for a scrape and sends no data; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends)"
+      },
       "terminal_ok": false
     },
     "prometheus.exporter.cloudwatch": {
@@ -2278,6 +3055,13 @@
       "doc": "Exposes AWS CloudWatch metrics.",
       "icon": "cloud",
       "sim_unsupported": "polls the real AWS CloudWatch API for a real region via sts_region, a required attribute; the capture harness cannot emulate AWS. Availability fix, VB-1 §6.4",
+      "strict": {
+        "checks": [
+          "label_maps"
+        ],
+        "class": "checked",
+        "reason": "exposes metrics for a scrape; its label maps are checked; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends)"
+      },
       "terminal_ok": false
     },
     "prometheus.exporter.consul": {
@@ -2288,6 +3072,10 @@
         "paths": [],
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
       },
+      "strict": {
+        "class": "allowed",
+        "reason": "exposes metrics for a scrape and sends no data; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends)"
+      },
       "terminal_ok": false
     },
     "prometheus.exporter.databricks": {
@@ -2295,6 +3083,10 @@
       "doc": "Exposes Databricks cluster metrics.",
       "icon": "database",
       "sim_unsupported": "connects to a real Databricks workspace and requires client_secret, a required secret; nothing on sim_keep can carry a secret. Availability fix, VB-1 §6.4",
+      "strict": {
+        "class": "allowed",
+        "reason": "exposes metrics for a scrape and sends no data; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends)"
+      },
       "terminal_ok": false
     },
     "prometheus.exporter.dnsmasq": {
@@ -2304,6 +3096,10 @@
       "sim_keep": {
         "paths": [],
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
+      "strict": {
+        "class": "allowed",
+        "reason": "exposes metrics for a scrape and sends no data; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends)"
       },
       "terminal_ok": false
     },
@@ -2315,6 +3111,10 @@
         "paths": [],
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
       },
+      "strict": {
+        "class": "allowed",
+        "reason": "exposes metrics for a scrape and sends no data; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends)"
+      },
       "terminal_ok": false
     },
     "prometheus.exporter.gcp": {
@@ -2322,6 +3122,10 @@
       "doc": "Exposes Google Cloud Platform metrics.",
       "icon": "cloud",
       "sim_unsupported": "polls the real Google Cloud Monitoring API for a real project (project_ids and metrics_prefixes are both required); the capture harness cannot emulate GCP. Availability fix, VB-1 §6.4",
+      "strict": {
+        "class": "allowed",
+        "reason": "exposes metrics for a scrape and sends no data; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends)"
+      },
       "terminal_ok": false
     },
     "prometheus.exporter.github": {
@@ -2331,6 +3135,10 @@
       "sim_keep": {
         "paths": [],
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
+      "strict": {
+        "class": "allowed",
+        "reason": "exposes metrics for a scrape and sends no data; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends)"
       },
       "terminal_ok": false
     },
@@ -2342,6 +3150,10 @@
         "paths": [],
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
       },
+      "strict": {
+        "class": "allowed",
+        "reason": "exposes metrics for a scrape and sends no data; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends)"
+      },
       "terminal_ok": false
     },
     "prometheus.exporter.memcached": {
@@ -2352,6 +3164,10 @@
         "paths": [],
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
       },
+      "strict": {
+        "class": "allowed",
+        "reason": "exposes metrics for a scrape and sends no data; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends)"
+      },
       "terminal_ok": false
     },
     "prometheus.exporter.mongodb": {
@@ -2359,6 +3175,10 @@
       "doc": "Exposes MongoDB metrics.",
       "icon": "database",
       "sim_unsupported": "connects to a real MongoDB instance via mongodb_uri, a required secret; nothing on sim_keep can carry a secret. Availability fix, VB-1 §6.4",
+      "strict": {
+        "class": "allowed",
+        "reason": "exposes metrics for a scrape and sends no data; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends)"
+      },
       "terminal_ok": false
     },
     "prometheus.exporter.mssql": {
@@ -2366,6 +3186,10 @@
       "doc": "Exposes Microsoft SQL Server metrics.",
       "icon": "database",
       "sim_unsupported": "connects to a real SQL Server instance via connection_string, a required secret; nothing on sim_keep can carry a secret. Availability fix, VB-1 §6.4",
+      "strict": {
+        "class": "allowed",
+        "reason": "exposes metrics for a scrape and sends no data; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends)"
+      },
       "terminal_ok": false
     },
     "prometheus.exporter.mysql": {
@@ -2375,6 +3199,10 @@
       "sim_keep": {
         "paths": [],
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
+      "strict": {
+        "class": "allowed",
+        "reason": "exposes metrics for a scrape and sends no data; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends)"
       },
       "terminal_ok": false
     },
@@ -2386,6 +3214,13 @@
         "paths": [],
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
       },
+      "strict": {
+        "checks": [
+          "label_maps"
+        ],
+        "class": "checked",
+        "reason": "exposes metrics for a scrape; its label maps are checked; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends)"
+      },
       "terminal_ok": false
     },
     "prometheus.exporter.postgres": {
@@ -2395,6 +3230,10 @@
       "sim_keep": {
         "paths": [],
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
+      "strict": {
+        "class": "allowed",
+        "reason": "exposes metrics for a scrape and sends no data; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends)"
       },
       "terminal_ok": false
     },
@@ -2406,6 +3245,10 @@
         "paths": [],
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
       },
+      "strict": {
+        "class": "allowed",
+        "reason": "exposes metrics for a scrape and sends no data; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends)"
+      },
       "terminal_ok": false
     },
     "prometheus.exporter.redis": {
@@ -2413,6 +3256,10 @@
       "doc": "Exposes Redis metrics.",
       "icon": "database",
       "sim_unsupported": "probes a destination the user names, and its target is not a Prometheus label set: the probe address rides in redis_addr, an ordinary required \"address\"-shaped key the target_set class does not touch — the same reason prometheus.exporter.blackbox and prometheus.exporter.snmp are unsupported. Availability fix, VB-1 §6.4",
+      "strict": {
+        "class": "allowed",
+        "reason": "exposes metrics for a scrape and sends no data; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends)"
+      },
       "terminal_ok": false
     },
     "prometheus.exporter.self": {
@@ -2426,6 +3273,10 @@
         "paths": [],
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
       },
+      "strict": {
+        "class": "allowed",
+        "reason": "exposes metrics for a scrape and sends no data; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends)"
+      },
       "terminal_ok": true
     },
     "prometheus.exporter.snmp": {
@@ -2433,6 +3284,14 @@
       "doc": "Exposes SNMP metrics.",
       "icon": "server",
       "sim_unsupported": "walks a device the user names, and its target list is not a Prometheus label set: the device address rides in an ordinary \"address\" key alongside an \"auth\" name, neither of which the target_set class touches (it forces __address__ and __scheme__ only). Keeping the list shipped the authored device address into the sandbox; dropping it leaves an exporter that walks nothing, which VB-1 §6.5 refuses as a fidelity lie. Round-2 HIGH",
+      "strict": {
+        "checks": [
+          "label_maps",
+          "targets"
+        ],
+        "class": "checked",
+        "reason": "exposes metrics for a scrape; its label maps are checked; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends)"
+      },
       "terminal_ok": false
     },
     "prometheus.exporter.snowflake": {
@@ -2440,6 +3299,10 @@
       "doc": "Exposes Snowflake data warehouse metrics.",
       "icon": "database",
       "sim_unsupported": "connects to a real Snowflake account (account_name, username and warehouse are all required); the capture harness cannot emulate Snowflake. Availability fix, VB-1 §6.4",
+      "strict": {
+        "class": "allowed",
+        "reason": "exposes metrics for a scrape and sends no data; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends)"
+      },
       "terminal_ok": false
     },
     "prometheus.exporter.squid": {
@@ -2447,6 +3310,10 @@
       "doc": "Exposes Squid proxy cache metrics.",
       "icon": "server",
       "sim_unsupported": "probes a destination the user names, and its target is not a Prometheus label set: the probe address rides in address, an ordinary required \"address\"-shaped key the target_set class does not touch — the same reason prometheus.exporter.blackbox and prometheus.exporter.snmp are unsupported. Availability fix, VB-1 §6.4",
+      "strict": {
+        "class": "allowed",
+        "reason": "exposes metrics for a scrape and sends no data; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends)"
+      },
       "terminal_ok": false
     },
     "prometheus.exporter.static": {
@@ -2458,6 +3325,10 @@
           "text"
         ]
       },
+      "strict": {
+        "class": "allowed",
+        "reason": "exposes metrics for a scrape and sends no data; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends)"
+      },
       "terminal_ok": false
     },
     "prometheus.exporter.statsd": {
@@ -2467,6 +3338,10 @@
       "sim_keep": {
         "paths": [],
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
+      "strict": {
+        "class": "allowed",
+        "reason": "exposes metrics for a scrape and sends no data; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends)"
       },
       "terminal_ok": false
     },
@@ -2481,6 +3356,10 @@
         "paths": [],
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
       },
+      "strict": {
+        "class": "allowed",
+        "reason": "exposes metrics for a scrape and sends no data; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends)"
+      },
       "terminal_ok": false
     },
     "prometheus.exporter.windows": {
@@ -2490,6 +3369,10 @@
       "sim_keep": {
         "paths": [],
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
+      "strict": {
+        "class": "allowed",
+        "reason": "exposes metrics for a scrape and sends no data; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends)"
       },
       "terminal_ok": false
     },
@@ -2501,6 +3384,14 @@
         "paths": [],
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
       },
+      "strict": {
+        "checks": [
+          "headers",
+          "relabel_rules"
+        ],
+        "class": "checked",
+        "reason": "scrapes the targets of Prometheus Operator objects (a scrape is a GET that writes nothing); its Kubernetes API headers and rule blocks are checked; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends)"
+      },
       "terminal_ok": false
     },
     "prometheus.operator.probes": {
@@ -2510,6 +3401,14 @@
       "sim_keep": {
         "paths": [],
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
+      "strict": {
+        "checks": [
+          "headers",
+          "relabel_rules"
+        ],
+        "class": "checked",
+        "reason": "scrapes the targets of Prometheus Operator objects (a scrape is a GET that writes nothing); its Kubernetes API headers and rule blocks are checked; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends)"
       },
       "terminal_ok": false
     },
@@ -2521,6 +3420,14 @@
         "paths": [],
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
       },
+      "strict": {
+        "checks": [
+          "headers",
+          "relabel_rules"
+        ],
+        "class": "checked",
+        "reason": "scrapes the targets of Prometheus Operator objects (a scrape is a GET that writes nothing); its Kubernetes API headers and rule blocks are checked; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends)"
+      },
       "terminal_ok": false
     },
     "prometheus.operator.servicemonitors": {
@@ -2531,6 +3438,14 @@
         "paths": [],
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
       },
+      "strict": {
+        "checks": [
+          "headers",
+          "relabel_rules"
+        ],
+        "class": "checked",
+        "reason": "scrapes the targets of Prometheus Operator objects (a scrape is a GET that writes nothing); its Kubernetes API headers and rule blocks are checked; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends)"
+      },
       "terminal_ok": false
     },
     "prometheus.receive_http": {
@@ -2540,6 +3455,10 @@
       "sim_keep": {
         "paths": [],
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
+      "strict": {
+        "class": "allowed",
+        "reason": "receives remote-write samples, keeping no client header (Alloy v1.21.2 receive_http); metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends)"
       },
       "terminal_ok": false
     },
@@ -2561,6 +3480,13 @@
           "reason": "a relabel destination LABEL name. It CAN be __address__, which retargets the scrape at runtime — the value is computed from replacement and the source labels, so no gate over the rendered config bounds it. Kept because relabel is the thing S3 exists to simulate; the sandbox network is what denies the reach (e2e/sandbox_egress_test.go)."
         }
       ],
+      "strict": {
+        "checks": [
+          "relabel_rules"
+        ],
+        "class": "checked",
+        "reason": "relabels metrics with rule blocks, which are checked; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends)"
+      },
       "terminal_ok": false
     },
     "prometheus.remote_write": {
@@ -2622,6 +3548,14 @@
           "reason": "a relabel destination LABEL name. It CAN be __address__, which retargets the scrape at runtime — the value is computed from replacement and the source labels, so no gate over the rendered config bounds it. Kept because relabel is the thing S3 exists to simulate; the sandbox network is what denies the reach (e2e/sandbox_egress_test.go)."
         }
       ],
+      "strict": {
+        "checks": [
+          "headers",
+          "label_maps"
+        ],
+        "class": "checked",
+        "reason": "sends to Mimir under its endpoint headers' X-Scope-OrgID, which is checked; its label maps are checked"
+      },
       "terminal_ok": true
     },
     "prometheus.scrape": {
@@ -2681,6 +3615,14 @@
           "reason": "declared number: a cap on discovered targets, not an address"
         }
       ],
+      "strict": {
+        "checks": [
+          "headers",
+          "targets"
+        ],
+        "class": "checked",
+        "reason": "scrapes its targets (a GET that writes nothing) with http_headers that are checked; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends)"
+      },
       "terminal_ok": false
     },
     "pyroscope.ebpf": {
@@ -2695,6 +3637,13 @@
           }
         ],
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
+      "strict": {
+        "checks": [
+          "targets"
+        ],
+        "class": "checked",
+        "reason": "profiles the processes of its targets and sends nothing itself; profile labels carry no tenant (Pyroscope reads it only from the X-Scope-OrgID header the writer sends)"
       },
       "terminal_ok": false
     },
@@ -2720,6 +3669,13 @@
           "reason": "the LABEL NAME the enrichment matches profiles against, not a network target; it is required, so dropping it leaves a config the sandbox cannot load. Availability fix, VB-1 §6.4"
         }
       ],
+      "strict": {
+        "checks": [
+          "targets"
+        ],
+        "class": "checked",
+        "reason": "copies target labels onto profiles; profile labels carry no tenant (Pyroscope reads it only from the X-Scope-OrgID header the writer sends)"
+      },
       "terminal_ok": false
     },
     "pyroscope.java": {
@@ -2735,6 +3691,13 @@
         ],
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
       },
+      "strict": {
+        "checks": [
+          "targets"
+        ],
+        "class": "checked",
+        "reason": "profiles the processes of its targets and sends nothing itself; profile labels carry no tenant (Pyroscope reads it only from the X-Scope-OrgID header the writer sends)"
+      },
       "terminal_ok": false
     },
     "pyroscope.receive_http": {
@@ -2744,6 +3707,10 @@
       "sim_keep": {
         "paths": [],
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
+      "strict": {
+        "class": "allowed",
+        "reason": "receives profiles and forwards only a client request's content type (Alloy v1.21.2 receive_http), never its X-Scope-OrgID; profile labels carry no tenant (Pyroscope reads it only from the X-Scope-OrgID header the writer sends)"
       },
       "terminal_ok": false
     },
@@ -2761,6 +3728,13 @@
           "reason": "a relabel destination LABEL name. It CAN be __address__, which retargets the scrape at runtime — the value is computed from replacement and the source labels, so no gate over the rendered config bounds it. Kept because relabel is the thing S3 exists to simulate; the sandbox network is what denies the reach (e2e/sandbox_egress_test.go)."
         }
       ],
+      "strict": {
+        "checks": [
+          "relabel_rules"
+        ],
+        "class": "checked",
+        "reason": "relabels profiles with rule blocks, which are checked; profile labels carry no tenant (Pyroscope reads it only from the X-Scope-OrgID header the writer sends)"
+      },
       "terminal_ok": false
     },
     "pyroscope.scrape": {
@@ -2779,6 +3753,14 @@
           }
         ],
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
+      },
+      "strict": {
+        "checks": [
+          "headers",
+          "targets"
+        ],
+        "class": "checked",
+        "reason": "scrapes its targets (a GET that writes nothing) with http_headers that are checked; profile labels carry no tenant (Pyroscope reads it only from the X-Scope-OrgID header the writer sends)"
       },
       "terminal_ok": false
     },
@@ -2815,6 +3797,14 @@
           "tracing.trace_context_propagator"
         ]
       },
+      "strict": {
+        "checks": [
+          "headers",
+          "label_maps"
+        ],
+        "class": "checked",
+        "reason": "sends to Pyroscope under its endpoint headers' X-Scope-OrgID, which is checked; its label maps are checked"
+      },
       "terminal_ok": true
     },
     "remote.http": {
@@ -2823,6 +3813,13 @@
       "icon": "server",
       "sim_secret_source": {
         "mode": "literal"
+      },
+      "strict": {
+        "checks": [
+          "headers"
+        ],
+        "class": "checked",
+        "reason": "requests a URL with a headers map that is checked; wherever its exported value reaches a tenant, header, label map or import the lint refuses it as unreadable"
       }
     },
     "remote.kubernetes.configmap": {
@@ -2831,6 +3828,13 @@
       "icon": "k8s",
       "sim_secret_source": {
         "mode": "literal"
+      },
+      "strict": {
+        "checks": [
+          "headers"
+        ],
+        "class": "checked",
+        "reason": "reads a Kubernetes object, its API headers checked; wherever its exported value reaches a tenant, header, label map or import the lint refuses it as unreadable"
       }
     },
     "remote.kubernetes.secret": {
@@ -2839,6 +3843,13 @@
       "icon": "lock",
       "sim_secret_source": {
         "mode": "literal"
+      },
+      "strict": {
+        "checks": [
+          "headers"
+        ],
+        "class": "checked",
+        "reason": "reads a Kubernetes object, its API headers checked; wherever its exported value reaches a tenant, header, label map or import the lint refuses it as unreadable"
       }
     },
     "remote.s3": {
@@ -2847,6 +3858,10 @@
       "icon": "cloud",
       "sim_secret_source": {
         "mode": "literal"
+      },
+      "strict": {
+        "class": "allowed",
+        "reason": "reads an S3 object; wherever its exported value reaches a tenant, header, label map or import the lint refuses it as unreadable"
       }
     },
     "remote.vault": {
@@ -2855,7 +3870,25 @@
       "icon": "lock",
       "sim_secret_source": {
         "mode": "literal"
+      },
+      "strict": {
+        "class": "allowed",
+        "reason": "reads a Vault secret; wherever its exported value reaches a tenant, header, label map or import the lint refuses it as unreadable"
       }
+    }
+  },
+  "strict_retired": {
+    "prometheus.exporter.catchpoint": {
+      "class": "allowed",
+      "reason": "Alloy v1.18.0 to v1.20.1 only: exposes Catchpoint metrics for a scrape and sends no data; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends)"
+    },
+    "prometheus.write.queue": {
+      "checks": [
+        "headers",
+        "label_maps"
+      ],
+      "class": "checked",
+      "reason": "Alloy v1.18 only: sends to a remote-write endpoint under its endpoint headers' X-Scope-OrgID, which is checked; its external_labels are checked"
     }
   },
   "wire_types": {

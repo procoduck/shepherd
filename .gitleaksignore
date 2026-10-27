@@ -18,3 +18,10 @@
 9089aff7191562340aedf92bb930229b2d29b171:e2e/k8s/fixtures_test.go:generic-api-key:67
 # private-key @ internal/mgmtapi/rpc_gitops_test.go:263
 453a1477d30ae9e61b2de2d20539324f2ac3317d:internal/mgmtapi/rpc_gitops_test.go:private-key:263
+# generic-api-key @ e2e/alloy/strict.alloy:8 and e2e/docker-compose.e2e.yaml:500
+# (PR #429's first commit only): the e2e-strict collector's fixture agent
+# secret, a visibly fake "e2e-strict-…" string used only by the compose e2e
+# stack. The next commit replaced it with a low-entropy fake, so nothing on
+# main carries it.
+a14a2655d2b97212add06cf54844a1cd0787c818:e2e/alloy/strict.alloy:generic-api-key:8
+a14a2655d2b97212add06cf54844a1cd0787c818:e2e/docker-compose.e2e.yaml:generic-api-key:500

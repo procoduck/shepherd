@@ -408,6 +408,99 @@ services:
       timeout: 5s
       retries: 15
 
+  # Strict tenant regression suite (e2e/strict_tenant_test.go, `make e2e-strict`):
+  # a strict org owning tenant `mine`, its own collector, and a recording sink
+  # standing in for Loki and Mimir. Gated behind the `strict` profile, so the
+  # default `make e2e` stack is unchanged.
+  tenantsink:
+    profiles: ["strict"]
+    build:
+      context: ./tenantsink
+      dockerfile: Dockerfile
+    image: shepherd-tenantsink:e2e
+    environment:
+      LISTEN: ":3100"
+    ports:
+      - "127.0.0.1:13100:3100"
+    healthcheck:
+      test: ["CMD", "/tenantsink", "-health-check"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+
+  # The strict org and its collector's token, created before that Alloy
+  # starts (an unbound token is refused and Alloy exits on a refused initial
+  # load). The suite gives the org its tenant and turns strict mode on.
+  shepherd-strict-org:
+    profiles: ["strict"]
+    image: shepherd:local-init
+    depends_on:
+      shepherd-init:
+        condition: service_completed_successfully
+    environment:
+      SHEPHERD_DATABASE_URL: postgres://shepherd:shepherd@postgres:5432/shepherd_e2e?sslmode=disable
+      SHEPHERD_SECURITY_ENCRYPTION_KEY: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+    command:
+      - dev
+      - ensure-org
+      - --name
+      - e2e-strict
+      - --display-name
+      - E2E Strict Org
+      - --admin-group-id
+      - "11111111-1111-1111-1111-111111111111"
+    restart: "no"
+
+  shepherd-strict-token:
+    profiles: ["strict"]
+    image: shepherd:local-init
+    depends_on:
+      shepherd-strict-org:
+        condition: service_completed_successfully
+    environment:
+      SHEPHERD_DATABASE_URL: postgres://shepherd:shepherd@postgres:5432/shepherd_e2e?sslmode=disable
+      SHEPHERD_SECURITY_ENCRYPTION_KEY: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+      SHEPHERD_DEV_ALLOW_STATIC_TOKEN: "true"
+    command:
+      - token
+      - create
+      - --name
+      - e2e-strict
+      - --org
+      - e2e-strict
+      - --clusters
+      - strict-cluster
+      - --roles
+      - singleton
+      - --id
+      - "00000000-e2e0-4000-a000-000000000002"
+      - --secret
+      - e2e-strict-secret-not-a-real-one
+    restart: "no"
+
+  alloy-strict:
+    profiles: ["strict"]
+    image: ${ALLOY_IMAGE:-grafana/alloy:v1.21.2@sha256:89a5a320168387336b9ac3c850609c3ba7757eadd4ae5f1d819deb35e9854b18}
+    depends_on:
+      shepherd:
+        condition: service_healthy
+      shepherd-strict-token:
+        condition: service_completed_successfully
+      tenantsink:
+        condition: service_healthy
+    command:
+      - run
+      - /etc/alloy/config.alloy
+      - --storage.path=/tmp/alloy
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --stability.level=experimental
+      - --disable-reporting
+    environment:
+      SHEPHERD_AGENT_TOKEN_ID: 00000000-e2e0-4000-a000-000000000002
+      SHEPHERD_AGENT_TOKEN_SECRET: e2e-strict-secret-not-a-real-one
+    volumes:
+      - ./alloy/strict.alloy:/etc/alloy/config.alloy:ro
+
 volumes:
   gitea_e2e_data:
 

@@ -1,4 +1,5 @@
 /shepherd.mgmt.v1.AdminService/AddOrgImportRepository	human=app-admin	sa=deny
+/shepherd.mgmt.v1.AdminService/AddOrgStrictComponent	human=app-admin	sa=deny
 /shepherd.mgmt.v1.AdminService/AddOrgTenant	human=app-admin	sa=deny
 /shepherd.mgmt.v1.AdminService/BindAgentToken	human=app-admin	sa=deny
 /shepherd.mgmt.v1.AdminService/ClaimCluster	human=app-admin	sa=deny
@@ -14,8 +15,10 @@
 /shepherd.mgmt.v1.AdminService/ListClusters	human=app-admin	sa=deny
 /shepherd.mgmt.v1.AdminService/ListOidcProviderPresets	human=app-admin	sa=deny
 /shepherd.mgmt.v1.AdminService/ListOrgImportRepositories	human=app-admin	sa=deny
+/shepherd.mgmt.v1.AdminService/ListOrgStrictComponents	human=app-admin	sa=deny
 /shepherd.mgmt.v1.AdminService/ListOrgs	human=app-admin	sa=deny
 /shepherd.mgmt.v1.AdminService/RemoveOrgImportRepository	human=app-admin	sa=deny
+/shepherd.mgmt.v1.AdminService/RemoveOrgStrictComponent	human=app-admin	sa=deny
 /shepherd.mgmt.v1.AdminService/RemoveOrgTenant	human=app-admin	sa=deny
 /shepherd.mgmt.v1.AdminService/RevokeAgentToken	human=app-admin|org>=admin	sa=same-org,tier>=admin
 /shepherd.mgmt.v1.AdminService/SearchGroups	human=app-admin|org>=admin	sa=same-org,tier>=admin

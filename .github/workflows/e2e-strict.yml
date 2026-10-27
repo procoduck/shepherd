@@ -1,0 +1,94 @@
+name: E2E Strict Tenants
+
+# Strict tenant mode against a real Alloy (#421): `make e2e-strict` brings up
+# the compose e2e stack with the `strict` profile — a strict org owning tenant
+# `mine`, its own collector and tenantsink, a recording stand-in for Loki —
+# and e2e/strict_tenant_test.go checks the tenant every push reaches the sink
+# under: each construct the tenant lint refuses is refused at save and, stored
+# directly, left out of the served config; each construct it accepts arrives
+# under `mine` only.
+#
+# On every PR touching what decides that verdict — the lint
+# (internal/validate), the serve-time check (internal/serve), the policy
+# (internal/tenancy), pinned modules (internal/pinnedimport), the component
+# schemas and their strict classification (internal/schema/artifacts) — the
+# suite itself, and the Alloy pin (deploy/versions.env, so an Alloy bump runs
+# it). Weekly against upstream drift, and on demand.
+
+on:
+  schedule:
+    - cron: "37 4 * * 3"
+  workflow_dispatch: {}
+  pull_request:
+    paths:
+      - "internal/validate/**"
+      - "internal/serve/**"
+      - "internal/tenancy/**"
+      - "internal/pinnedimport/**"
+      - "internal/schema/artifacts/**"
+      - "e2e/strict_tenant_test.go"
+      - "e2e/tenantsink/**"
+      - "e2e/alloy/strict.alloy"
+      - "e2e/docker-compose.e2e.yaml"
+      - "deploy/versions.env"
+      - ".github/workflows/e2e-strict.yml"
+
+concurrency:
+  group: e2e-strict-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  e2e-strict:
+    name: e2e-strict (strict tenant mode, real Alloy)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install ginkgo CLI
+        run: go install "github.com/onsi/ginkgo/v2/ginkgo@$(go list -m -f '{{.Version}}' github.com/onsi/ginkgo/v2)"
+
+      - name: Set up Docker buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      # Keyed per workflow+job+run, as e2e.yml's: actions/cache never
+      # overwrites an existing key, so the run_id guarantees something new to
+      # save, and restore-keys keeps a warm prefix match for this job.
+      - name: Cache Docker layers
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /tmp/.buildx-cache
+          key: buildx-${{ runner.os }}-${{ github.workflow }}-${{ github.job }}-${{ hashFiles('go.sum', 'web/pnpm-lock.yaml', 'deploy/versions.env', 'deploy/Dockerfile.local', 'deploy/Dockerfile.init', 'deploy/pnpm-tool/package-lock.json') }}-${{ github.run_id }}
+          restore-keys: |
+            buildx-${{ runner.os }}-${{ github.workflow }}-${{ github.job }}-
+
+      - name: make e2e-strict
+        env:
+          DOCKER_CACHE_FLAGS: --cache-from type=local,src=/tmp/.buildx-cache --cache-to type=local,dest=/tmp/.buildx-cache-new,mode=max
+        run: make e2e-strict
+
+      - name: Rotate Docker layer cache
+        if: always()
+        run: |
+          if [ -d /tmp/.buildx-cache-new ]; then
+            rm -rf /tmp/.buildx-cache
+            mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+          fi
+
+      - name: Compose logs on failure
+        if: failure()
+        run: docker compose -f e2e/docker-compose.e2e.yaml --profile strict logs --no-color || true
+
+      - name: Tear down stack
+        if: always()
+        run: docker compose -f e2e/docker-compose.e2e.yaml --profile strict down -v || true
