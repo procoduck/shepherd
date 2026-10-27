@@ -32,3 +32,20 @@ SELECT * FROM beacon_inventory WHERE collector_id = $1 ORDER BY instance_label, 
 -- collector that stops reporting ages out instead of lingering as a
 -- permanently-healthy ghost (plan §4, W5).
 DELETE FROM beacon_inventory WHERE last_seen < $1;
+
+-- name: RecordBeaconInstanceReport :exec
+-- Stamps "this instance reported now" on every row of one instance under one
+-- collector (0046). The beacon handler runs it once per accepted write, after
+-- that write's upserts, whether or not the write carried any pipeline series:
+-- a row whose last_seen falls behind this is a pipeline the instance no
+-- longer reports. Keyed on (collector_id, instance_label), not principal,
+-- because reconciliation groups an instance's rows that way.
+--
+-- Throttled in the statement: a row stamped within the last 5 seconds is left
+-- alone, so the several remote_write requests one scrape is split into update
+-- the rows once rather than once each. 5s is well under
+-- reconcile.LatestReportTolerance (15s), so the lag never makes a refreshed
+-- row look dropped. A row this write just inserted has NULL and is stamped.
+UPDATE beacon_inventory SET instance_reported_at = now()
+WHERE collector_id = $1 AND instance_label = $2
+  AND (instance_reported_at IS NULL OR instance_reported_at < now() - interval '5 seconds');

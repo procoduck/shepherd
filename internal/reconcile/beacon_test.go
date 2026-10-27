@@ -58,6 +58,62 @@ func TestObserveBeacon_SilentInstanceKeepsLastReportFlaggedStale(t *testing.T) {
 	}
 }
 
+// TestObserveBeacon_SolePipelineDroppedIsNotRunning pins the 0.21 re-walk
+// case: the only pipeline on a collector was disabled, so after Alloy
+// reloaded its beacon writes carried no pipeline series and refreshed no row.
+// The dropped row stayed the instance's newest, and judged against the
+// newest row it read as running until the sweeper deleted it. Judged against
+// when the instance last reported, it is not running.
+func TestObserveBeacon_SolePipelineDroppedIsNotRunning(t *testing.T) {
+	reported := time.Date(2026, 10, 26, 12, 0, 0, 0, time.UTC)
+	rows := []BeaconRow{
+		{Instance: "pod-a:12345", Component: "pipe_k8smon_logs", Healthy: true, LastSeen: reported.Add(-70 * time.Second), ReportedAt: reported},
+	}
+	if got := ObserveBeacon(rows, reported.Add(-5*time.Minute)); len(got) != 0 {
+		t.Fatalf("want no running component once the instance reported without it, got %+v", got)
+	}
+}
+
+// TestObserveBeacon_ReportTimeKeepsRefreshedRows pins that a row the latest
+// report refreshed still counts when the report time is known: within
+// LatestReportTolerance of it, before or after (the handler throttles the
+// stamp, so it may trail a row it just refreshed by a few seconds).
+func TestObserveBeacon_ReportTimeKeepsRefreshedRows(t *testing.T) {
+	reported := time.Date(2026, 10, 26, 12, 0, 0, 0, time.UTC)
+	rows := []BeaconRow{
+		{Instance: "pod-a:12345", Component: "pipe_a", Healthy: true, LastSeen: reported.Add(-3 * time.Second), ReportedAt: reported},
+		{Instance: "pod-a:12345", Component: "pipe_b", Healthy: true, LastSeen: reported.Add(4 * time.Second), ReportedAt: reported},
+		{Instance: "pod-a:12345", Component: "pipe_gone", Healthy: true, LastSeen: reported.Add(-61 * time.Second), ReportedAt: reported},
+	}
+	got := ObserveBeacon(rows, reported.Add(-5*time.Minute))
+	if names := strings.Join(componentNames(got), ","); names != "pipe_a,pipe_b" {
+		t.Fatalf("want the refreshed rows only, got %v", names)
+	}
+}
+
+// TestObserveBeacon_UnknownReportTimeFallsBackToNewestRow pins the rolling-
+// upgrade fallback: rows whose report time is unknown (written before
+// migration 0046, or by an older replica) are judged against the instance's
+// newest row, as before; a known report time on any of the instance's rows
+// is the instance's, and never hides a row newer than it.
+func TestObserveBeacon_UnknownReportTimeFallsBackToNewestRow(t *testing.T) {
+	now := time.Date(2026, 10, 26, 12, 0, 0, 0, time.UTC)
+	rows := []BeaconRow{
+		// No report time anywhere: the sole row is the newest, so it counts.
+		{Instance: "old:1", Component: "pipe_sole", Healthy: true, LastSeen: now.Add(-70 * time.Second)},
+		// Mixed: one row stamped, the other not — the stamp is the instance's.
+		{Instance: "mixed:1", Component: "pipe_live", Healthy: true, LastSeen: now, ReportedAt: now},
+		{Instance: "mixed:1", Component: "pipe_gone", Healthy: true, LastSeen: now.Add(-70 * time.Second)},
+		// A stamp older than the newest row (an older replica refreshed the
+		// rows since) never hides what the newest row shows.
+		{Instance: "lagging:1", Component: "pipe_new", Healthy: true, LastSeen: now, ReportedAt: now.Add(-2 * time.Minute)},
+	}
+	got := ObserveBeacon(rows, now.Add(-5*time.Minute))
+	if names := strings.Join(componentNames(got), ","); names != "pipe_sole,pipe_live,pipe_new" {
+		t.Fatalf("want the newest-row fallback where the report time is unknown, got %v", names)
+	}
+}
+
 func componentNames(cs []ObservedComponent) []string {
 	out := make([]string, len(cs))
 	for i := range cs {

@@ -115,24 +115,30 @@ Categories used here:
 - **Reconciliation no longer reports a dropped pipeline as running.** Shipped. A pipeline that
   was served, then disabled, kept its beacon row until the sweeper expired it five minutes later,
   and the Reconciliation tab listed it as running and "never served" all that time. A beacon row
-  now counts as running only if the instance's latest report refreshed it (within 15 s of that
-  instance's newest row). An instance that stopped reporting entirely keeps its last report,
-  flagged stale, until the sweeper removes it. The finding now says the component is "not
-  currently served", which holds whether or not it ever was.
+  now counts as running only if the instance's latest report refreshed it: within 15 s of when
+  that instance last reported. Every accepted beacon write records that time on the instance's
+  rows (migration 0046, a nullable column), including a write that carries no pipeline at all, so
+  disabling a collector's only pipeline is caught too; judging by the instance's newest row, as
+  first shipped, missed that case, because no row moved on. Refused writes record nothing. Rows
+  written before the upgrade fall back to the newest-row rule until the instance next reports. An
+  instance that stopped reporting entirely keeps its last report, flagged stale, until the
+  sweeper removes it. The finding now says the component is "not currently served", which holds
+  whether or not it ever was.
 - **A disabled pipeline no longer reads as running for one more beacon cycle.** Shipped. When
   Alloy unloads a pipeline, the next beacon write carries a Prometheus staleness marker for each
   series that went away. The beacon read the marker's NaN as a live count that passed the health
   check, so the pipeline's row was refreshed as healthy and the Reconciliation tab showed it
   "running (healthy=true) but not currently served" until the next scrape. A staleness marker now
-  ends the series, as Prometheus treats it: it neither refreshes nor creates a row. Any other
-  non-finite count (NaN, ±Inf) marks the pipeline unhealthy.
+  ends the series, as Prometheus treats it: it neither refreshes nor creates a row, though the
+  write still records that the instance reported. Any other non-finite count (NaN, ±Inf) marks
+  the pipeline unhealthy.
 - **Reconciliation says "unknown" for a collector with nothing reporting.** Shipped. A collector
   whose only instance was gone (scaled to zero, unregistered or past `agent.inactive_after`)
   kept its beacon rows until the sweeper deleted them, and for up to two sweeps the tab said
   "In sync — declared, served and observed all agree" beside an instance reading "Last seen
   unknown". Observed state now counts as known only while the collector has a live instance (the
-  rule the instance list uses for "inactive") and at least one beacon row less than five minutes
-  old. Otherwise the tab says the observed state is unknown, with no agreement or drift claimed.
+  rule the instance list uses for "inactive") and its beacon reported less than five minutes
+  ago (a row refreshed, or the instance's last report recorded on one). Otherwise the tab says the observed state is unknown, with no agreement or drift claimed.
 - **A version warning is audited once, wherever its line moves.** Shipped. The
   `collector.version_warning` audit fired again when a change elsewhere in the served config only
   moved a finding's line (a disable moved one from line 487 to 486). Line numbers no longer count

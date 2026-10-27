@@ -28,7 +28,7 @@ func (q *Queries) DeleteExpiredBeaconInventory(ctx context.Context, lastSeen pgt
 }
 
 const listBeaconInventoryByCollector = `-- name: ListBeaconInventoryByCollector :many
-SELECT id, instance_label, component_name, healthy, last_seen, created_at, principal, collector_id FROM beacon_inventory WHERE collector_id = $1 ORDER BY instance_label, component_name
+SELECT id, instance_label, component_name, healthy, last_seen, created_at, principal, collector_id, instance_reported_at FROM beacon_inventory WHERE collector_id = $1 ORDER BY instance_label, component_name
 `
 
 // Backs the reconciliation surface's "observed" input (#110): every component
@@ -53,6 +53,7 @@ func (q *Queries) ListBeaconInventoryByCollector(ctx context.Context, collectorI
 			&i.CreatedAt,
 			&i.Principal,
 			&i.CollectorID,
+			&i.InstanceReportedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -65,7 +66,7 @@ func (q *Queries) ListBeaconInventoryByCollector(ctx context.Context, collectorI
 }
 
 const listBeaconInventoryByPrincipal = `-- name: ListBeaconInventoryByPrincipal :many
-SELECT id, instance_label, component_name, healthy, last_seen, created_at, principal, collector_id FROM beacon_inventory WHERE principal = $1 ORDER BY instance_label, component_name
+SELECT id, instance_label, component_name, healthy, last_seen, created_at, principal, collector_id, instance_reported_at FROM beacon_inventory WHERE principal = $1 ORDER BY instance_label, component_name
 `
 
 func (q *Queries) ListBeaconInventoryByPrincipal(ctx context.Context, principal string) ([]BeaconInventory, error) {
@@ -86,6 +87,7 @@ func (q *Queries) ListBeaconInventoryByPrincipal(ctx context.Context, principal 
 			&i.CreatedAt,
 			&i.Principal,
 			&i.CollectorID,
+			&i.InstanceReportedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -95,6 +97,34 @@ func (q *Queries) ListBeaconInventoryByPrincipal(ctx context.Context, principal 
 		return nil, err
 	}
 	return items, nil
+}
+
+const recordBeaconInstanceReport = `-- name: RecordBeaconInstanceReport :exec
+UPDATE beacon_inventory SET instance_reported_at = now()
+WHERE collector_id = $1 AND instance_label = $2
+  AND (instance_reported_at IS NULL OR instance_reported_at < now() - interval '5 seconds')
+`
+
+type RecordBeaconInstanceReportParams struct {
+	CollectorID   pgtype.UUID `json:"collector_id"`
+	InstanceLabel string      `json:"instance_label"`
+}
+
+// Stamps "this instance reported now" on every row of one instance under one
+// collector (0046). The beacon handler runs it once per accepted write, after
+// that write's upserts, whether or not the write carried any pipeline series:
+// a row whose last_seen falls behind this is a pipeline the instance no
+// longer reports. Keyed on (collector_id, instance_label), not principal,
+// because reconciliation groups an instance's rows that way.
+//
+// Throttled in the statement: a row stamped within the last 5 seconds is left
+// alone, so the several remote_write requests one scrape is split into update
+// the rows once rather than once each. 5s is well under
+// reconcile.LatestReportTolerance (15s), so the lag never makes a refreshed
+// row look dropped. A row this write just inserted has NULL and is stamped.
+func (q *Queries) RecordBeaconInstanceReport(ctx context.Context, arg RecordBeaconInstanceReportParams) error {
+	_, err := q.db.Exec(ctx, recordBeaconInstanceReport, arg.CollectorID, arg.InstanceLabel)
+	return err
 }
 
 const upsertBeaconComponent = `-- name: UpsertBeaconComponent :one
@@ -107,7 +137,7 @@ ON CONFLICT (principal, instance_label, component_name) DO UPDATE SET
     -- known id back to NULL if a stray write omits the label.
     collector_id = COALESCE(EXCLUDED.collector_id, beacon_inventory.collector_id),
     last_seen    = now()
-RETURNING id, instance_label, component_name, healthy, last_seen, created_at, principal, collector_id
+RETURNING id, instance_label, component_name, healthy, last_seen, created_at, principal, collector_id, instance_reported_at
 `
 
 type UpsertBeaconComponentParams struct {
@@ -142,6 +172,7 @@ func (q *Queries) UpsertBeaconComponent(ctx context.Context, arg UpsertBeaconCom
 		&i.CreatedAt,
 		&i.Principal,
 		&i.CollectorID,
+		&i.InstanceReportedAt,
 	)
 	return i, err
 }

@@ -350,6 +350,23 @@ func (h *BeaconHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Stamp "this instance reported now" on its rows (0046), after the
+	// upserts so a row this write inserted is stamped too — also when the
+	// write carried no pipeline series at all. Once a collector's only
+	// pipeline is disabled its writes refresh no row, so without this stamp
+	// the dropped row stays the instance's newest and reconciliation keeps
+	// reading it as running (reconcile.ObserveBeacon). One throttled UPDATE
+	// per write, whatever the number of pipelines. Every refused write
+	// returned above, so it stamps nothing.
+	if err := h.store.Queries.RecordBeaconInstanceReport(r.Context(), sqlc.RecordBeaconInstanceReportParams{
+		CollectorID: collectorUUID, InstanceLabel: instanceLabel,
+	}); err != nil {
+		h.logger.Error("beacon: recording instance report failed", "err", err,
+			"principal", principal, "instance", instanceLabel)
+		http.Error(w, "beacon: storing observation failed", http.StatusInternalServerError)
+		return
+	}
+
 	w.WriteHeader(http.StatusNoContent)
 }
 

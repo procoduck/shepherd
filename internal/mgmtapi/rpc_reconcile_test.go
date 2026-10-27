@@ -253,6 +253,71 @@ var _ = Describe("shepherd.mgmt.v1.FleetService/GetReconciliation", Label("integ
 		Expect(observedKnown()).To(BeTrue())
 	})
 
+	// 0.21 re-walk: the dropped pipeline was the collector's only one. After
+	// Alloy reloaded, its beacon writes carried no pipeline series, so no row
+	// moved on and the dropped row stayed the instance's newest — and the tab
+	// read "RUNNING, NOT SERVED" until the sweeper deleted it. Running-ness is
+	// judged against when the instance last reported (0046), which every
+	// accepted write stamps.
+	Context("judged against the instance's last report", func() {
+		// previousScrape backdates every row (last_seen and the report
+		// stamp) to the scrape before, as if it had run 70s ago.
+		previousScrape := func() {
+			// RAW-SQL-OK: backdating last_seen/instance_reported_at to the previous scrape — no sqlc query sets them
+			_, err := st.Pool().Exec(ctx, `UPDATE beacon_inventory SET last_seen = now() - interval '70 seconds', instance_reported_at = now() - interval '70 seconds'`)
+			Expect(err).NotTo(HaveOccurred())
+		}
+		reportNow := func() {
+			Expect(st.Queries.RecordBeaconInstanceReport(ctx, sqlc.RecordBeaconInstanceReportParams{
+				CollectorID: collID, InstanceLabel: "10.0.0.1:12345",
+			})).To(Succeed())
+		}
+
+		It("does not report a sole pipeline the instance reported without", func() {
+			observe("pipe_ghost", true) // the collector's only pipeline, since disabled
+			reportNow()
+			Expect(findings()).To(HaveLen(1), "running while the report carried it")
+			previousScrape()
+			reportNow() // the next write: no pipeline series at all
+			Expect(findings()).To(BeEmpty())
+			Expect(observedKnown()).To(BeTrue(), "the instance is reporting: none running is known")
+		})
+
+		It("still drops a pipeline whose sibling keeps reporting", func() {
+			observe("pipe_keep_me", true)
+			observe("pipe_ghost", true)
+			reportNow()
+			previousScrape()
+			observe("pipe_keep_me", true) // the next write carries only the sibling
+			reportNow()
+			Expect(findings()).To(BeEmpty())
+			Expect(observedKnown()).To(BeTrue())
+		})
+
+		It("falls back to the instance's newest row while no report is stamped", func() {
+			observe("pipe_ghost", true)
+			// RAW-SQL-OK: backdating last_seen to simulate missed refreshes — no sqlc query sets it
+			_, err := st.Pool().Exec(ctx, `UPDATE beacon_inventory SET last_seen = now() - interval '70 seconds'`)
+			Expect(err).NotTo(HaveOccurred())
+			// A row from before 0046 (or an older replica): NULL stamp, so the
+			// sole row is the newest and still counts, as it did before.
+			fs := findings()
+			Expect(fs).To(HaveLen(1))
+			Expect(fs[0]["controllerPath"]).To(Equal("pipe_ghost"))
+		})
+
+		It("knows the observed state from the report stamp once the rows are due for the sweep", func() {
+			observe("pipe_ghost", true)
+			// RAW-SQL-OK: backdating last_seen past the sweeper's expiry — no sqlc query sets it
+			_, err := st.Pool().Exec(ctx, `UPDATE beacon_inventory SET last_seen = now() - interval '6 minutes', instance_reported_at = now() - interval '6 minutes'`)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(observedKnown()).To(BeFalse(), "nothing reported within the stale window")
+			reportNow()
+			Expect(observedKnown()).To(BeTrue(), "the instance reports again, carrying no pipeline")
+			Expect(findings()).To(BeEmpty())
+		})
+	})
+
 	// 0.21 walkthrough: with the collector's only deployment scaled to 0 its
 	// instance unregistered and showed "Last seen unknown", but its beacon
 	// rows lived on until the sweeper deleted them, and for ~8.5 minutes the

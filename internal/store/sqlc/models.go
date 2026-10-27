@@ -50,14 +50,15 @@ type AuditLog struct {
 }
 
 type BeaconInventory struct {
-	ID            pgtype.UUID        `json:"id"`
-	InstanceLabel string             `json:"instance_label"`
-	ComponentName string             `json:"component_name"`
-	Healthy       bool               `json:"healthy"`
-	LastSeen      pgtype.Timestamptz `json:"last_seen"`
-	CreatedAt     pgtype.Timestamptz `json:"created_at"`
-	Principal     string             `json:"principal"`
-	CollectorID   pgtype.UUID        `json:"collector_id"`
+	ID                 pgtype.UUID        `json:"id"`
+	InstanceLabel      string             `json:"instance_label"`
+	ComponentName      string             `json:"component_name"`
+	Healthy            bool               `json:"healthy"`
+	LastSeen           pgtype.Timestamptz `json:"last_seen"`
+	CreatedAt          pgtype.Timestamptz `json:"created_at"`
+	Principal          string             `json:"principal"`
+	CollectorID        pgtype.UUID        `json:"collector_id"`
+	InstanceReportedAt pgtype.Timestamptz `json:"instance_reported_at"`
 }
 
 type Cluster struct {
