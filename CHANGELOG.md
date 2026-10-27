@@ -13,212 +13,234 @@ Categories used here:
 
 ## Unreleased
 
+## v0.20.0
+
+Chart 0.24.0, released 2026-10-27. **Service accounts can be viewers**, **validation knows each
+collector's Alloy version**, a strict organisation may use **SHA-pinned `import.git` modules**
+from repositories an app admin allows, and the **grafana/k8s-monitoring chart's output reaches
+restricted roles and strict orgs** as rendered. Strict tenant mode now also refuses label and
+header values it cannot read at save time, and re-checks every stored pipeline when it is served;
+pipelines saved under earlier versions that no longer pass are excluded from served config until
+fixed — run `shepherd admin tenant-preflight` before upgrading. The Reconciliation tab no longer
+shows a disabled pipeline as running, and a refused instance stays visible beside healthy ones.
+Migrations `0042`–`0046` are additive. The served config format is unchanged: non-strict orgs are
+served the same bytes, so there is no fleet-wide reload.
+
+**Upgrade notes:** `helm upgrade` to chart 0.24.0, after reading `deploy/helm/shepherd/UPGRADING.md`
+(0.23.x → 0.24.0). In short: run `shepherd admin tenant-preflight` before and after the upgrade
+if any org uses strict tenant mode (with `tenants.require_owned` on, the server does not start
+while it lists pipelines); create viewer service accounts only once every replica runs v0.20; and
+expect saves to be checked against the Alloy versions your collectors run.
+
 ### Added
 
-- **Strict tenant mode accepts the grafana/k8s-monitoring chart's `labelmap` rules.** Shipped.
-  In a strict org, a `labelmap` that could write `__tenant_id__` (the default `$1` replacement,
-  or one using `$`) is now served with a rule directly after it that drops `__tenant_id__`, and
-  the tenant check accepts it. This covers every relabel component, rules in declares and
-  `foreach` templates, and inlined modules. The stored pipeline text is unchanged. Other orgs,
-  and strict-org pipelines without such a rule, are served byte for byte as before. A labelmap
-  whose replacement is `__tenant_id__`, and a computed `action`, are still refused. (#410)
-
 - **Viewer-tier service accounts.** Shipped. A service account can now hold the viewer tier
-  (`ROLE_VIEWER`), and reaches exactly what an org viewer does: reads, never a write, simulate or
-  admin procedure. A viewer carries no capability. `CreateServiceAccount` refuses a viewer that
+  (`ROLE_VIEWER`) and reaches exactly what an org viewer does: reads, never a write, simulate or
+  admin procedure. A viewer carries no capability: `CreateServiceAccount` refuses a viewer that
   names one, and editor and admin still require `propose` or `apply`. Access → Service accounts
-  offers Viewer and hides the capability picker for it. Migration 0042 admits the tier and makes
-  `service_accounts.capability` nullable; existing accounts are unchanged. Rolling back past 0042
-  deletes viewer accounts rather than widening them. A viewer's validation records no
-  `pipeline.propose` audit row, the same as an org viewer's. Create viewer accounts only once
-  every replica runs v0.20: an older pod rejects a viewer's credential and answers `Internal`
-  to its org's `ListServiceAccounts` (UPGRADING, 0.24.0). (#362)
+  offers Viewer and hides the capability picker for it. A viewer's validation records no
+  `pipeline.propose` audit row, the same as an org viewer's. Migration `0042` admits the tier and
+  makes `service_accounts.capability` nullable; existing accounts are unchanged, and rolling back
+  past `0042` deletes viewer accounts rather than widening them. Create viewer accounts only once
+  every replica runs v0.20: an older pod rejects a viewer's credential and answers `Internal` to
+  its org's `ListServiceAccounts`. (#362, PR #407)
 - **Pinned `import.git` modules in strict tenant mode.** Shipped. A strict org's pipelines may
-  now use `import.git` when `revision` is a full lower-case 40-character commit SHA and
-  `repository` is on the org's allowed import repositories, which an app admin keeps on Admin →
-  Organisations (new `AdminService.List/Add/RemoveOrgImportRepository`, audited as
-  `org.import_repository.add` / `.remove`). An entry may name one of the org's git credentials
-  for a private repository; such a credential cannot be deleted while the entry uses it. Shepherd
-  fetches the module when the pipeline is saved, synced or enabled. Fetches use git sync's size
-  and time limits (the byte limit now applies over SSH too), run at most 4 at a time, and get at
-  most 30 s per save or per git sync pass. Shepherd follows no redirect to another host. It lints
-  the module with the same rules, nested `import.git` to depth 4. Branches, tags, short SHAs,
-  non-literal attributes, `import.http` and `import.file` stay refused. Repository URLs are
-  compared in a normal form (case of scheme and host, default port, scp-like form, trailing `/`
-  and `.git`); non-ASCII and other ambiguous spellings are refused.
-  **A strict org is served the module Shepherd checked, not the import.** Each pinned
-  `import.git` block is served as an `import.string` with the same label and the cached module
-  text, nested modules inlined too, including one inside an `import.string`'s content and any
-  spelling of the block name the parser accepts. A strict org's served text may hold no
-  `import.git` anywhere, and each `import.string` content in it must be a plain string literal;
-  a strict pipeline whose `import.string` content is a concatenation is now refused. A tag pushed
-  later under the commit's name changes nothing,
-  and collectors in strict orgs need no access to module repositories. The stored pipeline keeps
-  `import.git` as written. Validation, role enforcement and the editor's signals all use the
-  inlined form, so a pinned metrics-only module reaches `metrics` collectors. The inlined
-  pipeline is held to the 1 MiB pipeline cap. A pipeline whose modules cannot be inlined at
-  serve time leaves its collectors on their last good config, and the failure is recorded.
-  Turning strict mode on or off recomputes the org's collectors. Pipelines without `import.git`,
-  and every non-strict org, serve byte-identical config, so there is no fleet-wide reload.
-  Fetched modules are cached in the database. A module an enabled pipeline uses is never
-  evicted; the 128 most recently used of the others are kept per org. The preflights, the boot
-  check under `tenants.require_owned` and `shepherd admin tenant-preflight` read modules the same
-  way. Migration 0043. (#390)
+  use `import.git` when `revision` is a full lower-case 40-character commit SHA and `repository`
+  is on the org's allowed import repositories, which an app admin keeps on Admin → Organisations
+  (`AdminService.List/Add/RemoveOrgImportRepository`, audited as `org.import_repository.add` /
+  `.remove`). An entry may name one of the org's git credentials for a private repository; such a
+  credential cannot be deleted while an entry uses it. Shepherd fetches the module when the
+  pipeline is saved, synced or enabled, under git sync's size and time limits (the byte limit now
+  applies over SSH too), at most 4 fetches at a time and 30 s per save or git sync pass, following
+  no redirect to another host, and checks it with the same rules, nested `import.git` to depth 4.
+  Branches, tags, short SHAs, non-literal attributes, `import.http` and `import.file` stay
+  refused. Repository URLs are compared in a normal form (case of scheme and host, default port,
+  scp-like form, trailing `/` and `.git`); non-ASCII and other ambiguous spellings are refused.
+  **A strict org is served the module Shepherd checked:** each pinned `import.git` block is served
+  as an `import.string` with the same label and the cached module text, nested modules inlined
+  too, so collectors in strict orgs need no access to module repositories. A strict org's served
+  text holds no `import.git`, and each `import.string` content in it must be a plain string
+  literal. The stored pipeline keeps `import.git` as written; validation, role enforcement and
+  the editor's signals use the inlined form, held to the 1 MiB pipeline cap. A pipeline whose
+  modules cannot be inlined at serve time leaves its collectors on their last good config, and
+  the failure is recorded. Turning strict mode on or off recomputes the org's collectors.
+  Fetched modules are cached in the database (migration `0043`): a module an enabled pipeline
+  uses is never evicted, and the 128 most recently used of the others are kept per org. The
+  preflights, the boot check under `tenants.require_owned` and `shepherd admin tenant-preflight`
+  read modules the same way. Pipelines without `import.git`, and every non-strict org, are served
+  the same bytes as before. (#390, PR #408)
 - **Validation knows each collector's Alloy version.** Shipped. Stage 3 checks each affected
   collector's merged config against the component schema of every Alloy version its active
-  instances report (seen within `agent.inactive_after`), not only the pinned release. A component,
-  block or attribute that version lacks refuses the save, naming the collector, the version and
-  the item: `otelcol.processor.redaction` on a v1.18.1 collector, or `scrape_classic_histograms`
-  in a `prometheus.operator.*` scrape block. **Saves that passed before can now be refused for a
-  fleet still running an older Alloy.** Schemas ship for every released patch from v1.18.0 to
-  the pin: v1.18.0, v1.18.1, v1.19.0, v1.19.1, v1.19.2, v1.20.0, v1.20.1, v1.21.0, v1.21.1 and
-  v1.21.2, so a v1.21.0 collector is checked against v1.21.0 itself. A release
-  without its own schema is checked against the nearest older one (a v1.20.5 against v1.20.1,
-  a v1.17.x against v1.18.0) with a warning that the check is an approximation, and one
-  newer than every shipped schema, a pre-release or none reported against the pinned schema,
-  with a warning. A refusal names the instances reporting the version. A mismatch a collector is
+  instances report (seen within `agent.inactive_after`), not only the pinned release. A
+  component, block or attribute that version lacks refuses the save, naming the collector, the
+  version, the instances reporting it and the item: `otelcol.processor.redaction` on a v1.18.1
+  collector, or `scrape_classic_histograms` in a `prometheus.operator.*` scrape block. **Saves
+  that passed before can now be refused for a fleet still running an older Alloy.** Schemas ship
+  for every released patch from v1.18.0 to the pin (v1.18.0, v1.18.1, v1.19.0–v1.19.2,
+  v1.20.0, v1.20.1, v1.21.0–v1.21.2). A release without its own schema is checked against the
+  nearest older one (a v1.20.5 against v1.20.1, a v1.17.x against v1.18.0) with a warning that
+  the check is an approximation; one newer than every shipped schema, a pre-release, or no
+  reported version is checked against the pinned schema, with a warning. A mismatch a collector is
   already served refuses only a change to the pipeline that holds it: disabling a pipeline,
-  editing another one and destination re-renders go through. A component that is experimental
-  or public preview in a collector's version gets one warning naming the `--stability.level` it
+  editing another one and destination re-renders go through. A component that is experimental or
+  public preview in a collector's version gets one warning naming the `--stability.level` it
   needs. The editor's validation shows the same findings as warnings for every version active in
-  the org, and git sync's dry run applies the check under its "only new errors refuse" rule.
-  When an older pod joins after a save, the validated config keeps being served and the
-  collector is flagged instead: `Collector.version_warning` (findings, mismatch, since), a
-  MISMATCH or NOTE marker on the Collectors list and a banner on the collector page, audited
-  once per change as `collector.version_warning`; an agent-reported version that keeps changing
-  is re-checked at most once a minute. Migration 0044 adds the columns.
-  `alloy validate` stays the single pinned binary; the served config and its hash are unchanged.
-  (#375)
+  the org, and git sync's dry run applies the check under its "only new errors refuse" rule. When
+  an older instance joins after a save, the validated config keeps being served and the collector
+  is flagged instead: `Collector.version_warning` (findings, mismatch, since), a MISMATCH or NOTE
+  marker on the Collectors list and a banner on the collector page, audited once per change as
+  `collector.version_warning` (a finding that only moved line does not count as a change). An
+  agent-reported version that keeps changing is re-checked at most once a minute. Migration
+  `0044` adds the columns. `alloy validate` stays the single pinned binary; the served config and
+  its hash are unchanged. (#375, PRs #409, #412, #417)
+- **Strict tenant mode accepts the grafana/k8s-monitoring chart's `labelmap` rules.** Shipped. In
+  a strict org, a `labelmap` rule whose replacement is the default `$1` (or uses `$`) is served
+  with a rule directly after it that drops `__tenant_id__`, and the tenant check accepts it. This
+  covers every relabel component, rules in declares and `foreach` templates, and inlined modules;
+  the inserted rule takes the labelmap line's own indentation. The stored pipeline text is
+  unchanged. Other orgs, and strict-org pipelines without such a rule, are served the same bytes
+  as before. A labelmap whose replacement is `__tenant_id__`, and a computed `action`, stay
+  refused. (#410, PR #413)
+- **`agent.refusal_visible_for`** (default `15m`, `5m` to `24h`; chart value
+  `config.agent.refusal_visible_for`): how long a refused collector poll stays visible after the
+  refusal, even while other instances of the same collector poll successfully (see *Fixed*).
+  (PR #414)
 
-### Fixed
+### Changed
 
-- **Strict tenant mode also checks relabel rule attributes and the labels
-  `otelcol.exporter.loki` makes.** Shipped. In a strict org, a `relabel_rules` attribute (on
-  `loki.source.syslog`, `.journal`, `.kafka` and the other Loki sources that take one, read from
-  the component schemas) must now be a plain reference to a `loki.relabel` or
-  `discovery.relabel` component's `rules` in the same pipeline or declare, whose `rule` blocks
-  the tenant check reads and the served form drops `__tenant_id__` after. Rules written in place
-  (a list or object, a function call, a concatenation), another export, and a component outside
-  that scope are refused, with a message to move the rules into a `loki.relabel` component.
-  `otelcol.exporter.loki`, which turns the OpenTelemetry attributes its `loki.resource.labels` /
-  `loki.attribute.labels` hints name into Loki labels (`__tenant_id__` included), is now served
-  in a strict org through an added `loki.process "shepherd_tenant_drop_<label>"` that drops
-  `__tenant_id__` and forwards to the exporter's original targets, and the tenant check follows
-  every path from it to a `loki.write` through that drop. The grafana/k8s-monitoring chart's
-  logs output is saved and served as written. The exporter's `forward_to` must be a list of
-  component receivers, and a component of the added name must not already exist beside it.
-  The stored text is unchanged, and other orgs and pipelines are served byte for byte as
-  before. At boot, an org whose pipeline gets a
-  `__tenant_id__` drop in the strict served form is also recomputed, in case
-  `tenants.require_owned` changed since the last boot. The inserted drop takes the labelmap
-  line's own leading whitespace (tabs included). The served config format is unchanged.
-- **Reconciliation no longer reports a dropped pipeline as running.** Shipped. A pipeline that
-  was served, then disabled, kept its beacon row until the sweeper expired it five minutes later,
-  and the Reconciliation tab listed it as running and "never served" all that time. A beacon row
-  now counts as running only if the instance's latest report refreshed it: within 15 s of when
-  that instance last reported. Every accepted beacon write records that time on the instance's
-  rows (migration 0046, a nullable column), including a write that carries no pipeline at all, so
-  disabling a collector's only pipeline is caught too; judging by the instance's newest row, as
-  first shipped, missed that case, because no row moved on. Refused writes record nothing. Rows
-  written before the upgrade fall back to the newest-row rule until the instance next reports. An
-  instance that stopped reporting entirely keeps its last report, flagged stale, until the
-  sweeper removes it. The finding now says the component is "not currently served", which holds
-  whether or not it ever was.
-- **A disabled pipeline no longer reads as running for one more beacon cycle.** Shipped. When
-  Alloy unloads a pipeline, the next beacon write carries a Prometheus staleness marker for each
-  series that went away. The beacon read the marker's NaN as a live count that passed the health
-  check, so the pipeline's row was refreshed as healthy and the Reconciliation tab showed it
-  "running (healthy=true) but not currently served" until the next scrape. A staleness marker now
-  ends the series, as Prometheus treats it: it neither refreshes nor creates a row, though the
-  write still records that the instance reported. Any other non-finite count (NaN, ±Inf) marks
-  the pipeline unhealthy.
-- **Reconciliation says "unknown" for a collector with nothing reporting.** Shipped. A collector
-  whose only instance was gone (scaled to zero, unregistered or past `agent.inactive_after`)
-  kept its beacon rows until the sweeper deleted them, and for up to two sweeps the tab said
-  "In sync — declared, served and observed all agree" beside an instance reading "Last seen
-  unknown". Observed state now counts as known only while the collector has a live instance (the
-  rule the instance list uses for "inactive") and its beacon reported less than five minutes
-  ago (a row refreshed, or the instance's last report recorded on one). Otherwise the tab says the observed state is unknown, with no agreement or drift claimed.
-- **A version warning is audited once, wherever its line moves.** Shipped. The
-  `collector.version_warning` audit fired again when a change elsewhere in the served config only
-  moved a finding's line (a disable moved one from line 487 to 486). Line numbers no longer count
-  towards whether the warning changed, so neither the audit nor the warning's "since" time moves.
-  The warning shown on the collector still names the current line.
-- **`org.update` is audited only when something changed, and says what.** Shipped. Every org
-  Save wrote an empty `org.update` row, even one that only toggled strict mode (audited on its
-  own as `org.strict_tenants`). The row is now written only when a field it covers changed, with
-  each change as `{"changes": {"<field>": {"value": …, "previous_value": …}}}`.
-- **Package-level log lines use the server's log format.** Shipped. Strict tenant mode's
-  "recorded as incomplete" warning, and a few other lines logged through slog's default logger,
-  came out as plain text inside the JSON log. `shepherd serve` now installs its logger as the
-  default.
-- **The pipeline editor counts warnings.** Shipped. The toolbar said "No problems" beside a
-  warning in the problems panel; it now shows the warning count (warnings still never block
-  Save). A diagnostic with no position, such as the nearest-older-schema note, is listed without
-  a "0:0" prefix.
-- **A refused instance stays visible beside healthy ones.** Shipped. A collector is a
-  (cluster, role) shared by every instance that polls it, and any passing poll cleared its
-  recorded refusal. One pod with credentials for another cluster, next to healthy pods of the
-  same collector, never showed. A passing poll now clears a refusal only once it is older than
-  the new `agent.refusal_visible_for` (default `15m`, `5m` to `24h`; chart value
-  `config.agent.refusal_visible_for`). That costs one conditional `UPDATE` per aged-out refusal,
-  never one per poll. The management API presents a refusal for that long. The Collectors list
-  and the collector page still show REFUSED when no poll has passed since the refusal. Otherwise
-  they keep the instance status (APPLIED…) and add "An instance using this collector was refused
-  N min ago: <reason>". No proto change.
-- **A refused strict-mode toggle no longer reads as saved.** Shipped. On Admin → Organisations →
-  Edit, Save after a refused Strict tenant mode toggle closed the dialog with "Organisation
-  updated" while strict mode stayed off. The toast is now a warning: "Organisation updated —
-  strict tenant mode was not enabled: N items use a tenant this organisation does not own".
-- **Service-account API calls are documented.** The Roles and access page now has a "Calling the
-  API with a service account" section. It covers Basic auth with the account id and secret, the
-  Connect JSON content type, and the `X-Requested-With: XMLHttpRequest` header every non-GET
-  call needs (without it, a call gets `403 csrf_required`), with a curl example. `shepherd-mcp`
-  already sends the header.
-- **`shepherd dev seed` indexes the pinned-module pipeline's tenants.** Dev only. The seed now
-  fetches the module into the pinned-import cache, through the reader the server uses, before it
-  creates the pipeline. The server no longer logs "recorded as incomplete" for it until its first
-  save.
-- **Strict tenant mode also checks label maps computed at runtime.** Shipped. In a strict org,
-  every attribute whose entries become labels or headers — read from the component schemas, such
-  as `external_labels`, a source's `labels`, `stage.static_labels` `values` and `faro.receiver`'s
-  `extra_log_labels` — must now be an object literal, or a module argument given object literals.
-  A map computed at runtime (`encoding.from_json(…)`, a file's content, another component's
-  export) is refused; keys are checked as before, and other keys may still have computed values.
-  A spec classifies every map-typed and `targets` attribute of every shipped schema, each
-  exclusion with a reason. `loki.enrich`, which copies its targets' labels onto log lines, needs a
-  `labels_to_copy` list without `__tenant_id__`. Components inside a `foreach` template are now
-  checked like those at the top level, and a module argument given from a template is refused.
-  `stage.regex` / `stage.pattern` with `labels_from_groups = true` need a literal expression with
-  no group named `__tenant_id__`, and `loki.secretfilter`'s `origin_label` must be a literal other
-  than `__tenant_id__`.
-- **Strict tenant mode re-checks stored pipelines when it serves them.** Shipped. A strict org's
-  pipeline saved before a check it now fails is left out of every collector's served config, listed
-  in the header under `// Excluded (N) - strict tenant check:` with the reason, shown on the pipeline
-  page and as a `strict_tenant_excluded` reconciliation finding, and audited once per change
+- **Strict tenant mode checks more constructs at save time, and re-checks stored pipelines when
+  it serves them.** Shipped; only for organisations in strict tenant mode (or every org, with
+  `tenants.require_owned`). Strict tenant mode now also refuses label and header values it cannot
+  read at save time, and re-checks every stored pipeline when it is served; pipelines saved under
+  earlier versions that no longer pass are excluded from served config until fixed — run
+  `shepherd admin tenant-preflight` before upgrading. A strict org's pipeline must now:
+  - give attributes whose entries become labels or headers (as the component schemas define them:
+    `external_labels`, a source's `labels`, `stage.static_labels` `values`, `faro.receiver`'s
+    `extra_log_labels` and the like) as object literals, or as module arguments given object
+    literals; keys are checked as before, and other keys may still have computed values;
+  - give `relabel_rules` (on `loki.source.syslog`, `.journal`, `.kafka` and the other Loki sources
+    that take one) as a reference to a `loki.relabel` or `discovery.relabel` component's `rules`
+    in the same pipeline or declare — the refusal message says to move rules written in place
+    into a `loki.relabel` component;
+  - give `stage.regex` / `stage.pattern` with `labels_from_groups = true` a literal expression,
+    `loki.secretfilter` a literal `origin_label`, and `loki.enrich` a `labels_to_copy` list
+    without `__tenant_id__`;
+  - give `otelcol.exporter.loki` a `forward_to` list of component receivers, with no component of
+    the name Shepherd adds beside it: a strict org is served each one through an added
+    `loki.process "shepherd_tenant_drop_<label>"` that drops `__tenant_id__` and forwards to the
+    exporter's original targets;
+  - keep import blocks at the top level or directly in a `declare`. Components inside a `foreach`
+    template are now checked like those at the top level; an import block anywhere else, and a
+    module argument given from a template, are refused.
+
+  The grafana/k8s-monitoring chart's logs and metrics output is accepted as rendered.
+  `loki.source.podlogs` is accepted as before. **Serve-time re-check:** each time a strict org's
+  config is computed, every enabled pipeline is checked as a save would check it. One that fails
+  is left out of every collector's served config, listed in the header under
+  `// Excluded (N) - strict tenant check:` with the reason, shown on the pipeline page and as a
+  `strict_tenant_excluded` reconciliation finding, and audited once per change
   (`pipeline.tenant_check_excluded` / `.tenant_check_cleared`, migration `0045`). It stays stored
   and enabled; saving a fix includes it again. A check that cannot finish in time fails that
   collector's recompute, which keeps its last good config, rather than serving a config without
-  the pipeline. Turning strict mode off clears the org's exclusions. `shepherd admin tenant-preflight` runs the same check, so it lists exactly these pipelines.
-  Non-strict orgs, and strict orgs whose pipelines all pass, are served the same bytes as before.
-- **Strict tenant mode also checks import blocks nested in other blocks.** Shipped. Alloy loads
-  an `import.*` block inside a `foreach` template too. Strict tenant mode follows imports at the
-  top level and directly in a `declare`, and now refuses an import block anywhere else (a
-  `foreach` template, or a declare inside one), whatever its kind. (#390)
+  the pipeline. Turning strict mode off clears the org's exclusions. `shepherd admin
+  tenant-preflight` runs the same check and lists exactly these pipelines. At boot, every strict
+  org's served configs are recomputed on their next poll. The stored text is unchanged; non-strict orgs, and strict orgs whose
+  pipelines all pass and need no added drop, are served the same bytes as before. (PRs #408,
+  #415, #416)
+
+### Fixed
+
 - **Module-based pipelines reach restricted roles.** Shipped. An instance of a module the
   pipeline declares itself (`declare "x" { … }` plus `x "feature" { … }`, the shape the
   grafana/k8s-monitoring chart renders for every feature) counted as an unknown component, so
   role enforcement assumed every signal and left the pipeline off every `metrics`, `logs` and
   `receiver` collector. Such an instance now carries the signals of its declare body, as does an
-  instance of a module from an `import.string` with literal content. Modules from `import.file`,
+  instance of a module from an `import.string` with literal content; modules from `import.file`,
   `import.git` and `import.http` still count as every signal. The pipeline editor's derived
-  signals, the Reconciliation tab, wizards' role check and the MCP proposal all use the same
+  signals, the Reconciliation tab, wizards' role check and the MCP proposal use the same
   derivation. OpenTelemetry components that only ever carry one signal no longer count as
   metrics, logs and traces because of a generic OTLP port: a curated list in the schema overlay
   narrows 24 of them, including the chart's bridges `otelcol.exporter.prometheus` (metrics) and
-  `otelcol.exporter.loki` (logs), and `otelcol.receiver.prometheus` / `otelcol.receiver.loki`.
-  The chart's rendered metrics and logs configs, verbatim, now reach `metrics` and `logs`
-  collectors. The served config format is unchanged. (#378)
+  `otelcol.exporter.loki` (logs), and `otelcol.receiver.prometheus` / `otelcol.receiver.loki`. The
+  chart's rendered metrics and logs configs, verbatim, now reach `metrics` and `logs` collectors.
+  The served config format is unchanged. (#378, PR #406)
+- **Reconciliation no longer reports a disabled pipeline as running.** Shipped. A pipeline that
+  was served, then disabled, kept its beacon row until the sweeper expired it, and the
+  Reconciliation tab listed it as running and "never served" all that time. A beacon row now
+  counts as running only if the instance's latest report refreshed it: within 15 s of when that
+  instance last reported. Every accepted beacon write records that time on the instance's rows
+  (migration `0046`, a nullable column), including a write that carries no pipeline at all, so
+  disabling a collector's only pipeline is caught too; refused writes record nothing. Rows written
+  before the upgrade fall back to the instance's newest row until the instance next reports. When
+  Alloy unloads a pipeline, the Prometheus staleness marker its next beacon write carries now
+  ends the series, as Prometheus treats it, instead of refreshing the row as healthy for one more
+  scrape; any other non-finite count (NaN, ±Inf) marks the pipeline unhealthy. An instance that
+  stopped reporting keeps its last report, flagged stale, until the sweeper removes it. The
+  finding now says the component is "not currently served". (PRs #414, #417, #418)
+- **Reconciliation says "unknown" for a collector with nothing reporting.** Shipped. A collector
+  whose only instance was gone (scaled to zero, unregistered or past `agent.inactive_after`)
+  kept its beacon rows until the sweeper deleted them, and the tab said "In sync — declared,
+  served and observed all agree" beside an instance reading "Last seen unknown". Observed state
+  now counts as known only while the collector has a live instance (the rule the instance list
+  uses for "inactive") and its beacon reported less than five minutes ago. Otherwise the tab says
+  the observed state is unknown, with no agreement or drift claimed. (PR #417)
+- **A refused instance stays visible beside healthy ones.** Shipped. A collector is a
+  (cluster, role) shared by every instance that polls it, and any passing poll cleared its
+  recorded refusal, so one refused pod next to healthy pods of the same collector never showed. A
+  passing poll now clears a refusal only once it is older than `agent.refusal_visible_for`, at
+  the cost of one conditional `UPDATE` per aged-out refusal, never one per poll. The Collectors
+  list and the collector page still show REFUSED when no poll has passed since the refusal;
+  otherwise they keep the instance status (APPLIED…) and add "An instance using this collector
+  was refused N min ago: <reason>". No proto change. (PR #414)
+- **A refused strict-mode toggle no longer reads as saved.** Shipped. On Admin → Organisations →
+  Edit, Save after a refused Strict tenant mode toggle closed the dialog with "Organisation
+  updated" while strict mode stayed off. The toast is now a warning: "Organisation updated —
+  strict tenant mode was not enabled: N items use a tenant this organisation does not own".
+  (PR #414)
+- **`org.update` is audited only when something changed, and says what.** Shipped. Every org Save
+  wrote an empty `org.update` row, even one that only toggled strict mode (audited on its own as
+  `org.strict_tenants`). The row is now written only when a field it covers changed, with each
+  change as `{"changes": {"<field>": {"value": …, "previous_value": …}}}`. (PR #417)
+- **The pipeline editor counts warnings.** Shipped. The toolbar said "No problems" beside a
+  warning in the problems panel; it now shows the warning count (warnings still never block Save).
+  A diagnostic with no position, such as the nearest-older-schema note, is listed without a "0:0"
+  prefix. (PR #417)
+- **Package-level log lines use the server's log format.** Shipped. A few lines logged through
+  slog's default logger (strict tenant mode's "recorded as incomplete" warning among them) came
+  out as plain text inside the JSON log. `shepherd serve` now installs its logger as the default.
+  (PR #417)
+- **Service-account API calls are documented.** The Roles and access page has a "Calling the API
+  with a service account" section: Basic auth with the account id and secret, the Connect JSON
+  content type, and the `X-Requested-With: XMLHttpRequest` header every non-GET call needs
+  (without it, a call gets `403 csrf_required`), with a curl example. `shepherd-mcp` already sends
+  the header. (PR #414)
+
+### API
+
+**Additive** (no breaking change):
+
+- `AdminService.ListOrgImportRepositories`, `AddOrgImportRepository`,
+  `RemoveOrgImportRepository` and the `OrgImportRepository` message (app admin). (#390, PR #408)
+- `Collector.version_warning` (15), a `CollectorVersionWarning` (`findings`, `mismatch`, `since`).
+  (#375, PR #409)
+- `ServiceAccount` / `CreateServiceAccountRequest` accept `ROLE_VIEWER`, with no capability.
+  Proto comment changes only. (#362, PR #407)
+- `Finding.kind` (a string) may now be `strict_tenant_excluded`. (PR #416)
+- `Collector.last_refused_reason` / `last_refused_at` are now set while the refusal is younger
+  than `agent.refusal_visible_for`, whether or not another instance's poll passed since.
+  (PR #414)
+
+Collector API (`collector.v1`): no change.
+
+### Build & CI
+
+- **Dev stacks:** `make dev-kind-seed` seeds the 0.20 walkthrough fixtures (a single-instance
+  agent, a Gitea module repository with fixed commit SHAs, an allowlist entry and
+  k8s-monitoring pipelines) (PR #411); `shepherd dev seed` fetches the pinned module into the
+  module cache before it creates the pipeline that uses it, so the pipeline's tenants are indexed
+  from the start (PR #414).
+- **Component schemas** for every Alloy patch from v1.18.0 to v1.21.2 are embedded for the
+  version-aware check. (PR #412)
 
 ## v0.19.1
 
