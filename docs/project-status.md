@@ -67,8 +67,10 @@ filters on. Each 0.20 PR added red-first specs for its change (the PR descriptio
 Two kind walkthroughs with Playwright ran before the tag: on `51c8f81` (every 0.20 feature passed;
 its findings were fixed in #413 and #414) and on a fresh cluster at `8d85aaa` (every strict-mode,
 tenant, service-account, pinned-import and version item passed; two Reconciliation failures and
-five small findings, fixed in #417 and #418). The fixes in #417 and #418 were not re-walked in the
-browser. The table below is the v0.19.0 evidence and stays valid for every surface the 0.20 PRs
+five small findings, fixed in #417 and #418). Both fixes were re-walked on the same cluster with
+Playwright: #417 on `c384f92` (every item passed except a collector whose only pipeline was
+dropped, which led to #418) and #418 on `a4d7733` (that case and its sibling case passed;
+migration 0046 applied; no ERROR or non-JSON server log lines). The table below is the v0.19.0 evidence and stays valid for every surface the 0.20 PRs
 did not touch.
 
 **v0.19.1:** the baseline commit is `cf235a6` (#404, the last merge before the v0.19.1 release
