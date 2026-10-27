@@ -5,7 +5,7 @@ remotecfg {
   url = "http://shepherd:8080"
   basic_auth {
     username = "00000000-e2e0-4000-a000-000000000002"
-    password = "e2e-strict-secret-32byteslong5678"
+    password = "e2e-strict-secret-not-a-real-one"
   }
   attributes = {
     cluster = "strict-cluster",

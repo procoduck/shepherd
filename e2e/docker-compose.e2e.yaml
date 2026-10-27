@@ -475,7 +475,7 @@ services:
       - --id
       - "00000000-e2e0-4000-a000-000000000002"
       - --secret
-      - e2e-strict-secret-32byteslong5678
+      - e2e-strict-secret-not-a-real-one
     restart: "no"
 
   alloy-strict:
@@ -497,7 +497,7 @@ services:
       - --disable-reporting
     environment:
       SHEPHERD_AGENT_TOKEN_ID: 00000000-e2e0-4000-a000-000000000002
-      SHEPHERD_AGENT_TOKEN_SECRET: e2e-strict-secret-32byteslong5678
+      SHEPHERD_AGENT_TOKEN_SECRET: e2e-strict-secret-not-a-real-one
     volumes:
       - ./alloy/strict.alloy:/etc/alloy/config.alloy:ro
 
