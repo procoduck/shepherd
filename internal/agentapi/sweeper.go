@@ -40,7 +40,7 @@ var tableRowsGauge = promauto.NewGaugeVec(prometheus.GaugeOpts{
 const beaconInventoryExpireAfter = 5 * time.Minute
 
 // beaconInstanceReportFallbackExpiry bounds an instance's last-report record
-// (beacon_instance_reports, 0047) when agent.delete_after is unset. The record
+// (beacon_instance_reports, 0048) when agent.delete_after is unset. The record
 // only matters while it is newer than reconciliation's stale window (5
 // minutes), so any bound past that changes nothing reconciliation reads; 24h
 // is the chart's delete_after.
@@ -132,7 +132,7 @@ func (sw *Sweeper) sweep(ctx context.Context) {
 		sw.logger.Debug("sweeper: deleted expired beacon inventory rows", "rows_swept", bn)
 	}
 
-	// An instance's last-report record (0047) lives with the instance
+	// An instance's last-report record (0048) lives with the instance
 	// lifecycle, not with its beacon rows: reconciliation reads it once the
 	// rows above are gone. delete_after when set; otherwise (instances are
 	// never deleted) a fixed bound, so churning instance labels cannot grow

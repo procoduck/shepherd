@@ -33,8 +33,15 @@ import (
 const BeaconWritePath = beacon.WritePath
 
 // maxBeaconInstanceLabel is the instance_label length bound of
-// beacon_inventory (0010) and beacon_instance_reports (0047).
+// beacon_inventory (0010) and beacon_instance_reports (0048).
 const maxBeaconInstanceLabel = 256
+
+// maxBeaconInstanceReports caps the last-report records (0048) kept per
+// collector — the same per-collector bound as the version check's
+// (validate.MaxReportedVersions): more distinct reporting instances than
+// that under one collector at once is no fleet this table is for, and the
+// newest records, the ones reconciliation reads, are the ones kept.
+const maxBeaconInstanceReports = 256
 
 // BeaconHandler is the G5 endpoint: Prometheus remote_write ingest,
 // authenticated by the same agent-token Basic Auth every other agentapi
@@ -371,7 +378,7 @@ func (h *BeaconHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "beacon: storing observation failed", http.StatusInternalServerError)
 		return
 	}
-	// And in the instance's last-report record (0047), which the sweeper
+	// And in the instance's last-report record (0048), which the sweeper
 	// keeps with the instance lifecycle rather than with the rows: once the
 	// rows of a collector whose only pipeline was dropped are swept, this is
 	// what still says the instance reports and runs none. The 0046 stamp
@@ -379,17 +386,38 @@ func (h *BeaconHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// length bound (the same as beacon_inventory's) is no instance a row
 	// could be stored for either: no record, rather than a 500 that
 	// remote_write would retry forever.
-	if utf8.RuneCountInString(instanceLabel) > maxBeaconInstanceLabel {
+	//
+	// A write carrying no pipeline series records a report only for a scoped
+	// writer, whose collector the owner check above verified. An unscoped
+	// writer (OIDC with neither a binding nor an asserted org) is not
+	// owner-checked: a zero-series write naming another org's collector would
+	// otherwise make that collector's observed set read current and empty,
+	// every served pipeline as drift. With a series it stores a row anyway,
+	// and the record says no more than that row (PR #428 review).
+	if utf8.RuneCountInString(instanceLabel) > maxBeaconInstanceLabel ||
+		(len(observations) == 0 && !scope.scoped) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	if err := h.store.Queries.RecordBeaconInstanceLastReport(r.Context(), sqlc.RecordBeaconInstanceLastReportParams{
+	n, err := h.store.Queries.RecordBeaconInstanceLastReport(r.Context(), sqlc.RecordBeaconInstanceLastReportParams{
 		CollectorID: collectorUUID, InstanceLabel: instanceLabel,
-	}); err != nil {
+	})
+	if err != nil {
 		h.logger.Error("beacon: recording instance last report failed", "err", err,
 			"principal", principal, "instance", instanceLabel)
 		http.Error(w, "beacon: storing observation failed", http.StatusInternalServerError)
 		return
+	}
+	// Instance labels rotate with every pod restart: keep the collector's
+	// newest maxBeaconInstanceReports records. Only when the record was
+	// written (not throttled), so at most once per instance per 5 seconds.
+	// Best effort: the sweeper bounds the table too.
+	if n > 0 {
+		if _, err := h.store.Queries.TrimBeaconInstanceReports(r.Context(), sqlc.TrimBeaconInstanceReportsParams{
+			CollectorID: collectorUUID, Offset: maxBeaconInstanceReports,
+		}); err != nil {
+			h.logger.Warn("beacon: trimming instance reports failed", "err", err, "collector_id", collectorUUID.String())
+		}
 	}
 
 	w.WriteHeader(http.StatusNoContent)

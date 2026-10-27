@@ -117,7 +117,7 @@ func TestObserveBeacon_UnknownReportTimeFallsBackToNewestRow(t *testing.T) {
 // TestInventoryCurrent_ReportRecordOutlivesSweptRows pins the v0.20.0
 // follow-up: a collector whose only pipeline was dropped kept reporting, the
 // sweeper deleted its rows by last_seen, and the tab read "unknown". The
-// instance's last-report record (0047) is evidence on its own.
+// instance's last-report record (0048) is evidence on its own.
 func TestInventoryCurrent_ReportRecordOutlivesSweptRows(t *testing.T) {
 	now := time.Date(2026, 10, 27, 12, 0, 0, 0, time.UTC)
 	staleBefore := now.Add(-5 * time.Minute)
@@ -145,7 +145,7 @@ func TestWithReports_RecordDropsARowTheReportNoLongerCarries(t *testing.T) {
 	rows := []BeaconRow{{Instance: "pod-a:12345", Component: "pipe_ghost", Healthy: true, LastSeen: now.Add(-70 * time.Second)}}
 
 	if got := ObserveBeacon(WithReports(rows, nil), staleBefore); len(got) != 1 {
-		t.Fatalf("no record: want the newest row still counted (pre-0047 rule), got %v", got)
+		t.Fatalf("no record: want the newest row still counted (pre-0048 rule), got %v", got)
 	}
 	if got := ObserveBeacon(WithReports(rows, map[string]time.Time{"pod-b:1": now}), staleBefore); len(got) != 1 {
 		t.Fatalf("another instance's record: want this instance unaffected, got %v", got)

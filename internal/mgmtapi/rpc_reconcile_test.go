@@ -321,12 +321,13 @@ var _ = Describe("shepherd.mgmt.v1.FleetService/GetReconciliation", Label("integ
 	// v0.20.0 follow-up: once the sweeper deleted the rows of a collector
 	// whose only pipeline was dropped, no row carried the 0046 stamp and the
 	// tab read "unknown" although the instance still reported. The last-report
-	// record (0047) outlives the rows.
+	// record (0048) outlives the rows.
 	Context("after the sweeper deleted the instance's rows", func() {
 		recordReport := func() {
-			Expect(st.Queries.RecordBeaconInstanceLastReport(ctx, sqlc.RecordBeaconInstanceLastReportParams{
+			_, err := st.Queries.RecordBeaconInstanceLastReport(ctx, sqlc.RecordBeaconInstanceLastReportParams{
 				CollectorID: collID, InstanceLabel: "10.0.0.1:12345",
-			})).To(Succeed())
+			})
+			Expect(err).NotTo(HaveOccurred())
 		}
 		sweepRows := func() {
 			_, err := st.Queries.DeleteExpiredBeaconInventory(ctx, pgtype.Timestamptz{Time: time.Now().Add(time.Minute), Valid: true})
@@ -356,7 +357,7 @@ var _ = Describe("shepherd.mgmt.v1.FleetService/GetReconciliation", Label("integ
 			Expect(observedKnown()).To(BeFalse())
 		})
 
-		It("reads unknown with no record and no rows (the pre-0047 behaviour)", func() {
+		It("reads unknown with no record and no rows (the pre-0048 behaviour)", func() {
 			Expect(observedKnown()).To(BeFalse())
 		})
 	})

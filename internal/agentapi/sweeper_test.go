@@ -163,7 +163,7 @@ var _ = Describe("Sweeper", Label("integration"), func() {
 		Expect(rows[0].InstanceLabel).To(Equal("fresh-instance"))
 	})
 
-	// v0.20.0 follow-up: an instance's last-report record (0047) outlives its
+	// v0.20.0 follow-up: an instance's last-report record (0048) outlives its
 	// beacon rows — swept with the instance lifecycle (agent.delete_after),
 	// not with beaconInventoryExpireAfter — so reconciliation still knows a
 	// live instance that runs no pipeline once its rows are gone.
@@ -171,11 +171,12 @@ var _ = Describe("Sweeper", Label("integration"), func() {
 		var coll pgtype.UUID
 		Expect(coll.Scan("6f1c2a52-6ad5-4c37-9b7e-0a7c3c0b5d11")).To(Succeed())
 		recordAt := func(instance string, ago time.Duration) {
-			Expect(st.Queries.RecordBeaconInstanceLastReport(ctx, sqlc.RecordBeaconInstanceLastReportParams{
+			_, err := st.Queries.RecordBeaconInstanceLastReport(ctx, sqlc.RecordBeaconInstanceLastReportParams{
 				CollectorID: coll, InstanceLabel: instance,
-			})).To(Succeed())
+			})
+			Expect(err).NotTo(HaveOccurred())
 			// RAW-SQL-OK: backdating reported_at for a sweep test — RecordBeaconInstanceLastReport always writes now()
-			_, err := st.Pool().Exec(ctx, `UPDATE beacon_instance_reports SET reported_at = $2 WHERE instance_label = $1`,
+			_, err = st.Pool().Exec(ctx, `UPDATE beacon_instance_reports SET reported_at = $2 WHERE instance_label = $1`,
 				instance, time.Now().Add(-ago))
 			Expect(err).NotTo(HaveOccurred())
 		}

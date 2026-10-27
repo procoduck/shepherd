@@ -20,9 +20,11 @@ Categories used here:
   once the sweeper had deleted them (five minutes after the last refresh) no row carried the
   instance's last report and the tab said the observed state was unknown although the instance
   still reported. Each instance's last report is now kept in a record of its own (migration
-  `0047`, `beacon_instance_reports`, written on every accepted beacon write with the same 5-second
-  throttle), swept with the instance lifecycle (`agent.delete_after`, 24 h when unset) rather than
-  with the rows. A collector with no recent report, or no live instance, still reads unknown; a
+  `0048`, `beacon_instance_reports`, written on every accepted beacon write with the same 5-second
+  throttle, at most 256 per collector with the oldest evicted), swept with the instance lifecycle
+  (`agent.delete_after`, 24 h when unset) rather than with the rows. A write carrying no pipeline
+  series records a report only for a writer whose collector the beacon's org check verified. A
+  collector with no recent report, or no live instance, still reads unknown; a
   replica that has no record yet falls back to the previous rule.
 - **The wizard preview counts warnings.** Shipped. Its summary said "No problems" beside a
   warning (a strict org's tenant-lint warning, a version note); it now shows the pipeline editor's

@@ -74,7 +74,7 @@ func LastReport(r BeaconRow) time.Time {
 }
 
 // WithReports folds each instance's last-report record (beacon_instance_
-// reports, 0047) into its rows' ReportedAt, keeping the later of the record
+// reports, 0048) into its rows' ReportedAt, keeping the later of the record
 // and the row's own 0046 stamp. A missing record leaves the row as it was — a
 // Shepherd mid-upgrade, or an older replica that never wrote one — so the rule
 // falls back to the 0046 stamp and then to the newest row, as before. The

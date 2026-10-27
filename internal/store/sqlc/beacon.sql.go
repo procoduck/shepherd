@@ -46,7 +46,7 @@ const listBeaconInstanceReportsByCollector = `-- name: ListBeaconInstanceReports
 SELECT collector_id, instance_label, reported_at FROM beacon_instance_reports WHERE collector_id = $1 ORDER BY instance_label
 `
 
-// Every instance's last report under one collector (0047): reconciliation's
+// Every instance's last report under one collector (0048): reconciliation's
 // evidence that an instance is reporting when it has no beacon_inventory row.
 func (q *Queries) ListBeaconInstanceReportsByCollector(ctx context.Context, collectorID pgtype.UUID) ([]BeaconInstanceReport, error) {
 	rows, err := q.db.Query(ctx, listBeaconInstanceReportsByCollector, collectorID)
@@ -140,7 +140,7 @@ func (q *Queries) ListBeaconInventoryByPrincipal(ctx context.Context, principal 
 	return items, nil
 }
 
-const recordBeaconInstanceLastReport = `-- name: RecordBeaconInstanceLastReport :exec
+const recordBeaconInstanceLastReport = `-- name: RecordBeaconInstanceLastReport :execrows
 INSERT INTO beacon_instance_reports (collector_id, instance_label, reported_at)
 VALUES ($1, $2, now())
 ON CONFLICT (collector_id, instance_label) DO UPDATE SET reported_at = now()
@@ -152,16 +152,21 @@ type RecordBeaconInstanceLastReportParams struct {
 	InstanceLabel string      `json:"instance_label"`
 }
 
-// Records "this instance reported now" in beacon_instance_reports (0047), the
+// Records "this instance reported now" in beacon_instance_reports (0048), the
 // record that outlives the instance's beacon_inventory rows: once the sweeper
 // has deleted the rows of a collector whose only pipeline was dropped, this
 // row is what still tells reconciliation the instance reports and runs none.
 // Run by the beacon handler on every accepted write, next to
 // RecordBeaconInstanceReport, with the same 5-second throttle in the
-// statement (the conditional DO UPDATE leaves a fresh row alone).
-func (q *Queries) RecordBeaconInstanceLastReport(ctx context.Context, arg RecordBeaconInstanceLastReportParams) error {
-	_, err := q.db.Exec(ctx, recordBeaconInstanceLastReport, arg.CollectorID, arg.InstanceLabel)
-	return err
+// statement (the conditional DO UPDATE leaves a fresh row alone). The row
+// count is 0 when the throttle left the record alone, so the caller trims
+// (TrimBeaconInstanceReports) at most once per instance per 5 seconds.
+func (q *Queries) RecordBeaconInstanceLastReport(ctx context.Context, arg RecordBeaconInstanceLastReportParams) (int64, error) {
+	result, err := q.db.Exec(ctx, recordBeaconInstanceLastReport, arg.CollectorID, arg.InstanceLabel)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const recordBeaconInstanceReport = `-- name: RecordBeaconInstanceReport :exec
@@ -190,6 +195,35 @@ type RecordBeaconInstanceReportParams struct {
 func (q *Queries) RecordBeaconInstanceReport(ctx context.Context, arg RecordBeaconInstanceReportParams) error {
 	_, err := q.db.Exec(ctx, recordBeaconInstanceReport, arg.CollectorID, arg.InstanceLabel)
 	return err
+}
+
+const trimBeaconInstanceReports = `-- name: TrimBeaconInstanceReports :execrows
+DELETE FROM beacon_instance_reports AS t
+WHERE t.collector_id = $1
+  AND t.instance_label IN (
+    SELECT r.instance_label FROM beacon_instance_reports r
+    WHERE r.collector_id = $1
+    ORDER BY r.reported_at DESC, r.instance_label
+    OFFSET $2
+  )
+`
+
+type TrimBeaconInstanceReportsParams struct {
+	CollectorID pgtype.UUID `json:"collector_id"`
+	Offset      int32       `json:"offset"`
+}
+
+// Keeps at most keep records per collector, evicting the oldest (0048):
+// instance labels rotate (every pod restart is a new host:port), and records
+// live for agent.delete_after, so without this one collector's records would
+// grow with every restart for a day. Ties on reported_at break on the label,
+// so the result is deterministic.
+func (q *Queries) TrimBeaconInstanceReports(ctx context.Context, arg TrimBeaconInstanceReportsParams) (int64, error) {
+	result, err := q.db.Exec(ctx, trimBeaconInstanceReports, arg.CollectorID, arg.Offset)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const upsertBeaconComponent = `-- name: UpsertBeaconComponent :one

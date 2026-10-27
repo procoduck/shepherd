@@ -1,4 +1,4 @@
--- 0047_beacon_instance_reports.up.sql
+-- 0048_beacon_instance_reports.up.sql
 --
 -- When each beacon-reporting instance last reported, kept apart from its
 -- beacon_inventory rows.

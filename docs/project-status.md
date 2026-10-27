@@ -571,7 +571,7 @@ decisions are in `docs/archive/plans/2026-10-26-v020-queue.md`.
 the release):
 
 - [x] **Reconciliation after the sweep.** — shipped on main (PR #428, unreleased): each
-      instance's last report is kept in `beacon_instance_reports` (migration `0047`), swept with
+      instance's last report is kept in `beacon_instance_reports` (migration `0048`), swept with
       the instance lifecycle, so the tab reads "nothing running". Original note: A collector whose only pipeline was disabled reads
       correctly (nothing running) while its beacon rows remain; once the sweeper has deleted them,
       the tab reads "unknown" rather than "nothing running", because no row is left to carry the
@@ -592,6 +592,9 @@ the release):
       for released, pre-release, too-new and missing versions; malformed version strings, and an
       instance whose reported version keeps changing (beyond the once-a-minute re-check), have no
       spec.
+- [ ] **The wizard preview never shows "alloy validate skipped".** It passes
+      `alloyValidateSkipped={false}`: `RenderWizardResponse` carries no skipped stages, so a server
+      without an Alloy binary still reads "No problems" there (needs a proto field; PR #428 review).
 
 In rough priority order; closed items stay in place, marked with the release that shipped them:
 

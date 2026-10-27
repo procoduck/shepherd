@@ -96,3 +96,7 @@ func SetVersionRecheck(s *Service, d time.Duration) { s.versionRecheck = d }
 // SetVersionNewWindow replaces how often a newly reported version may
 // trigger a re-check (#375). Test-only.
 func SetVersionNewWindow(s *Service, d time.Duration) { s.versionNewWindow = d }
+
+// MaxBeaconInstanceReports exposes the per-collector record cap (0048).
+// Test-only.
+const MaxBeaconInstanceReports = maxBeaconInstanceReports

@@ -244,7 +244,7 @@ func (s *FleetService) reconcileServed(ctx context.Context, orgID pgtype.UUID, c
 // instance (registered, and checked in within agent.inactive_after — the rule
 // presentInstanceStatus presents "inactive" by, so the tab and the instance
 // list agree) AND one of its beacon instances reported within
-// beaconStaleAfter — on a row, or in its last-report record (0047), which
+// beaconStaleAfter — on a row, or in its last-report record (0048), which
 // outlives the rows the sweeper deletes (reconcile.InventoryCurrent). Rows
 // waiting for the sweeper are no evidence of what runs now: a collector scaled to zero left its rows behind for up to two sweeps
 // while its instance read "Last seen unknown", and the tab said "in sync"
@@ -255,7 +255,7 @@ func (s *FleetService) reconcileObserved(ctx context.Context, collectorID pgtype
 	if err != nil {
 		return reconcile.Observed{}, false, err
 	}
-	// Each instance's last report, kept apart from the rows (0047) so it
+	// Each instance's last report, kept apart from the rows (0048) so it
 	// outlives the sweeper's deletion of them. An instance with no record (a
 	// Shepherd mid-upgrade, or an older replica wrote its last report) falls
 	// back to the 0046 stamp on its rows, then to its newest row.
@@ -274,7 +274,7 @@ func (s *FleetService) reconcileObserved(ctx context.Context, collectorID pgtype
 	// The inventory is current while its instance reports, judged by the same
 	// report time ObserveBeacon uses: an instance whose only pipeline was
 	// dropped still stamps instance_reported_at on its rows (0046) and its
-	// last-report record (0047), and that is a positive "none running", not
+	// last-report record (0048), and that is a positive "none running", not
 	// UNKNOWN — also once the sweeper has deleted every row.
 	allRows := make([]reconcile.BeaconRow, 0, len(rows))
 	for i := range rows {
