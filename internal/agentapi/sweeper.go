@@ -39,6 +39,13 @@ var tableRowsGauge = promauto.NewGaugeVec(prometheus.GaugeOpts{
 // stopped reporting altogether.
 const beaconInventoryExpireAfter = 5 * time.Minute
 
+// beaconInstanceReportFallbackExpiry bounds an instance's last-report record
+// (beacon_instance_reports, 0048) when agent.delete_after is unset. The record
+// only matters while it is newer than reconciliation's stale window (5
+// minutes), so any bound past that changes nothing reconciliation reads; 24h
+// is the chart's delete_after.
+const beaconInstanceReportFallbackExpiry = 24 * time.Hour
+
 // Sweeper hard-deletes collector instances after deleteAfter and keeps the
 // shepherd_active_collectors gauge current. It runs on a background goroutine.
 //
@@ -123,6 +130,22 @@ func (sw *Sweeper) sweep(ctx context.Context) {
 		sw.logger.Error("sweeper: failed to delete expired beacon inventory", "err", err)
 	} else if bn > 0 {
 		sw.logger.Debug("sweeper: deleted expired beacon inventory rows", "rows_swept", bn)
+	}
+
+	// An instance's last-report record (0048) lives with the instance
+	// lifecycle, not with its beacon rows: reconciliation reads it once the
+	// rows above are gone. delete_after when set; otherwise (instances are
+	// never deleted) a fixed bound, so churning instance labels cannot grow
+	// the table without limit.
+	reportExpiry := sw.deleteAfter
+	if reportExpiry <= 0 {
+		reportExpiry = beaconInstanceReportFallbackExpiry
+	}
+	reportCutoff := pgtype.Timestamptz{Time: now.Add(-reportExpiry), Valid: true}
+	if rn, err := sw.store.Queries.DeleteExpiredBeaconInstanceReports(ctx, reportCutoff); err != nil {
+		sw.logger.Error("sweeper: failed to delete expired beacon instance reports", "err", err)
+	} else if rn > 0 {
+		sw.logger.Debug("sweeper: deleted expired beacon instance reports", "rows_swept", rn)
 	}
 
 	sw.refreshTableGauges(ctx)

@@ -49,6 +49,12 @@ type AuditLog struct {
 	OnBehalfOf   pgtype.Text        `json:"on_behalf_of"`
 }
 
+type BeaconInstanceReport struct {
+	CollectorID   pgtype.UUID        `json:"collector_id"`
+	InstanceLabel string             `json:"instance_label"`
+	ReportedAt    pgtype.Timestamptz `json:"reported_at"`
+}
+
 type BeaconInventory struct {
 	ID                 pgtype.UUID        `json:"id"`
 	InstanceLabel      string             `json:"instance_label"`

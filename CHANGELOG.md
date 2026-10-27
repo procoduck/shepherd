@@ -58,6 +58,39 @@ additive; non-strict orgs are served the same bytes.
   uses the component is refused when it is enabled). Both changes recompute the org's served configs.
   Migration `0047` adds `org_strict_components`. (#421)
 
+### Fixed
+
+- **The Reconciliation tab reads "nothing running", not "unknown", after the sweep.** Shipped. A
+  collector whose only pipeline was disabled read correctly while its beacon rows remained, but
+  once the sweeper had deleted them (five minutes after the last refresh) no row carried the
+  instance's last report and the tab said the observed state was unknown although the instance
+  still reported. Each instance's last report is now kept in a record of its own (migration
+  `0048`, `beacon_instance_reports`, written on every accepted beacon write with the same 5-second
+  throttle, at most 256 per collector with the oldest evicted), swept with the instance lifecycle
+  (`agent.delete_after`, 24 h when unset) rather than with the rows. A write carrying no pipeline
+  series records a report only for a writer whose collector the beacon's org check verified. A
+  collector with no recent report, or no live instance, still reads unknown; a
+  replica that has no record yet falls back to the previous rule.
+- **The wizard preview counts warnings.** Shipped. Its summary said "No problems" beside a
+  warning (a strict org's tenant-lint warning, a version note); it now shows the pipeline editor's
+  verdict, with "N warning(s)" beside it. Warnings still do not block Create.
+- **Junk and flapping `collector.version` strings.** Shipped. An agent-chosen version reached the
+  version check's audit row and the collector's check fingerprint unbounded (up to the agent API's
+  8 MiB request limit) and uncapped; both now hold each version trimmed and cut to 64 bytes, at
+  most 256 of them (oldest releases kept, the rest counted in the audit's `versions_total` and
+  still checked against the oldest shipped schema). An instance whose unknown version changed on
+  every re-check wrote an audit row each time, because the warning quotes the version; quoting a
+  different unknown version is no longer a change of the warning (the stored text still quotes the
+  current one), while a version moving between known, approximated and unknown still is. A NUL
+  byte in a local attribute or the instance id, which Postgres cannot store, now answers
+  `InvalidArgument` rather than `Internal`.
+- **A comment trailing the `otelcol.exporter.loki` block stays with it.** Shipped. In a strict
+  org's served form the inserted `loki.process "shepherd_tenant_drop_<label>"` block was spliced
+  in right after the exporter's closing brace, so the chart's `} // otelcol.exporter.loki "loki"`
+  comment ended up on the inserted block's closing line. The block now goes after a comment that
+  ends the exporter's closing line. Only the served text of a strict org's pipeline with such a
+  comment changes (its collectors reload once); non-strict orgs are served the same bytes.
+
 ### Tests
 
 - **A real-Alloy regression suite for strict tenant mode.** `make e2e-strict` runs

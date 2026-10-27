@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"connectrpc.com/connect"
 
@@ -43,6 +44,9 @@ func requireInstanceID(id string) error {
 	case len(id) > MaxIdentifierBytes:
 		return connect.NewError(connect.CodeInvalidArgument,
 			fmt.Errorf("instance id is %d bytes; at most %d allowed", len(id), MaxIdentifierBytes))
+	case strings.ContainsRune(id, 0):
+		// A row key: Postgres stores no NUL in text.
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("instance id contains a NUL byte"))
 	}
 	return nil
 }

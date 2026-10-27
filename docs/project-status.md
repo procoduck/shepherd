@@ -570,20 +570,31 @@ decisions are in `docs/archive/plans/2026-10-26-v020-queue.md`.
 **Known follow-ups from v0.20.0** (found in the pre-release walkthroughs and reviews, not fixed in
 the release):
 
-- [ ] **Reconciliation after the sweep.** A collector whose only pipeline was disabled reads
+- [x] **Reconciliation after the sweep.** — shipped on main (PR #428, unreleased): each
+      instance's last report is kept in `beacon_instance_reports` (migration `0048`), swept with
+      the instance lifecycle, so the tab reads "nothing running". Original note: A collector whose only pipeline was disabled reads
       correctly (nothing running) while its beacon rows remain; once the sweeper has deleted them,
       the tab reads "unknown" rather than "nothing running", because no row is left to carry the
       instance's last report.
-- [ ] **The wizard preview shows "No problems" beside warnings.** The pipeline editor counts
+- [x] **The wizard preview shows "No problems" beside warnings.** — shipped on main (PR
+      #428, unreleased): the preview reuses the editor's `EditorValidationStatus`. The pipeline editor counts
       warnings since PR #417; the wizard preview's summary does not yet.
-- [ ] **The trailing `// otelcol.exporter.loki` comment ends up after the inserted drop block.**
+- [x] **The trailing `// otelcol.exporter.loki` comment ends up after the inserted drop block.**
+      — shipped on main (PR #428, unreleased): the block goes after a comment ending the
+      exporter's closing line.
       In a strict org's served form, a `// otelcol.exporter.loki` comment that trails the exporter
       lands after the inserted `loki.process "shepherd_tenant_drop_<label>"` block instead of next
       to the exporter, so it reads as belonging to the wrong block. Cosmetic; served text only.
-- [ ] **Junk or flapping Alloy version strings are untested.** The version-aware check is covered
+- [x] **Junk or flapping Alloy version strings are untested.** — shipped on main (PR #428,
+      unreleased): specs added; they exposed unbounded versions in the audit row and fingerprint,
+      an audit per re-check for a flapping unknown version, and NUL bytes failing as `Internal`,
+      all fixed. The version-aware check is covered
       for released, pre-release, too-new and missing versions; malformed version strings, and an
       instance whose reported version keeps changing (beyond the once-a-minute re-check), have no
       spec.
+- [ ] **The wizard preview never shows "alloy validate skipped".** It passes
+      `alloyValidateSkipped={false}`: `RenderWizardResponse` carries no skipped stages, so a server
+      without an Alloy binary still reads "No problems" there (needs a proto field; PR #428 review).
 
 In rough priority order; closed items stay in place, marked with the release that shipped them:
 

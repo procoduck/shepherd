@@ -3,6 +3,7 @@ package validate_test
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -302,6 +303,85 @@ prometheus.operator.podmonitors "pods" {
 		Expect(validate.VersionSetKey([]string{pinned})).NotTo(Equal(a))
 		Expect(validate.VersionSetKey([]string{"v1.20.5"})).NotTo(Equal(validate.VersionSetKey([]string{"v1.20.1"})),
 			"an approximation carries a note an exact match does not")
+	})
+})
+
+// v0.20.0 follow-up: collector.version is whatever the agent sends (up to
+// the agent API's request limit). Every junk value is an unknown version —
+// checked against the pinned schema with a note — never a panic, never a
+// note that echoes it unbounded, never more schema work than the cap allows.
+var _ = Describe("CheckAlloyVersions on junk collector.version strings", func() {
+	junk := []string{
+		"", " ", "v", "V1.21.2", "latest", "1.2", "v1.21", "1.21.2.0", "v1.21.2-foo+bar", "v1.21.2-rc.1",
+		"v01234567.1.1", "v-1.2.3", "\tv1.2.3x", "v1.2.3 v1.2.4",
+		strings.Repeat("9", 100000),
+		"v" + strings.Repeat("1.", 5000) + "1",
+		"ｖ１.２１.２", "v1.21.2\u200b", "v1\u202e.12.1", "🙂", "v1.21.2\u0301",
+		`v1.21.2"; DROP TABLE collectors; --`, "<script>alert(1)</script>", "${jndi:ldap://x}", "$(rm -rf /)",
+		"line 7: component prometheus.scrape is not available", "v1.21.2\nline 1: forged finding",
+		"truncated:5", "\\x00truncated:5",
+	}
+
+	It("resolves every one without panicking, as missing or not a release", func() {
+		for _, v := range junk {
+			rv := validate.ResolveVersion(v)
+			Expect(rv.Artifact).To(Equal(version.AlloySchemaVersion), "%q falls back to the pinned schema", v)
+			Expect(rv.How).To(BeElementOf(validate.ResolvedMissing, validate.ResolvedNotRelease), "%q", v)
+		}
+		// Leading/trailing whitespace around a real release is that release.
+		Expect(validate.ResolveVersion("  v1.18.1\n").How).To(Equal(validate.ResolvedExact))
+	})
+
+	It("checks each one as an unknown version: notes only, bounded, one line, no echo", func() {
+		for _, v := range junk {
+			diags := validate.CheckAlloyVersions(podMonitorPipeline, []string{v})
+			Expect(versionErrors(diags)).To(BeEmpty(), "%q is checked against the pinned schema", v)
+			warns := versionWarnings(diags)
+			Expect(warns).To(HaveLen(1), "%q", v)
+			Expect(len(warns[0])).To(BeNumerically("<", 200), "%q", v)
+			Expect(warns[0]).NotTo(ContainSubstring("\n"))
+			Expect(warns[0]).NotTo(ContainSubstring("DROP TABLE"))
+			Expect(warns[0]).NotTo(ContainSubstring("<script>"))
+			Expect(warns[0]).NotTo(ContainSubstring("further reported versions"), "%q is no truncation marker", v)
+			Expect(warns[0]).To(Or(HavePrefix("runs Alloy "), HavePrefix("reports no Alloy version")))
+		}
+	})
+
+	It("records each one bounded, never turning junk into a release by the cut", func() {
+		for _, v := range junk {
+			r := validate.RecordedVersion(v)
+			Expect(len(r)).To(BeNumerically("<=", validate.MaxRecordedVersionLen), "%q", v)
+			Expect(utf8.ValidString(r)).To(BeTrue(), "%q is cut on a rune boundary", v)
+			Expect(validate.ResolveVersion(r).How).To(Equal(validate.ResolveVersion(v).How), "%q", v)
+		}
+		padded := "v1.18.1" + strings.Repeat(" ", 100) + "x"
+		Expect(validate.ResolveVersion(validate.RecordedVersion(padded)).How).To(Equal(validate.ResolvedNotRelease))
+		Expect(validate.RecordedVersion(" v1.18.1\n")).To(Equal("v1.18.1"))
+
+		var many []string
+		for i := range validate.MaxReportedVersions + 5 {
+			many = append(many, fmt.Sprintf("v9.%d.0", i), fmt.Sprintf(" v9.%d.0 ", i))
+		}
+		kept, total := validate.RecordedVersions(append(many, "v1.18.1"))
+		Expect(total).To(Equal(validate.MaxReportedVersions+6), "distinct after trimming")
+		Expect(kept).To(HaveLen(validate.MaxReportedVersions))
+		Expect(kept[0]).To(Equal("v1.18.1"), "the oldest release is kept")
+	})
+
+	It("keeps the schema work and the notes bounded for thousands of distinct junk versions", func() {
+		var many []string
+		for i := range 5000 {
+			many = append(many, fmt.Sprintf("junk-%d-%s", i, strings.Repeat("é", 50)))
+		}
+		Expect(validate.ResolveVersions(many)).To(HaveLen(validate.MaxReportedVersions))
+		diags := validate.CheckAlloyVersions(podMonitorPipeline, many)
+		total := 0
+		for _, d := range diags {
+			total += len(d.Message)
+		}
+		Expect(total).To(BeNumerically("<", 1000))
+		Expect(versionWarnings(diags)).To(ContainElement(ContainSubstring(
+			fmt.Sprintf("%d further reported versions", 5000-validate.MaxReportedVersions))))
 	})
 })
 

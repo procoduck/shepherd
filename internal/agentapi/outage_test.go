@@ -432,12 +432,13 @@ var _ = Describe("Riding out a database outage (#374)", Label("integration"), fu
 		Expect(err).NotTo(HaveOccurred())
 		Expect(agentapi.LastServedLen(svc)).To(Equal(1))
 
-		// A non-outage refusal for the same key (an invalid instance id is
-		// refused before any key is built, so use the handler's own logic
-		// error: the DB refuses an over-long name it would never accept).
+		// A non-outage refusal for the same key (an invalid instance id, or a
+		// NUL byte in an attribute, is refused before any key is built, so use
+		// a value the DB refuses: invalid UTF-8 in collector.version, which
+		// only an in-process call can carry — the wire decoder rejects it).
 		ctxTok := agentapi.ContextWithTokenPrincipal(ctx, tokenID, agentapi.Binding{OrgID: seededOrg, MayClaim: true})
 		_, err = svc.GetConfig(ctxTok, connect.NewRequest(&collectorv1.GetConfigRequest{
-			Id: "outage-instance", LocalAttributes: map[string]string{"cluster": "outage-cluster", "role": "metrics", "collector.name": "\x00"},
+			Id: "outage-instance", LocalAttributes: map[string]string{"cluster": "outage-cluster", "role": "metrics", "collector.version": "\xff"},
 		}))
 		Expect(err).To(HaveOccurred())
 		Expect(connect.CodeOf(err)).NotTo(Equal(connect.CodeUnavailable))

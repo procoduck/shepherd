@@ -1042,6 +1042,15 @@ func effectiveAttrs(local, deprecated map[string]string) map[string]string {
 
 // requireClusterRole extracts and validates cluster+role from attributes.
 func requireClusterRole(attrs map[string]string) (cluster, role string, err error) {
+	// Attributes are stored (collector_instances.local_attributes, jsonb, and
+	// collector.version as alloy_version, text), and Postgres stores no NUL
+	// in either: refused here as the agent's bad input, not left to fail the
+	// write as an internal error.
+	for k, v := range attrs {
+		if strings.ContainsRune(k, 0) || strings.ContainsRune(v, 0) {
+			return "", "", fmt.Errorf("attribute %q contains a NUL byte", truncateID(strings.ReplaceAll(k, "\x00", "?")))
+		}
+	}
 	cluster = attrs["cluster"]
 	role = attrs["role"]
 	var missing []string

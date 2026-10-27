@@ -8,10 +8,12 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"time"
 
 	"github.com/golang/snappy"
@@ -690,6 +692,21 @@ var _ = Describe("BeaconHandler", Label("integration"), func() {
 			// RAW-SQL-OK: backdating last_seen/instance_reported_at to the previous scrape — no sqlc query sets them
 			_, err := st.Pool().Exec(ctx, `UPDATE beacon_inventory SET last_seen = now() - interval '70 seconds', instance_reported_at = now() - interval '70 seconds'`)
 			Expect(err).NotTo(HaveOccurred())
+			// RAW-SQL-OK: backdating the instance's last-report record (0048) with the rows
+			_, err = st.Pool().Exec(ctx, `UPDATE beacon_instance_reports SET reported_at = now() - interval '70 seconds'`)
+			Expect(err).NotTo(HaveOccurred())
+		}
+		// lastReports is the collector's last-report records (0048), by instance.
+		lastReports := func() map[string]time.Time {
+			var coll pgtype.UUID
+			Expect(coll.Scan(anyCollector)).To(Succeed())
+			recs, err := st.Queries.ListBeaconInstanceReportsByCollector(ctx, coll)
+			Expect(err).NotTo(HaveOccurred())
+			out := map[string]time.Time{}
+			for _, r := range recs {
+				out[r.InstanceLabel] = r.ReportedAt.Time
+			}
+			return out
 		}
 		rootOnly := func() []byte {
 			return encodeWrite([][]prompb.Label{controllerSeries(inst, "/", "remotecfg", "healthy")}, 1)
@@ -718,6 +735,8 @@ var _ = Describe("BeaconHandler", Label("integration"), func() {
 
 		It("is not stamped by a refused write", func() {
 			before := stamps()["pipe_sole"]
+			reportsBefore := lastReports()
+			Expect(reportsBefore).To(HaveKey(inst))
 
 			// Unauthenticated.
 			Expect(postRaw(rootOnly(), "").StatusCode).To(Equal(http.StatusUnauthorized))
@@ -737,6 +756,99 @@ var _ = Describe("BeaconHandler", Label("integration"), func() {
 			Expect(denied() - deniedBefore).To(Equal(1.0))
 
 			Expect(stamps()["pipe_sole"]).To(Equal(before), "a refused write is no report")
+			Expect(lastReports()).To(Equal(reportsBefore), "a refused write records no last report (0048)")
+		})
+
+		// v0.20.0 follow-up: the sweeper deletes rows by last_seen, so the
+		// report must also live in a record of its own (0048) that a write
+		// carrying no pipeline series keeps current with no row left at all.
+		It("records the last report apart from the rows, also with every row deleted", func() {
+			Expect(postRaw(rootOnly(), authHeader).StatusCode).To(Equal(http.StatusNoContent))
+			first := lastReports()
+			Expect(first).To(HaveKey(inst))
+
+			// RAW-SQL-OK: deleting every beacon row as the sweeper would, and backdating the record past the throttle
+			_, err := st.Pool().Exec(ctx, `DELETE FROM beacon_inventory; UPDATE beacon_instance_reports SET reported_at = now() - interval '70 seconds'`)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(postRaw(rootOnly(), authHeader).StatusCode).To(Equal(http.StatusNoContent))
+			got := lastReports()
+			Expect(got).To(HaveLen(1))
+			Expect(got[inst]).To(BeTemporally("~", time.Now(), 5*time.Second))
+		})
+
+		It("records nothing, and still answers 204, for an instance label past the table's bound", func() {
+			long := strings.Repeat("é", 257) // 257 characters, as Postgres counts them
+			Expect(postRaw(encodeWrite([][]prompb.Label{controllerSeries(long, "/", "remotecfg", "healthy")}, 1), authHeader).StatusCode).
+				To(Equal(http.StatusNoContent))
+			Expect(lastReports()).NotTo(HaveKey(long))
+		})
+
+		// PR #428 review: an unscoped writer (OIDC with no binding and no
+		// asserted org) skips the collector-owner check. A write carrying no
+		// pipeline series and naming another org's collector must not create
+		// a record that makes that collector's observed set read current and
+		// empty — every served pipeline would show as drift.
+		It("records nothing for an unscoped writer's zero-series write naming another org's collector", func() {
+			victimOrg, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{Name: "beacon-victim", DisplayName: "V", AdminGroupID: "gv"})
+			Expect(err).NotTo(HaveOccurred())
+			victim := collectorIn("victim-prod", &victimOrg)
+			startServerWithVerifier(beacon.DefaultLimits, func(context.Context, string) (auth.AgentClaims, error) {
+				return auth.AgentClaims{Issuer: "https://idp/", Subject: "unscoped-sub", AppID: "unscoped-app"}, nil
+			})
+			reportsOf := func(coll string) int {
+				var id pgtype.UUID
+				Expect(id.Scan(coll)).To(Succeed())
+				recs, err := st.Queries.ListBeaconInstanceReportsByCollector(ctx, id)
+				Expect(err).NotTo(HaveOccurred())
+				return len(recs)
+			}
+			zeroSeries := encodeWrite([][]prompb.Label{collectorSeries(victim, "10.9.9.9:1", "/", "remotecfg", "healthy")}, 1)
+			Expect(postRaw(zeroSeries, "Bearer t").StatusCode).To(Equal(http.StatusNoContent))
+			Expect(reportsOf(victim)).To(BeZero(), "no record without a row this write stored")
+
+			// The same writer with a pipeline series stores a row (as before
+			// this PR, unscoped writers are not owner-checked) and the record
+			// with it — no more than that row already says.
+			withSeries := encodeWrite([][]prompb.Label{collectorSeries(victim, "10.9.9.9:1", "/remotecfg", "pipe_x.default", "healthy")}, 1)
+			Expect(postRaw(withSeries, "Bearer t").StatusCode).To(Equal(http.StatusNoContent))
+			Expect(reportsOf(victim)).To(Equal(1))
+		})
+
+		It("still records a scoped writer's zero-series write (the owner check passed)", func() {
+			// RAW-SQL-OK: clearing the record the BeforeEach write created
+			_, err := st.Pool().Exec(ctx, `DELETE FROM beacon_instance_reports`)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(postRaw(rootOnly(), authHeader).StatusCode).To(Equal(http.StatusNoContent))
+			Expect(lastReports()).To(HaveKey(inst))
+		})
+
+		// PR #428 review: instance labels rotate (pod restarts), and records
+		// live for agent.delete_after, so the table is bounded per collector:
+		// past maxBeaconInstanceReports the oldest records are evicted.
+		It("keeps at most the cap of records per collector, evicting the oldest", func() {
+			cap := agentapi.MaxBeaconInstanceReports
+			// RAW-SQL-OK: seeding cap records with distinct, ascending ages — no sqlc query sets reported_at
+			_, err := st.Pool().Exec(ctx, `
+				INSERT INTO beacon_instance_reports (collector_id, instance_label, reported_at)
+				SELECT $1::uuid, 'old-' || g, now() - make_interval(secs => 600 + g)
+				FROM generate_series(1, $2::int) g
+				ON CONFLICT DO NOTHING`, anyCollector, cap)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(postRaw(encodeWrite([][]prompb.Label{healthySeries("fresh:1", "pipe_fresh")}, 1), authHeader).StatusCode).To(Equal(http.StatusNoContent))
+			got := lastReports()
+			Expect(got).To(HaveLen(cap))
+			Expect(got).To(HaveKey("fresh:1"))
+			Expect(got).To(HaveKey(inst), "a recent record is not the one evicted")
+			Expect(got).NotTo(HaveKey(fmt.Sprintf("old-%d", cap)), "the oldest is evicted")
+			Expect(got).NotTo(HaveKey(fmt.Sprintf("old-%d", cap-1)))
+		})
+
+		It("throttles the record like the row stamp", func() {
+			Expect(postRaw(rootOnly(), authHeader).StatusCode).To(Equal(http.StatusNoContent))
+			first := lastReports()[inst]
+			time.Sleep(20 * time.Millisecond)
+			Expect(postRaw(rootOnly(), authHeader).StatusCode).To(Equal(http.StatusNoContent))
+			Expect(lastReports()[inst]).To(Equal(first), "a second write within 5s leaves the record alone")
 		})
 	})
 })
