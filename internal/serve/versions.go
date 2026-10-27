@@ -35,7 +35,9 @@ type VersionCheck struct {
 	Hash    string
 	// Versions are the active instances' collector.version values
 	// (sqlc ListActiveInstanceVersions); '' for an instance that reported
-	// none.
+	// none. They are agent-chosen: RecordVersionCheck checks and records
+	// them as validate.RecordedVersions does (each bounded, distinct, at most
+	// validate.MaxReportedVersions, the rest counted).
 	Versions []string
 	// Until is when the first of Versions can drop out of the active set
 	// (its newest instance's last_seen plus agent.inactive_after); invalid
@@ -83,12 +85,28 @@ var findingLinePrefix = regexp.MustCompile(`(?m)^line [0-9]+: `)
 // revision list) moves it, and a moved finding is not a new one (0.21
 // walkthrough: a disable moved one from line 487 to 486 and audited it again).
 // The messages themselves carry no position.
+//
+// Nor are the reported versions a resolution note quotes ("runs Alloy
+// "nightly-7", which is not a release version; checked against ...") part of
+// it: a note says how a class of version was checked, and an instance whose
+// unknown version changes on every poll is in the same state each time (v0.20.0
+// follow-up: it bought an audit row per re-check). The note's kind and schema
+// stay, so a version moving to another kind of resolution, or an item
+// appearing or clearing, is still a change.
 func versionWarningIdentity(warning pgtype.Text) pgtype.Text {
 	if !warning.Valid {
 		return warning
 	}
-	return pgtype.Text{String: findingLinePrefix.ReplaceAllString(warning.String, ""), Valid: true}
+	s := findingLinePrefix.ReplaceAllString(warning.String, "")
+	s = noteSamples.ReplaceAllString(s, "${1}…${2}")
+	return pgtype.Text{String: s, Valid: true}
 }
+
+// noteSamples matches the quoted versions of a resolution note
+// (validate.resolutionNote: "runs Alloy <versions>, <how>"). The versions are
+// sanitised — no spaces or commas inside one — so ", which ", ", older than "
+// and ", newer than " can only end the list.
+var noteSamples = regexp.MustCompile(`(?m)^(runs Alloy ).+?(, (?:which |older than |newer than ))`)
 
 // RecordVersionCheck checks a served config against its collector's active
 // Alloy versions and records the outcome on the collector row (migration
@@ -104,7 +122,12 @@ func versionWarningIdentity(warning pgtype.Text) pgtype.Text {
 // (served hash and versions) is recorded every time so the caller can skip
 // the next one.
 func RecordVersionCheck(ctx context.Context, st *store.Store, in VersionCheck) (findings []string, err error) {
-	findings, mismatch := VersionFindings(in.Content, in.Versions)
+	// Agent-chosen versions reach the fingerprint and the audit row only
+	// bounded: each cut to validate.MaxRecordedVersionLen, at most
+	// validate.MaxReportedVersions of them, and the check itself told how
+	// many were cut (so they are still checked against the oldest schema).
+	kept, total := validate.RecordedVersions(in.Versions)
+	findings, mismatch := VersionFindings(in.Content, validate.WithTruncatedVersions(kept, total-len(kept)))
 	warning := pgtype.Text{String: strings.Join(findings, "\n"), Valid: len(findings) > 0}
 
 	tx, err := st.Pool().Begin(ctx)
@@ -131,8 +154,9 @@ func RecordVersionCheck(ctx context.Context, st *store.Store, in VersionCheck) (
 		detail, mErr := json.Marshal(map[string]any{
 			"findings":    findings,
 			"mismatch":    mismatch,
-			"versions":    in.Versions,
-			"served_hash": in.Hash,
+			"versions":       kept,
+			"versions_total": total,
+			"served_hash":    in.Hash,
 			"cleared":     !warning.Valid,
 		})
 		if mErr != nil {
@@ -155,7 +179,7 @@ func RecordVersionCheck(ctx context.Context, st *store.Store, in VersionCheck) (
 		return findings, fmt.Errorf("recording version warning: %w", setErr)
 	}
 
-	versions := in.Versions
+	versions := kept
 	if versions == nil {
 		versions = []string{}
 	}

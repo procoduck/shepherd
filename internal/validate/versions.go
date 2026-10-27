@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"github.com/grafana/alloy/syntax/ast"
 	"github.com/grafana/alloy/syntax/token"
@@ -57,6 +58,10 @@ const StabilityFlag = "--stability.level"
 // and their collector.version are chosen by agents, and nothing else bounds
 // them. Versions past the cap are counted in a warning, not resolved.
 const MaxReportedVersions = 256
+
+// MaxRecordedVersionLen bounds a reported version as RecordedVersion keeps
+// it, in bytes.
+const MaxRecordedVersionLen = 64
 
 // maxVersionSamples is how many reported versions a warning quotes.
 const maxVersionSamples = 3
@@ -369,23 +374,7 @@ func planVersions(reported []string) versionPlan {
 				list = append(list, r)
 			}
 		}
-		// Oldest release versions first: what a cap keeps is what the
-		// strictest schemas check.
-		sort.SliceStable(list, func(i, j int) bool {
-			vi, oki := parseRelease(list[i])
-			vj, okj := parseRelease(list[j])
-			switch {
-			case oki && okj:
-				if vi == vj {
-					return list[i] < list[j]
-				}
-				return vi.less(vj)
-			case oki != okj:
-				return oki
-			default:
-				return list[i] < list[j]
-			}
-		})
+		sortReported(list)
 		if len(list) > MaxReportedVersions {
 			p.dropped += len(list) - MaxReportedVersions
 			list = list[:MaxReportedVersions]
@@ -414,6 +403,69 @@ func planVersions(reported []string) versionPlan {
 		return vi.less(vj)
 	})
 	return p
+}
+
+// sortReported orders distinct reported versions oldest release versions
+// first, then the rest: what a cap keeps is what the strictest schemas check.
+func sortReported(list []string) {
+	sort.SliceStable(list, func(i, j int) bool {
+		vi, oki := parseRelease(list[i])
+		vj, okj := parseRelease(list[j])
+		switch {
+		case oki && okj:
+			if vi == vj {
+				return list[i] < list[j]
+			}
+			return vi.less(vj)
+		case oki != okj:
+			return oki
+		default:
+			return list[i] < list[j]
+		}
+	})
+}
+
+// RecordedVersion is a reported version as the version check keeps it — in
+// a collector's check fingerprint and audit rows — and compares it: trimmed,
+// and at most MaxRecordedVersionLen bytes. A longer one is cut (on a rune
+// boundary) and ends in "…", which no release version contains, so it stays
+// "not a release version" whatever the cut leaves; two versions cut to the
+// same text resolve, and are quoted, alike (a quote shows at most 24
+// sanitised characters), so the cut loses nothing the check uses.
+func RecordedVersion(s string) string {
+	s = strings.TrimSpace(s)
+	if len(s) <= MaxRecordedVersionLen {
+		return s
+	}
+	const ellipsis = "…"
+	cut := MaxRecordedVersionLen - len(ellipsis)
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + ellipsis
+}
+
+// RecordedVersions is reported (a collector's active instances' versions) as
+// the version check records it: each RecordedVersion, distinct, oldest
+// release versions first, at most MaxReportedVersions — and total, the
+// number of distinct versions before the cap. A caller checking kept passes
+// WithTruncatedVersions(kept, total-len(kept)), so the versions cut are still
+// accounted for.
+func RecordedVersions(reported []string) (kept []string, total int) {
+	seen := make(map[string]bool, len(reported))
+	for _, r := range reported {
+		r = RecordedVersion(r)
+		if !seen[r] {
+			seen[r] = true
+			kept = append(kept, r)
+		}
+	}
+	sortReported(kept)
+	total = len(kept)
+	if len(kept) > MaxReportedVersions {
+		kept = kept[:MaxReportedVersions]
+	}
+	return kept, total
 }
 
 // notes are the warnings a plan carries beyond the walk's own findings:

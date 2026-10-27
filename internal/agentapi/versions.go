@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"shepherd/internal/serve"
+	"shepherd/internal/validate"
 	"shepherd/internal/store/sqlc"
 )
 
@@ -84,8 +85,9 @@ func (s *Service) checkServedVersions(ctx context.Context, orgID pgtype.UUID, co
 //
 //   - the served hash differs from the one last checked (Shepherd's own
 //     change, never an agent's);
-//   - the polling instance reports a version the last check did not see,
-//     at most once per newWindow;
+//   - the polling instance reports a version the last check did not see
+//     (compared as validate.RecordedVersion records it), at most once per
+//     newWindow;
 //   - a recorded mismatch is older than recheck;
 //   - a recorded warning's version_checked_until has passed: a checked
 //     version can have aged out, which may clear it.
@@ -100,7 +102,7 @@ func versionCheckDue(coll sqlc.Collector, reported, hash string, recheck, newWin
 	switch {
 	case !coll.VersionCheckedHash.Valid || coll.VersionCheckedHash.String != hash:
 		return true
-	case !slices.Contains(coll.VersionCheckedVersions, reported):
+	case !slices.Contains(coll.VersionCheckedVersions, validate.RecordedVersion(reported)):
 		return checkedAge >= newWindow
 	case !coll.VersionWarning.Valid:
 		return false

@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"time"
 
 	"connectrpc.com/connect"
@@ -249,6 +250,127 @@ var _ = Describe("Served-config version check (#375)", Label("integration"), fun
 		c = collector(ctx)
 		Expect(c.VersionWarning.Valid).To(BeFalse())
 		Expect(c.VersionCheckedUntil.Valid).To(BeFalse())
+	})
+
+	// auditDetails is every version-warning audit row's detail, oldest first.
+	auditDetails := func(ctx context.Context) []string {
+		// RAW-SQL-OK: reading the audit rows' detail for a size assertion — this is a _test.go file
+		rows, err := st.Pool().Query(ctx, `SELECT detail::text FROM audit_log WHERE action = $1 ORDER BY id`, serve.AuditActionVersionWarning)
+		Expect(err).NotTo(HaveOccurred())
+		defer rows.Close()
+		var out []string
+		for rows.Next() {
+			var d string
+			Expect(rows.Scan(&d)).To(Succeed())
+			out = append(out, d)
+		}
+		Expect(rows.Err()).NotTo(HaveOccurred())
+		return out
+	}
+
+	// v0.20.0 follow-up: collector.version is agent-chosen, up to the agent
+	// API's request limit. Junk is an unknown version (a note against the
+	// pinned schema); it must not break the poll or reach the warning, the
+	// audit row or the recorded fingerprint unbounded.
+	It("records a junk collector.version as an unknown version, bounded everywhere it is written", func(ctx context.Context) {
+		agentapi.SetVersionNewWindow(svc, 0)
+		poll(ctx, "new-0", pinned)
+		huge := "v1.21.2-" + strings.Repeat("x", 512<<10)
+		for i, v := range []string{
+			"latest", "v", "1.2", "v1.21.2-foo+bar", "ｖ１.２１.２", `v1"; DROP TABLE collectors; --`,
+			"v1.21.2\nline 1: forged", huge,
+		} {
+			id := fmt.Sprintf("junk-%d", i)
+			served := poll(ctx, id, v)
+			Expect(served.GetContent()).To(ContainSubstring("scrape_classic_histograms"), "%q is served as before", v)
+			c := collector(ctx)
+			Expect(c.VersionMismatch).To(BeFalse(), "%q is a note, not a mismatch", v)
+			Expect(c.VersionWarning.String).To(ContainSubstring("which is not a release version"))
+			Expect(len(c.VersionWarning.String)).To(BeNumerically("<", 1024))
+			Expect(c.VersionWarning.String).NotTo(ContainSubstring("DROP TABLE"))
+			Expect(c.VersionWarning.String).NotTo(MatchRegexp(`(?m)^line 1: forged`), "a version cannot forge a finding line")
+			for _, cv := range c.VersionCheckedVersions {
+				Expect(len(cv)).To(BeNumerically("<=", validate.MaxRecordedVersionLen), "the fingerprint holds no unbounded version")
+			}
+			backdate(ctx, id, 2*inactiveAfter) // one junk instance at a time
+		}
+		for _, d := range auditDetails(ctx) {
+			Expect(len(d)).To(BeNumerically("<", 8<<10), "an audit row never carries unbounded agent input")
+			Expect(d).NotTo(ContainSubstring("DROP TABLE"))
+		}
+
+		// The same huge version polled again is not a new version: no re-check.
+		agentapi.SetVersionNewWindow(svc, time.Hour)
+		poll(ctx, "junk-huge", huge)
+		checked := collector(ctx).VersionCheckedAt
+		poll(ctx, "junk-huge", huge)
+		Expect(collector(ctx).VersionCheckedAt).To(Equal(checked))
+	})
+
+	It("answers a collector.version with a NUL byte without an internal error", func(ctx context.Context) {
+		_, err := client.GetConfig(ctx, connect.NewRequest(&collectorv1.GetConfigRequest{
+			Id: "nul-0", LocalAttributes: map[string]string{"cluster": "prod", "role": "metrics", "collector.version": "v1.21.2\x00truncated:5"},
+		}))
+		if err != nil {
+			Expect(connect.CodeOf(err)).To(Equal(connect.CodeInvalidArgument), "an agent's bad input is not a server fault: %v", err)
+		}
+	})
+
+	// An instance whose reported version changes on successive polls: the
+	// warning follows the actual state, audited once per change of it, and
+	// a change of which unknown version is quoted is no change of state.
+	It("audits a version flapping between two states once per actual change, and not for flapping junk", func(ctx context.Context) {
+		agentapi.SetVersionNewWindow(svc, 0) // every new version re-checks: the window is not what bounds this
+		agentapi.SetVersionRecheck(svc, 0)  // and a standing mismatch re-checks on every poll
+		poll(ctx, "new-0", pinned)
+		poll(ctx, "flap", "v1.18.1")
+		Expect(audits(ctx)).To(Equal(int32(1)))
+		for range 3 {
+			poll(ctx, "flap", "v1.18.1") // steady: nothing
+		}
+		Expect(audits(ctx)).To(Equal(int32(1)))
+		poll(ctx, "flap", pinned) // cleared
+		poll(ctx, "flap", pinned)
+		Expect(audits(ctx)).To(Equal(int32(2)))
+		poll(ctx, "flap", "v1.18.1") // back
+		Expect(audits(ctx)).To(Equal(int32(3)), "each actual change is audited once")
+		Expect(collector(ctx).VersionMismatch).To(BeTrue())
+
+		poll(ctx, "flap", pinned)
+		Expect(audits(ctx)).To(Equal(int32(4)))
+		poll(ctx, "flap", "nightly-1")
+		Expect(audits(ctx)).To(Equal(int32(5)), "a first unknown version is a change")
+		since := collector(ctx).VersionWarningAt
+		for i := 2; i < 12; i++ {
+			poll(ctx, "flap", fmt.Sprintf("nightly-%d", i))
+		}
+		c := collector(ctx)
+		Expect(audits(ctx)).To(Equal(int32(5)), "another unknown version in its place is the same state")
+		Expect(c.VersionWarning.String).To(ContainSubstring(`"nightly-11"`), "the stored text still quotes the current one")
+		Expect(c.VersionWarningAt).To(Equal(since))
+		Expect(len(c.VersionCheckedVersions)).To(BeNumerically("<=", 2))
+	})
+
+	It("holds the per-collector version cap in the recorded fingerprint and the audit row", func(ctx context.Context) {
+		agentapi.SetVersionNewWindow(svc, time.Hour) // the instances below register without re-checking each
+		for i := range validate.MaxReportedVersions + 20 {
+			poll(ctx, fmt.Sprintf("many-%d", i), fmt.Sprintf("v9.%d.0", i))
+		}
+		agentapi.SetVersionNewWindow(svc, 0)
+		poll(ctx, "many-last", "v1.18.1")
+		c := collector(ctx)
+		Expect(len(c.VersionCheckedVersions)).To(BeNumerically("<=", validate.MaxReportedVersions))
+		Expect(c.VersionCheckedVersions).To(ContainElement("v1.18.1"), "the oldest release is never the one dropped")
+		Expect(c.VersionWarning.String).To(ContainSubstring("further reported versions were not checked"))
+		details := auditDetails(ctx)
+		Expect(details).NotTo(BeEmpty())
+		var detail struct {
+			Versions      []string `json:"versions"`
+			VersionsTotal int      `json:"versions_total"`
+		}
+		Expect(json.Unmarshal([]byte(details[len(details)-1]), &detail)).To(Succeed())
+		Expect(len(detail.Versions)).To(BeNumerically("<=", validate.MaxReportedVersions))
+		Expect(detail.VersionsTotal).To(Equal(validate.MaxReportedVersions + 21))
 	})
 
 	It("skips the fingerprint UPDATE when a re-check finds what the last one did", func(ctx context.Context) {
