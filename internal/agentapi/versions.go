@@ -8,8 +8,8 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"shepherd/internal/serve"
-	"shepherd/internal/validate"
 	"shepherd/internal/store/sqlc"
+	"shepherd/internal/validate"
 )
 
 const (

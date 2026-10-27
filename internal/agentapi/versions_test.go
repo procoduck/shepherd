@@ -321,7 +321,7 @@ var _ = Describe("Served-config version check (#375)", Label("integration"), fun
 	// a change of which unknown version is quoted is no change of state.
 	It("audits a version flapping between two states once per actual change, and not for flapping junk", func(ctx context.Context) {
 		agentapi.SetVersionNewWindow(svc, 0) // every new version re-checks: the window is not what bounds this
-		agentapi.SetVersionRecheck(svc, 0)  // and a standing mismatch re-checks on every poll
+		agentapi.SetVersionRecheck(svc, 0)   // and a standing mismatch re-checks on every poll
 		poll(ctx, "new-0", pinned)
 		poll(ctx, "flap", "v1.18.1")
 		Expect(audits(ctx)).To(Equal(int32(1)))

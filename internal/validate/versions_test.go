@@ -316,7 +316,7 @@ var _ = Describe("CheckAlloyVersions on junk collector.version strings", func() 
 		"v01234567.1.1", "v-1.2.3", "\tv1.2.3x", "v1.2.3 v1.2.4",
 		strings.Repeat("9", 100000),
 		"v" + strings.Repeat("1.", 5000) + "1",
-		"ｖ１.２１.２", "v1.21.2​", "v1‮.12.1", "🙂", "v1.21.2́",
+		"ｖ１.２１.２", "v1.21.2\u200b", "v1\u202e.12.1", "🙂", "v1.21.2\u0301",
 		`v1.21.2"; DROP TABLE collectors; --`, "<script>alert(1)</script>", "${jndi:ldap://x}", "$(rm -rf /)",
 		"line 7: component prometheus.scrape is not available", "v1.21.2\nline 1: forged finding",
 		"truncated:5", "\\x00truncated:5",

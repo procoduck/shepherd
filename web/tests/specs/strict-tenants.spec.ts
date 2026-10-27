@@ -253,7 +253,10 @@ test('a tenant-lint warning in the wizard preview does not block Create', async 
   await page.getByRole('button', { name: /next|continue/i }).click();
   await page.getByLabel('Pipeline name').fill('strict-wizard');
 
-  await expect(page.getByText('No problems')).toBeVisible();
+  // The preview counts the warning as the pipeline editor does (v0.20.0
+  // follow-up): "No problems" beside a warning read as a clean bill.
+  await expect(page.getByTestId('editor-warning-count')).toHaveText('1 warning');
+  await expect(page.getByText('No problems')).toHaveCount(0);
   await expect(page.getByRole('button', { name: /create pipeline/i })).toBeEnabled();
 });
 

@@ -2,10 +2,10 @@ import type { JsonObject } from '@bufbuild/protobuf';
 import { Code, ConnectError } from '@connectrpc/connect';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
-import { CheckCircle2, XCircle } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { clients } from '@/api/transport';
+import { EditorValidationStatus } from '@/components/EditorValidationStatus';
 import { Input } from '@/components/ui/Field';
 import { FormError } from '@/components/ui/FormError';
 import { AlloyEditor } from '@/editor/LazyAlloyEditor';
@@ -391,20 +391,15 @@ export function WizardRunnerPage() {
                       </div>
                     )}
 
-                    <div className='flex items-center gap-1.5 text-xs' aria-live='polite'>
-                      {renderQuery.isFetching ? (
-                        <span className='text-muted'>Validating…</span>
-                      ) : hasErrors ? (
-                        <span className='flex items-center gap-1 text-red-400'>
-                          <XCircle size={14} /> {problems.length} problem
-                          {problems.length > 1 ? 's' : ''}
-                        </span>
-                      ) : (
-                        <span className='flex items-center gap-1 text-emerald-500'>
-                          <CheckCircle2 size={14} /> No problems
-                        </span>
-                      )}
-                    </div>
+                    {/* The pipeline editor's verdict, warnings counted beside it:
+                        "No problems" next to a warning read as a clean bill. */}
+                    <EditorValidationStatus
+                      show
+                      validating={renderQuery.isFetching}
+                      problems={problems.length}
+                      warnings={diagnostics.length - problems.length}
+                      alloyValidateSkipped={false}
+                    />
 
                     <div className='h-64 overflow-hidden rounded-md border border-border'>
                       <AlloyEditor

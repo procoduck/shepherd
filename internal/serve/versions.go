@@ -152,12 +152,12 @@ func RecordVersionCheck(ctx context.Context, st *store.Store, in VersionCheck) (
 		// warning's "since" do not.
 	case setErr == nil:
 		detail, mErr := json.Marshal(map[string]any{
-			"findings":    findings,
-			"mismatch":    mismatch,
+			"findings":       findings,
+			"mismatch":       mismatch,
 			"versions":       kept,
 			"versions_total": total,
 			"served_hash":    in.Hash,
-			"cleared":     !warning.Valid,
+			"cleared":        !warning.Valid,
 		})
 		if mErr != nil {
 			return findings, fmt.Errorf("encoding audit detail: %w", mErr)
