@@ -130,7 +130,7 @@ var _ = Describe("renovate.json", func() {
 		Expect(m.CustomType).To(Equal("regex"))
 		Expect(m.DatasourceTemplate).To(Equal("docker"))
 		joined := strings.Join(m.ManagerFilePatterns, "\n")
-		for _, must := range []string{"deploy/versions", "deploy/Dockerfile", "docker-compose", "mockmsft/Dockerfile"} {
+		for _, must := range []string{"deploy/versions", "deploy/Dockerfile", "docker-compose", "mockmsft/Dockerfile", "tenantsink/Dockerfile"} {
 			Expect(joined).To(ContainSubstring(must), "renovate must manage the files that restate an image pin")
 		}
 		Expect(m.MatchStrings[0]).To(ContainSubstring("currentDigest"))

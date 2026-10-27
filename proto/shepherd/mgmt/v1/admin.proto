@@ -61,6 +61,22 @@ service AdminService {
   // strict tenant rule applies to the org and an enabled pipeline imports
   // from it.
   rpc RemoveOrgImportRepository(RemoveOrgImportRepositoryRequest) returns (RemoveOrgImportRepositoryResponse) {}
+  // ListOrgStrictComponents lists the components an app admin allowed for an
+  // org although strict tenant mode refuses them (refused or unclassified in
+  // the schema overlay). App admin only.
+  rpc ListOrgStrictComponents(ListOrgStrictComponentsRequest) returns (ListOrgStrictComponentsResponse) {}
+  // AddOrgStrictComponent allows one component for an org in strict tenant
+  // mode. It lifts only the refusal of an unclassified or refused component:
+  // every other strict check still applies to it, and it is shown as
+  // admin-allowed and unreviewed. App admin only; invalid_argument for a
+  // name that is not a component name or a component strict mode already
+  // accepts, already_exists for one already allowed.
+  rpc AddOrgStrictComponent(AddOrgStrictComponentRequest) returns (OrgStrictComponent) {}
+  // RemoveOrgStrictComponent takes a component off an org's list. App admin
+  // only. Refused (failed_precondition, naming each one) while the strict
+  // tenant rule applies to the org and an enabled pipeline uses the
+  // component.
+  rpc RemoveOrgStrictComponent(RemoveOrgStrictComponentRequest) returns (RemoveOrgStrictComponentResponse) {}
 
   rpc ListClusters(ListClustersRequest) returns (ListClustersResponse) {}
   rpc ClaimCluster(ClaimClusterRequest) returns (ClaimClusterResponse) {}
@@ -293,6 +309,43 @@ message RemoveOrgImportRepositoryRequest {
 }
 
 message RemoveOrgImportRepositoryResponse {}
+
+// OrgStrictComponent is one component an app admin allowed for an org in
+// strict tenant mode (org_strict_components, 0047): admin-allowed and
+// unreviewed.
+message OrgStrictComponent {
+  string id = 1;
+  string org_id = 2;
+  // component is the component's name, such as otelcol.auth.google.
+  string component = 3;
+  // classification is its shipped strict classification: "refused", or
+  // empty when no shipped schema classifies it. reason is the overlay's
+  // reason for a refused one.
+  string classification = 4;
+  string reason = 5;
+  string created_by = 6;
+  google.protobuf.Timestamp created_at = 7;
+}
+
+message ListOrgStrictComponentsRequest {
+  string org_id = 1;
+}
+
+message ListOrgStrictComponentsResponse {
+  repeated OrgStrictComponent items = 1;
+}
+
+message AddOrgStrictComponentRequest {
+  string org_id = 1;
+  string component = 2;
+}
+
+message RemoveOrgStrictComponentRequest {
+  string org_id = 1;
+  string id = 2;
+}
+
+message RemoveOrgStrictComponentResponse {}
 
 message DeleteOrgRequest {
   string org_id = 1;

@@ -86,6 +86,11 @@ func NewServing(q *sqlc.Queries, p tenancy.Policy) *Serving {
 	for i := range repos {
 		b.WriteString("r" + repos[i].RepositoryKey + "\x00" + repos[i].CredentialID.String() + "\x00")
 	}
+	// The components an app admin allowed (0047): allowing or removing one
+	// changes the verdict on the same text.
+	for _, c := range p.AllowedComponents {
+		b.WriteString("c" + c + "\x00")
+	}
 	sum := sha256.Sum256([]byte(b.String()))
 	return &Serving{
 		q: q, policy: p, key: hex.EncodeToString(sum[:]),

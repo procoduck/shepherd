@@ -7,6 +7,7 @@ Compose-based e2e suites (`//go:build e2e`) plus the kind-based Kubernetes suite
 - `make e2e` — core flow (registration, pipelines, not_modified, validation gate, GitOps, RBAC, APPLIED round-trip; standalone: local-admin login, embedded SPA); excludes `sandbox-sim`
 - `make e2e-sim` — S3 sandbox suite: containment probes first, then run-lifecycle specs
 - `make e2e-egress` — the containment probes alone (fast local check)
+- `make e2e-strict` — strict tenant mode against a real Alloy (`strict_tenant_test.go`, label `strict-tenant`, compose profile `strict`: a strict org owning `mine`, its collector `alloy-strict`, and `tenantsink`, which records each push's X-Scope-OrgID and labels); `make e2e` excludes the label
 - `make e2e-k8s` — kind cluster suite, thirteen `func Test*` features (`grep -h '^func Test' e2e/k8s/*_test.go | grep -vc TestMain`): CNI negative control, Helm install with defaults, Helm install with the simulator on, repeatable install, chart-provisioned CNPG/ESO dependencies, simulator containment probes, simulator containment kill probe, Gateway operator-owned attachment, Gateway route conformance/tenant isolation, receiver-tier pass-through tenancy (R3), tenant-route apply (Connect API → reconciler → gateway), chart values G10 (generated values + real k8s-monitoring → collector registers and is served a pipeline), destination Secret auth (#229: a `basic_secret` destination's Secret reaches a real Alloy's remote-write requests). Last recorded timing (`e2e/k8s/README.md`): the `make e2e-k8s` step took 14 min in CI (run 34973037471, 2026-09-15, incl. both image builds and cluster create/destroy), measured before the suite reached thirteen — treat it as a floor, not a current number.
 - Focused run against a running stack (`E2E_KEEP=1` first): `ginkgo --tags=e2e --focus "GitOps" ./e2e`
 
@@ -36,7 +37,7 @@ Compose-based e2e suites (`//go:build e2e`) plus the kind-based Kubernetes suite
   (dormant, no queue configured) `merge_group`, never on a PR; its `e2e-sim (sandbox egress containment)` job (`make e2e-sim`) runs on PRs touching
   the sandbox surface and never on push. `e2e-k8s.yml` runs on PRs touching the chart, `e2e/k8s/**`,
   `deploy/Dockerfile*` or `deploy/versions.env`, plus a weekly cron and manual dispatch — a
-  versions.env pin bump therefore triggers `e2e-k8s` on the PR and `e2e` after it merges.
+  versions.env pin bump therefore triggers `e2e-k8s` on the PR and `e2e` after it merges. `e2e-strict.yml` (`make e2e-strict`) runs on PRs touching the tenant lint, serve-time check, policy, pinned modules, schemas, the suite or `deploy/versions.env`, weekly, and on demand.
 
 ## Debugging
 - `E2E_KEEP=1 make e2e` (or e2e-sim) leaves the compose stack running; tear down with

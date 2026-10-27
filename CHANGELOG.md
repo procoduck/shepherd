@@ -13,6 +13,51 @@ Categories used here:
 
 ## Unreleased
 
+**Strict tenant mode accepts only classified components.** Run `shepherd admin tenant-preflight`
+before upgrading if any org uses strict tenant mode: a stored pipeline that uses a component the
+schema overlay classifies `refused` (or one no shipped schema classifies) is excluded from served
+config until it is fixed or an app admin allows the component for its org. Migration `0047` is
+additive; non-strict orgs are served the same bytes.
+
+### Added
+
+- **Strict tenant mode accepts only classified components.** Shipped. Every component of every
+  shipped schema now carries a strict classification in the schema overlay
+  (`internal/schema/artifacts/overlay.json`, `components.<name>.strict`, and `strict_retired`
+  for a component only an older shipped schema has): `allowed` (it cannot introduce or alter a
+  tenant label or header), `checked` (it can, only through attributes the tenant lint already
+  checks, each check named), or `refused` (it can produce tenant-affecting output the lint cannot
+  prove), each with a one-line reason. Of the 187 shipped components, 105 are allowed, 81 checked
+  and 1 refused (`otelcol.auth.google`: its `token_header` may name `X-Scope-OrgID`). In a strict
+  org a component classified refused, or not classified at all, is refused wherever the lint
+  walks — the top level, a declare, a `foreach` template, a literal or pinned module — with a
+  message naming it; declare and module instances are judged by their bodies, and Alloy's own
+  blocks (`logging`, `argument`, …) are left to Stage 2. A repo test fails when an Alloy bump
+  brings a component nobody has classified, or a `checked` entry names a check that does not
+  exist or does not cover the component. Everything the grafana/k8s-monitoring chart, Shepherd's
+  wizards and the baseline emit is allowed or checked. The rollout is 0.20's: refused at save
+  (every write path, Stage 3 and the git-sync dry runs included), and a stored pipeline that fails
+  is excluded at serve time, with the served header, a `strict_tenant_excluded` reconciliation
+  finding and one audit row per change; `shepherd admin tenant-preflight` lists such pipelines.
+  (#421)
+- **`prometheus.exporter.blackbox` in strict tenant mode.** Shipped. A probe sends the requests
+  its modules define, so in a strict org the blackbox exporter's `config` must be a literal YAML
+  config that names the `X-Scope-OrgID` header nowhere (keys and strings, case-insensitively,
+  after YAML decoding) and has no tcp `query_response`; `config_file` is refused. The blackbox
+  wizard's modules pass unchanged. Likewise a `loki.process` `stage.truncate` rule with
+  `source_type = "label"`, which cuts each label value it names and appends a suffix, needs a
+  literal `sources` list without `__tenant_id__`. (#421)
+- **Admin-allowed components per org.** Shipped. An app admin may allow a component strict mode
+  refuses for one org (Admin → Organisations → Edit → Admin-allowed components;
+  `AdminService.List/Add/RemoveOrgStrictComponent`, audited as `org.strict_component.add` /
+  `.remove` with `reviewed: false`). It lifts only that refusal — every other strict check still
+  applies to the component — and the UI marks each entry "admin-allowed, unreviewed". A component
+  strict mode already accepts is refused (`invalid_argument`); removing an entry is refused
+  (`failed_precondition`, naming the pipelines) while the org is strict and an enabled pipeline
+  uses it, as for the import allowlist (only enabled pipelines are checked; a disabled one that
+  uses the component is refused when it is enabled). Both changes recompute the org's served configs.
+  Migration `0047` adds `org_strict_components`. (#421)
+
 ### Fixed
 
 - **The Reconciliation tab reads "nothing running", not "unknown", after the sweep.** Shipped. A
@@ -45,6 +90,15 @@ Categories used here:
   comment ended up on the inserted block's closing line. The block now goes after a comment that
   ends the exporter's closing line. Only the served text of a strict org's pipeline with such a
   comment changes (its collectors reload once); non-strict orgs are served the same bytes.
+
+### Tests
+
+- **A real-Alloy regression suite for strict tenant mode.** `make e2e-strict` runs
+  a strict org's collector against a recording sink and checks the tenant each push arrives
+  under: every refused construct is refused at save and, stored directly, left out of the served
+  config; every accepted one arrives under the org's tenant only. `e2e-strict.yml` runs it on PRs
+  touching the lint, the serve-time check, the policy, pinned modules or the schemas, on Alloy
+  pin bumps, weekly, and on demand. (#421)
 
 ## v0.20.0
 

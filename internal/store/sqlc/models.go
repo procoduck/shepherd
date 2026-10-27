@@ -226,6 +226,14 @@ type OrgMember struct {
 	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
 }
 
+type OrgStrictComponent struct {
+	ID        pgtype.UUID        `json:"id"`
+	OrgID     pgtype.UUID        `json:"org_id"`
+	Component string             `json:"component"`
+	CreatedBy string             `json:"created_by"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
 type OrgTenant struct {
 	OrgID     pgtype.UUID        `json:"org_id"`
 	Tenant    string             `json:"tenant"`

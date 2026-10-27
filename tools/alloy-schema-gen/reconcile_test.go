@@ -131,3 +131,26 @@ var _ = Describe("escapeNonASCII", func() {
 		Expect(string(got)).To(Equal(`{"a": "b"}`))
 	})
 })
+
+var _ = Describe("retireStrictClassifications (#421)", func() {
+	It("keeps a vanished component's strict classification in strict_retired", func() {
+		strict := map[string]any{"class": "allowed", "reason": "r"}
+		overlayComponents := map[string]any{
+			"prometheus.write.queue": map[string]any{"strict": strict},
+			"discovery.gone":         map[string]any{"category": "sources"},
+			"loki.write":             map[string]any{"strict": map[string]any{"class": "checked"}},
+		}
+		overlay := map[string]any{"components": overlayComponents}
+		retireStrictClassifications(map[string]any{"loki.write": map[string]any{}}, overlayComponents, overlay)
+		Expect(overlay["strict_retired"]).To(Equal(map[string]any{"prometheus.write.queue": strict}))
+
+		reconcileComponents(map[string]any{"loki.write": map[string]any{}}, overlayComponents)
+		Expect(overlayComponents).To(HaveLen(1))
+	})
+
+	It("adds nothing when no classified component vanished", func() {
+		overlay := map[string]any{}
+		retireStrictClassifications(map[string]any{}, map[string]any{"discovery.gone": map[string]any{}}, overlay)
+		Expect(overlay).NotTo(HaveKey("strict_retired"))
+	})
+})

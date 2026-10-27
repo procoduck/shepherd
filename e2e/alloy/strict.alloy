@@ -1,0 +1,15 @@
+// The strict tenant suite's collector (e2e/strict_tenant_test.go): cluster
+// strict-cluster, role singleton, in the strict org e2e-strict. Its pipelines
+// read this file (loki.source.file) and write to the recording sink.
+remotecfg {
+  url = "http://shepherd:8080"
+  basic_auth {
+    username = "00000000-e2e0-4000-a000-000000000002"
+    password = "e2e-strict-secret-not-a-real-one"
+  }
+  attributes = {
+    cluster = "strict-cluster",
+    role    = "singleton",
+  }
+  poll_frequency = "10s"
+}
