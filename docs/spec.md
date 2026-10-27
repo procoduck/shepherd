@@ -294,6 +294,10 @@ orgs(id, name text UNIQUE, display_name text,
 --        commit, path) — strict mode's pinned import.git (§8 "Pinned import.git")
 --   0045 pipeline_tenant_exclusions (pipeline_id, org_id, reason, excluded_at) — the
 --        pipelines strict mode's serve-time check excludes now (§8 "Serve-time check")
+--   0046 beacon_inventory.instance_reported_at timestamptz NULL — when the row's
+--        instance last reported, stamped by every accepted beacon write (one even
+--        with no pipeline series); reconciliation counts a row as running only
+--        within 15 s of it (NULL: within 15 s of the instance's newest row)
 
 org_tenants(org_id uuid REFERENCES orgs ON DELETE CASCADE,       -- 0039; app admin writes only
            tenant text, kind text CHECK (kind IN ('exact','prefix')),

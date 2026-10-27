@@ -256,11 +256,30 @@ func (s *FleetService) reconcileObserved(ctx context.Context, collectorID pgtype
 	}
 	now := s.now()
 	staleBefore := now.Add(-beaconStaleAfter)
+	// The inventory is current while its instance reports, judged by the same
+	// report time ObserveBeacon uses: an instance whose only pipeline was
+	// dropped still stamps instance_reported_at on its rows (0046), and that
+	// is a positive "none running", not UNKNOWN.
+	beaconRows := make([]reconcile.BeaconRow, 0, len(rows))
 	fresh := false
 	for i := range rows {
-		if rows[i].LastSeen.Valid && !rows[i].LastSeen.Time.Before(staleBefore) {
+		r := rows[i]
+		if !r.LastSeen.Valid {
+			continue
+		}
+		br := reconcile.BeaconRow{
+			Instance: r.InstanceLabel, Component: r.ComponentName,
+			Healthy: r.Healthy, LastSeen: r.LastSeen.Time,
+		}
+		if r.InstanceReportedAt.Valid {
+			br.ReportedAt = r.InstanceReportedAt.Time
+		}
+		if !reconcile.LastReport(br).Before(staleBefore) {
 			fresh = true
-			break
+		}
+		// Only managed pipelines are reconciled; unmanaged rows count above.
+		if strings.HasPrefix(r.ComponentName, managedControllerPrefix) {
+			beaconRows = append(beaconRows, br)
 		}
 	}
 	if !fresh {
@@ -275,18 +294,7 @@ func (s *FleetService) reconcileObserved(ctx context.Context, collectorID pgtype
 	}
 	// Only rows the instance's latest report refreshed count as running
 	// (reconcile.ObserveBeacon): a pipeline disabled and dropped by a reload
-	// stops being refreshed while its siblings keep refreshing.
-	beaconRows := make([]reconcile.BeaconRow, 0, len(rows))
-	for i := range rows {
-		r := rows[i]
-		if !strings.HasPrefix(r.ComponentName, managedControllerPrefix) || !r.LastSeen.Valid {
-			continue
-		}
-		beaconRows = append(beaconRows, reconcile.BeaconRow{
-			Instance: r.InstanceLabel, Component: r.ComponentName,
-			Healthy: r.Healthy, LastSeen: r.LastSeen.Time,
-		})
-	}
+	// stops being refreshed while the instance keeps reporting.
 	comps := reconcile.ObserveBeacon(beaconRows, staleBefore)
 	// A current inventory counts unmanaged components too: one holding none
 	// of the managed pipelines is a positive "none running", while no current

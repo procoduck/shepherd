@@ -665,4 +665,78 @@ var _ = Describe("BeaconHandler", Label("integration"), func() {
 		Expect(after["pipe_keep"]).To(BeTemporally(">", before["pipe_keep"]))
 		Expect(after["pipe_gone"]).To(Equal(before["pipe_gone"]), "a staleness marker is not a report")
 	})
+
+	// 0.21 re-walk: once the only pipeline on a collector is disabled, the
+	// beacon writes carry no pipeline series, so no row is refreshed and the
+	// dropped row stays the instance's newest. Every accepted write stamps
+	// the instance's report time (instance_reported_at, 0046) on its rows, so
+	// reconciliation can see the row fall behind the report.
+	Describe("the instance's report stamp", func() {
+		const inst = "10.0.0.15:12345"
+		type stamp struct{ lastSeen, reportedAt time.Time }
+		stamps := func() map[string]stamp {
+			rows, err := st.Queries.ListBeaconInventoryByPrincipal(ctx, tokenID)
+			Expect(err).NotTo(HaveOccurred())
+			out := map[string]stamp{}
+			for _, r := range rows {
+				Expect(r.InstanceReportedAt.Valid).To(BeTrue(), r.ComponentName+" has no report stamp")
+				out[r.ComponentName] = stamp{r.LastSeen.Time, r.InstanceReportedAt.Time}
+			}
+			return out
+		}
+		// previousScrape backdates every row to a scrape 70s ago, past the
+		// handler's 5s stamp throttle.
+		previousScrape := func() {
+			// RAW-SQL-OK: backdating last_seen/instance_reported_at to the previous scrape — no sqlc query sets them
+			_, err := st.Pool().Exec(ctx, `UPDATE beacon_inventory SET last_seen = now() - interval '70 seconds', instance_reported_at = now() - interval '70 seconds'`)
+			Expect(err).NotTo(HaveOccurred())
+		}
+		rootOnly := func() []byte {
+			return encodeWrite([][]prompb.Label{controllerSeries(inst, "/", "remotecfg", "healthy")}, 1)
+		}
+
+		BeforeEach(func() {
+			Expect(postRaw(encodeWrite([][]prompb.Label{healthySeries(inst, "pipe_sole")}, 1), authHeader).StatusCode).To(Equal(http.StatusNoContent))
+			Expect(stamps()).To(HaveKey("pipe_sole"))
+			previousScrape()
+		})
+
+		It("is stamped by a write that carries no pipeline series", func() {
+			Expect(postRaw(rootOnly(), authHeader).StatusCode).To(Equal(http.StatusNoContent))
+			s := stamps()["pipe_sole"]
+			Expect(s.reportedAt).To(BeTemporally(">", s.lastSeen.Add(time.Minute)),
+				"the report moved on while the dropped pipeline's row did not")
+		})
+
+		It("is stamped alongside a sibling the write still carries", func() {
+			Expect(postRaw(encodeWrite([][]prompb.Label{healthySeries(inst, "pipe_sibling")}, 1), authHeader).StatusCode).To(Equal(http.StatusNoContent))
+			got := stamps()
+			Expect(got["pipe_sibling"].reportedAt).To(BeTemporally("~", got["pipe_sibling"].lastSeen, 5*time.Second))
+			Expect(got["pipe_sole"].reportedAt).To(BeTemporally("~", got["pipe_sibling"].reportedAt, 5*time.Second))
+			Expect(got["pipe_sole"].reportedAt).To(BeTemporally(">", got["pipe_sole"].lastSeen.Add(time.Minute)))
+		})
+
+		It("is not stamped by a refused write", func() {
+			before := stamps()["pipe_sole"]
+
+			// Unauthenticated.
+			Expect(postRaw(rootOnly(), "").StatusCode).To(Equal(http.StatusUnauthorized))
+			// An unbound token.
+			hash := sha256.Sum256([]byte("unbound-stamp"))
+			unbound, err := st.Queries.CreateAgentToken(ctx, sqlc.CreateAgentTokenParams{Name: "unbound-stamp", TokenHash: hash[:], CreatedBy: "test"})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(postRaw(rootOnly(), "Basic "+base64.StdEncoding.EncodeToString([]byte(unbound.ID.String()+":unbound-stamp"))).StatusCode).To(Equal(http.StatusNoContent))
+			// A token bound to another org, naming this org's collector.
+			other, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{Name: "beacon-stamp-other", DisplayName: "Other", AdminGroupID: "gso"})
+			Expect(err).NotTo(HaveOccurred())
+			hash = sha256.Sum256([]byte("other-stamp"))
+			foreign, err := st.Queries.CreateAgentToken(ctx, sqlc.CreateAgentTokenParams{Name: "other-stamp", TokenHash: hash[:], CreatedBy: "test", OrgID: other.ID})
+			Expect(err).NotTo(HaveOccurred())
+			deniedBefore := denied()
+			Expect(postRaw(rootOnly(), "Basic "+base64.StdEncoding.EncodeToString([]byte(foreign.ID.String()+":other-stamp"))).StatusCode).To(Equal(http.StatusNoContent))
+			Expect(denied() - deniedBefore).To(Equal(1.0))
+
+			Expect(stamps()["pipe_sole"]).To(Equal(before), "a refused write is no report")
+		})
+	})
 })

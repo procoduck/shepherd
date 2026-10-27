@@ -1,0 +1,21 @@
+-- 0046_beacon_instance_reported_at.up.sql
+--
+-- When the reporting instance last reported, kept on each of its rows.
+--
+-- Reconciliation counts a beacon_inventory row as running only if the
+-- instance's latest report refreshed it. Until now "latest report" was read
+-- off the instance's newest row, but a write refreshes only the rows of the
+-- pipelines it carries: once the only pipeline on a collector is disabled,
+-- Alloy's beacon writes carry no pipeline series at all, so the dropped
+-- pipeline's row stays the newest and kept reading as running until the
+-- sweeper deleted it (0.21 walkthrough).
+--
+-- The beacon handler now stamps this column on every row of
+-- (collector_id, instance_label) on each write it accepts, including one that
+-- carries no pipeline series. A row whose last_seen trails it by more than
+-- reconcile.LatestReportTolerance is not running.
+--
+-- Nullable, no default: a row last written by a Shepherd that predates this
+-- column (or by an older replica during a rolling upgrade) has NULL here, and
+-- reconciliation then falls back to the instance's newest last_seen, as before.
+ALTER TABLE beacon_inventory ADD COLUMN instance_reported_at timestamptz;
