@@ -49,3 +49,27 @@ DELETE FROM beacon_inventory WHERE last_seen < $1;
 UPDATE beacon_inventory SET instance_reported_at = now()
 WHERE collector_id = $1 AND instance_label = $2
   AND (instance_reported_at IS NULL OR instance_reported_at < now() - interval '5 seconds');
+
+-- name: RecordBeaconInstanceLastReport :exec
+-- Records "this instance reported now" in beacon_instance_reports (0047), the
+-- record that outlives the instance's beacon_inventory rows: once the sweeper
+-- has deleted the rows of a collector whose only pipeline was dropped, this
+-- row is what still tells reconciliation the instance reports and runs none.
+-- Run by the beacon handler on every accepted write, next to
+-- RecordBeaconInstanceReport, with the same 5-second throttle in the
+-- statement (the conditional DO UPDATE leaves a fresh row alone).
+INSERT INTO beacon_instance_reports (collector_id, instance_label, reported_at)
+VALUES ($1, $2, now())
+ON CONFLICT (collector_id, instance_label) DO UPDATE SET reported_at = now()
+WHERE beacon_instance_reports.reported_at < now() - interval '5 seconds';
+
+-- name: ListBeaconInstanceReportsByCollector :many
+-- Every instance's last report under one collector (0047): reconciliation's
+-- evidence that an instance is reporting when it has no beacon_inventory row.
+SELECT * FROM beacon_instance_reports WHERE collector_id = $1 ORDER BY instance_label;
+
+-- name: DeleteExpiredBeaconInstanceReports :execrows
+-- Called from agentapi's sweeper with the instance lifecycle's cutoff
+-- (agent.delete_after, as DeleteOldInstances): a report record lives as long
+-- as an instance that stopped polling would, not as long as its beacon rows.
+DELETE FROM beacon_instance_reports WHERE reported_at < $1;

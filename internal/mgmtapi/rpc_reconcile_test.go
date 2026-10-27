@@ -318,6 +318,49 @@ var _ = Describe("shepherd.mgmt.v1.FleetService/GetReconciliation", Label("integ
 		})
 	})
 
+	// v0.20.0 follow-up: once the sweeper deleted the rows of a collector
+	// whose only pipeline was dropped, no row carried the 0046 stamp and the
+	// tab read "unknown" although the instance still reported. The last-report
+	// record (0047) outlives the rows.
+	Context("after the sweeper deleted the instance's rows", func() {
+		recordReport := func() {
+			Expect(st.Queries.RecordBeaconInstanceLastReport(ctx, sqlc.RecordBeaconInstanceLastReportParams{
+				CollectorID: collID, InstanceLabel: "10.0.0.1:12345",
+			})).To(Succeed())
+		}
+		sweepRows := func() {
+			_, err := st.Queries.DeleteExpiredBeaconInventory(ctx, pgtype.Timestamptz{Time: time.Now().Add(time.Minute), Valid: true})
+			Expect(err).NotTo(HaveOccurred())
+		}
+
+		It("reads nothing running while the live instance still reports", func() {
+			observe("pipe_ghost", true)
+			recordReport()
+			sweepRows()
+			recordReport() // the next write: no pipeline series at all
+			Expect(observedKnown()).To(BeTrue(), "the instance is reporting: none running is known")
+			Expect(findings()).To(BeEmpty())
+		})
+
+		It("reads unknown once the record is older than the stale window", func() {
+			recordReport()
+			// RAW-SQL-OK: backdating reported_at past the stale window — no sqlc query sets it
+			_, err := st.Pool().Exec(ctx, `UPDATE beacon_instance_reports SET reported_at = now() - interval '6 minutes'`)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(observedKnown()).To(BeFalse())
+		})
+
+		It("reads unknown when the collector has no live instance, whatever the record says", func() {
+			recordReport()
+			Expect(st.Queries.UnregisterInstance(ctx, reconInstanceID)).To(Succeed())
+			Expect(observedKnown()).To(BeFalse())
+		})
+
+		It("reads unknown with no record and no rows (the pre-0047 behaviour)", func() {
+			Expect(observedKnown()).To(BeFalse())
+		})
+	})
+
 	// 0.21 walkthrough: with the collector's only deployment scaled to 0 its
 	// instance unregistered and showed "Last seen unknown", but its beacon
 	// rows lived on until the sweeper deleted them, and for ~8.5 minutes the

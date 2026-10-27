@@ -114,6 +114,50 @@ func TestObserveBeacon_UnknownReportTimeFallsBackToNewestRow(t *testing.T) {
 	}
 }
 
+// TestInventoryCurrent_ReportRecordOutlivesSweptRows pins the v0.20.0
+// follow-up: a collector whose only pipeline was dropped kept reporting, the
+// sweeper deleted its rows by last_seen, and the tab read "unknown". The
+// instance's last-report record (0047) is evidence on its own.
+func TestInventoryCurrent_ReportRecordOutlivesSweptRows(t *testing.T) {
+	now := time.Date(2026, 10, 27, 12, 0, 0, 0, time.UTC)
+	staleBefore := now.Add(-5 * time.Minute)
+	if InventoryCurrent(nil, nil, staleBefore) {
+		t.Fatal("no rows and no record: want not current (unknown)")
+	}
+	if !InventoryCurrent(nil, map[string]time.Time{"pod-a:12345": now.Add(-30 * time.Second)}, staleBefore) {
+		t.Fatal("a recent record with every row swept: want current")
+	}
+	if InventoryCurrent(nil, map[string]time.Time{"pod-a:12345": now.Add(-6 * time.Minute)}, staleBefore) {
+		t.Fatal("a record older than the stale window: want not current")
+	}
+	stale := []BeaconRow{{Instance: "pod-a:12345", Component: "pipe_x", LastSeen: now.Add(-6 * time.Minute)}}
+	if InventoryCurrent(stale, nil, staleBefore) {
+		t.Fatal("only rows older than the stale window: want not current")
+	}
+}
+
+// TestWithReports_RecordDropsARowTheReportNoLongerCarries pins that the
+// record moves the instance's last report on like the 0046 stamp does, and
+// that a missing record changes nothing (rolling-upgrade fallback).
+func TestWithReports_RecordDropsARowTheReportNoLongerCarries(t *testing.T) {
+	now := time.Date(2026, 10, 27, 12, 0, 0, 0, time.UTC)
+	staleBefore := now.Add(-5 * time.Minute)
+	rows := []BeaconRow{{Instance: "pod-a:12345", Component: "pipe_ghost", Healthy: true, LastSeen: now.Add(-70 * time.Second)}}
+
+	if got := ObserveBeacon(WithReports(rows, nil), staleBefore); len(got) != 1 {
+		t.Fatalf("no record: want the newest row still counted (pre-0047 rule), got %v", got)
+	}
+	if got := ObserveBeacon(WithReports(rows, map[string]time.Time{"pod-b:1": now}), staleBefore); len(got) != 1 {
+		t.Fatalf("another instance's record: want this instance unaffected, got %v", got)
+	}
+	if got := ObserveBeacon(WithReports(rows, map[string]time.Time{"pod-a:12345": now}), staleBefore); len(got) != 0 {
+		t.Fatalf("a newer record: want the row the report no longer carries dropped, got %v", got)
+	}
+	if !rows[0].ReportedAt.IsZero() {
+		t.Fatal("WithReports must not mutate its input")
+	}
+}
+
 func componentNames(cs []ObservedComponent) []string {
 	out := make([]string, len(cs))
 	for i := range cs {

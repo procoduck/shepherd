@@ -163,6 +163,49 @@ var _ = Describe("Sweeper", Label("integration"), func() {
 		Expect(rows[0].InstanceLabel).To(Equal("fresh-instance"))
 	})
 
+	// v0.20.0 follow-up: an instance's last-report record (0047) outlives its
+	// beacon rows — swept with the instance lifecycle (agent.delete_after),
+	// not with beaconInventoryExpireAfter — so reconciliation still knows a
+	// live instance that runs no pipeline once its rows are gone.
+	It("keeps an instance's last-report record past the beacon expiry, and deletes it past delete_after", func() {
+		var coll pgtype.UUID
+		Expect(coll.Scan("6f1c2a52-6ad5-4c37-9b7e-0a7c3c0b5d11")).To(Succeed())
+		recordAt := func(instance string, ago time.Duration) {
+			Expect(st.Queries.RecordBeaconInstanceLastReport(ctx, sqlc.RecordBeaconInstanceLastReportParams{
+				CollectorID: coll, InstanceLabel: instance,
+			})).To(Succeed())
+			// RAW-SQL-OK: backdating reported_at for a sweep test — RecordBeaconInstanceLastReport always writes now()
+			_, err := st.Pool().Exec(ctx, `UPDATE beacon_instance_reports SET reported_at = $2 WHERE instance_label = $1`,
+				instance, time.Now().Add(-ago))
+			Expect(err).NotTo(HaveOccurred())
+		}
+		recordAt("past-beacon-expiry", 10*time.Minute)
+		recordAt("past-delete-after", 25*time.Hour)
+		recordAt("fresh", 0)
+		labels := func() []string {
+			recs, err := st.Queries.ListBeaconInstanceReportsByCollector(ctx, coll)
+			Expect(err).NotTo(HaveOccurred())
+			out := []string{}
+			for _, r := range recs {
+				out = append(out, r.InstanceLabel)
+			}
+			return out
+		}
+
+		// delete_after unset: instances are never deleted, but the record
+		// still ages out after beaconInstanceReportFallbackExpiry (24h), so
+		// the table stays bounded under churning instance labels.
+		NewSweeper(st, &config.AgentConfig{SweepInterval: time.Minute}, slog.Default()).sweep(ctx)
+		Expect(labels()).To(ConsistOf("past-beacon-expiry", "fresh"))
+
+		recordAt("past-delete-after", 25*time.Hour)
+		NewSweeper(st, &config.AgentConfig{InactiveAfter: time.Hour, DeleteAfter: 24 * time.Hour, SweepInterval: time.Minute}, slog.Default()).sweep(ctx)
+		Expect(labels()).To(ConsistOf("past-beacon-expiry", "fresh"))
+
+		NewSweeper(st, &config.AgentConfig{InactiveAfter: time.Minute, DeleteAfter: 5 * time.Minute, SweepInterval: time.Minute}, slog.Default()).sweep(ctx)
+		Expect(labels()).To(ConsistOf("fresh"))
+	})
+
 	// #237: the sweeper no longer writes 'inactive' into remote_config_status;
 	// staleness is derived from last_seen at read time.
 	Describe("collector instances", func() {

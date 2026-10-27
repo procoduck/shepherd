@@ -12,6 +12,7 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"time"
 
 	"github.com/golang/snappy"
@@ -690,6 +691,21 @@ var _ = Describe("BeaconHandler", Label("integration"), func() {
 			// RAW-SQL-OK: backdating last_seen/instance_reported_at to the previous scrape — no sqlc query sets them
 			_, err := st.Pool().Exec(ctx, `UPDATE beacon_inventory SET last_seen = now() - interval '70 seconds', instance_reported_at = now() - interval '70 seconds'`)
 			Expect(err).NotTo(HaveOccurred())
+			// RAW-SQL-OK: backdating the instance's last-report record (0047) with the rows
+			_, err = st.Pool().Exec(ctx, `UPDATE beacon_instance_reports SET reported_at = now() - interval '70 seconds'`)
+			Expect(err).NotTo(HaveOccurred())
+		}
+		// lastReports is the collector's last-report records (0047), by instance.
+		lastReports := func() map[string]time.Time {
+			var coll pgtype.UUID
+			Expect(coll.Scan(anyCollector)).To(Succeed())
+			recs, err := st.Queries.ListBeaconInstanceReportsByCollector(ctx, coll)
+			Expect(err).NotTo(HaveOccurred())
+			out := map[string]time.Time{}
+			for _, r := range recs {
+				out[r.InstanceLabel] = r.ReportedAt.Time
+			}
+			return out
 		}
 		rootOnly := func() []byte {
 			return encodeWrite([][]prompb.Label{controllerSeries(inst, "/", "remotecfg", "healthy")}, 1)
@@ -718,6 +734,8 @@ var _ = Describe("BeaconHandler", Label("integration"), func() {
 
 		It("is not stamped by a refused write", func() {
 			before := stamps()["pipe_sole"]
+			reportsBefore := lastReports()
+			Expect(reportsBefore).To(HaveKey(inst))
 
 			// Unauthenticated.
 			Expect(postRaw(rootOnly(), "").StatusCode).To(Equal(http.StatusUnauthorized))
@@ -737,6 +755,39 @@ var _ = Describe("BeaconHandler", Label("integration"), func() {
 			Expect(denied() - deniedBefore).To(Equal(1.0))
 
 			Expect(stamps()["pipe_sole"]).To(Equal(before), "a refused write is no report")
+			Expect(lastReports()).To(Equal(reportsBefore), "a refused write records no last report (0047)")
+		})
+
+		// v0.20.0 follow-up: the sweeper deletes rows by last_seen, so the
+		// report must also live in a record of its own (0047) that a write
+		// carrying no pipeline series keeps current with no row left at all.
+		It("records the last report apart from the rows, also with every row deleted", func() {
+			Expect(postRaw(rootOnly(), authHeader).StatusCode).To(Equal(http.StatusNoContent))
+			first := lastReports()
+			Expect(first).To(HaveKey(inst))
+
+			// RAW-SQL-OK: deleting every beacon row as the sweeper would, and backdating the record past the throttle
+			_, err := st.Pool().Exec(ctx, `DELETE FROM beacon_inventory; UPDATE beacon_instance_reports SET reported_at = now() - interval '70 seconds'`)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(postRaw(rootOnly(), authHeader).StatusCode).To(Equal(http.StatusNoContent))
+			got := lastReports()
+			Expect(got).To(HaveLen(1))
+			Expect(got[inst]).To(BeTemporally("~", time.Now(), 5*time.Second))
+		})
+
+		It("records nothing, and still answers 204, for an instance label past the table's bound", func() {
+			long := strings.Repeat("é", 257) // 257 characters, as Postgres counts them
+			Expect(postRaw(encodeWrite([][]prompb.Label{controllerSeries(long, "/", "remotecfg", "healthy")}, 1), authHeader).StatusCode).
+				To(Equal(http.StatusNoContent))
+			Expect(lastReports()).NotTo(HaveKey(long))
+		})
+
+		It("throttles the record like the row stamp", func() {
+			Expect(postRaw(rootOnly(), authHeader).StatusCode).To(Equal(http.StatusNoContent))
+			first := lastReports()[inst]
+			time.Sleep(20 * time.Millisecond)
+			Expect(postRaw(rootOnly(), authHeader).StatusCode).To(Equal(http.StatusNoContent))
+			Expect(lastReports()[inst]).To(Equal(first), "a second write within 5s leaves the record alone")
 		})
 	})
 })

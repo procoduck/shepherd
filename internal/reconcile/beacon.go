@@ -73,6 +73,44 @@ func LastReport(r BeaconRow) time.Time {
 	return latest(r.LastSeen, r.ReportedAt)
 }
 
+// WithReports folds each instance's last-report record (beacon_instance_
+// reports, 0047) into its rows' ReportedAt, keeping the later of the record
+// and the row's own 0046 stamp. A missing record leaves the row as it was — a
+// Shepherd mid-upgrade, or an older replica that never wrote one — so the rule
+// falls back to the 0046 stamp and then to the newest row, as before. The
+// input is not modified.
+func WithReports(rows []BeaconRow, reports map[string]time.Time) []BeaconRow {
+	if len(reports) == 0 {
+		return rows
+	}
+	out := make([]BeaconRow, len(rows))
+	for i := range rows {
+		out[i] = rows[i]
+		out[i].ReportedAt = latest(out[i].ReportedAt, reports[rows[i].Instance])
+	}
+	return out
+}
+
+// InventoryCurrent reports whether a collector's beacon evidence says what
+// runs now: some instance reported at or after staleBefore, either on one of
+// its rows (LastReport) or in its last-report record. The record outlives the
+// rows — the sweeper deletes rows by last_seen — so a live instance whose only
+// pipeline was dropped and whose rows were swept is still current, and its
+// observed set is empty ("nothing running"), not unknown.
+func InventoryCurrent(rows []BeaconRow, reports map[string]time.Time, staleBefore time.Time) bool {
+	for i := range rows {
+		if !LastReport(rows[i]).Before(staleBefore) {
+			return true
+		}
+	}
+	for _, at := range reports {
+		if !at.Before(staleBefore) {
+			return true
+		}
+	}
+	return false
+}
+
 func latest(a, b time.Time) time.Time {
 	if b.After(a) {
 		return b

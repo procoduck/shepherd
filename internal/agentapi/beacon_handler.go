@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"connectrpc.com/connect"
 	"github.com/jackc/pgx/v5"
@@ -30,6 +31,10 @@ import (
 // same "every emitted endpoint must resolve to a rendered route" discipline
 // G7 holds W7's onboarding artifacts to (docs/gateway-tier-plan.md §6).
 const BeaconWritePath = beacon.WritePath
+
+// maxBeaconInstanceLabel is the instance_label length bound of
+// beacon_inventory (0010) and beacon_instance_reports (0047).
+const maxBeaconInstanceLabel = 256
 
 // BeaconHandler is the G5 endpoint: Prometheus remote_write ingest,
 // authenticated by the same agent-token Basic Auth every other agentapi
@@ -362,6 +367,26 @@ func (h *BeaconHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		CollectorID: collectorUUID, InstanceLabel: instanceLabel,
 	}); err != nil {
 		h.logger.Error("beacon: recording instance report failed", "err", err,
+			"principal", principal, "instance", instanceLabel)
+		http.Error(w, "beacon: storing observation failed", http.StatusInternalServerError)
+		return
+	}
+	// And in the instance's last-report record (0047), which the sweeper
+	// keeps with the instance lifecycle rather than with the rows: once the
+	// rows of a collector whose only pipeline was dropped are swept, this is
+	// what still says the instance reports and runs none. The 0046 stamp
+	// above stays for older replicas mid-upgrade. A label past the table's
+	// length bound (the same as beacon_inventory's) is no instance a row
+	// could be stored for either: no record, rather than a 500 that
+	// remote_write would retry forever.
+	if utf8.RuneCountInString(instanceLabel) > maxBeaconInstanceLabel {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if err := h.store.Queries.RecordBeaconInstanceLastReport(r.Context(), sqlc.RecordBeaconInstanceLastReportParams{
+		CollectorID: collectorUUID, InstanceLabel: instanceLabel,
+	}); err != nil {
+		h.logger.Error("beacon: recording instance last report failed", "err", err,
 			"principal", principal, "instance", instanceLabel)
 		http.Error(w, "beacon: storing observation failed", http.StatusInternalServerError)
 		return
