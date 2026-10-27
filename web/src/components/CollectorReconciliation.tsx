@@ -113,7 +113,7 @@ export function CollectorReconciliation({
             data-testid='reconciliation-observed-unknown'
           >
             <p className='font-medium'>
-              Observed state unknown — no beacon data from this collector yet.
+              Observed state unknown — no recent beacon data from this collector.
             </p>
             <p className='mt-1'>
               Declared and served agree, but nothing has reported what is running. The

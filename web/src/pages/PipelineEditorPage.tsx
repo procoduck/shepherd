@@ -5,6 +5,7 @@ import { useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { clients } from '@/api/transport';
 import { DetachFromWizard } from '@/components/DetachFromWizard';
+import { EditorProblemsPanel } from '@/components/EditorProblemsPanel';
 import { HandEditConfirmDialog, wouldHandEdit } from '@/components/HandEditConfirmDialog';
 import { PipelineActions } from '@/components/PipelineActions';
 import { PipelineEditorToolbar } from '@/components/PipelineEditorToolbar';
@@ -212,7 +213,6 @@ export function PipelineEditorPage() {
     saveMutation.reset();
   };
 
-  const hasDiagnostics = diagnostics.length > 0;
   // Read-only for whoever may not write this pipeline (canEdit above) and for
   // git-managed pipelines (git is the source of truth).
   const readOnly = !canEdit || pipeline?.source === 'git';
@@ -376,6 +376,7 @@ export function PipelineEditorPage() {
               showStatus={canEdit}
               validating={validating}
               problems={diagnostics.filter((d) => !d.warning).length}
+              warnings={diagnostics.filter((d) => d.warning).length}
               alloyValidateSkipped={skippedStages.includes(2)}
               wrapLines={wrapLines}
               onWrapLines={setWrapLines}
@@ -410,21 +411,7 @@ export function PipelineEditorPage() {
               />
             </div>
 
-            {/* Problems panel */}
-            {hasDiagnostics && (
-              <div className='max-h-40 overflow-y-auto border-t border-border bg-background p-2 space-y-1'>
-                {diagnostics.map((d, i) => (
-                  <p
-                    key={i}
-                    className={`font-mono text-xs ${d.warning ? 'text-warn' : 'text-red-400'}`}
-                    data-testid={d.warning ? 'editor-warning' : 'editor-problem'}
-                  >
-                    {d.line}:{d.col} &nbsp; {d.warning ? 'warning: ' : ''}
-                    {d.message}
-                  </p>
-                ))}
-              </div>
-            )}
+            <EditorProblemsPanel diagnostics={diagnostics} />
           </>
         )}
       </div>

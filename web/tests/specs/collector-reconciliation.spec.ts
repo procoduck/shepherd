@@ -47,7 +47,7 @@ test('reconciliation tab says observed state is unknown when the beacon has repo
 
   const unknown = page.getByTestId('reconciliation-observed-unknown');
   await expect(unknown).toContainText(
-    'Observed state unknown — no beacon data from this collector yet',
+    'Observed state unknown — no recent beacon data from this collector',
   );
   await expect(unknown).toContainText('SHEPHERD_AGENT_TOKEN_ID');
   await expect(unknown.getByRole('link')).toHaveAttribute('href', /docs\/collectors\.html/);

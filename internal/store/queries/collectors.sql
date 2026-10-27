@@ -59,13 +59,24 @@ UPDATE collectors
 SET last_refused_at = now(), last_refused_reason = sqlc.arg(reason)::text
 WHERE id = sqlc.arg(id);
 
+-- name: LockCollectorVersionWarning :one
+-- The stored version warning, locked for the transaction that replaces it:
+-- serve.RecordVersionCheck compares it with the new one, ignoring served-config
+-- line numbers, to decide whether the change is audited. The lock keeps two
+-- polls reaching the same new finding from both seeing the old one.
+SELECT version_warning FROM collectors WHERE id = $1 FOR UPDATE;
+
 -- name: SetCollectorVersionWarning :one
 -- #375 (0044): a compare-and-swap on version_warning, so concurrent polls
 -- that reach the same finding write — and audit — it once. No row means the
--- stored warning already says this.
+-- stored warning already says this. keep_since keeps version_warning_at for a
+-- warning whose findings only moved lines (serve.RecordVersionCheck): it is
+-- the same warning, standing since then.
 UPDATE collectors
 SET version_warning    = sqlc.narg(warning)::text,
-    version_warning_at = CASE WHEN sqlc.narg(warning)::text IS NULL THEN NULL ELSE now() END,
+    version_warning_at = CASE WHEN sqlc.narg(warning)::text IS NULL THEN NULL
+                              WHEN sqlc.arg(keep_since)::bool AND version_warning_at IS NOT NULL THEN version_warning_at
+                              ELSE now() END,
     version_mismatch   = sqlc.arg(mismatch)::bool
 WHERE id = sqlc.arg(id)
   AND version_warning IS DISTINCT FROM sqlc.narg(warning)::text

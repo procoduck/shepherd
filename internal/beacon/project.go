@@ -2,10 +2,12 @@ package beacon
 
 import (
 	"errors"
+	"math"
 	"path"
 	"sort"
 	"strings"
 
+	"github.com/prometheus/prometheus/model/value"
 	"github.com/prometheus/prometheus/prompb"
 )
 
@@ -170,7 +172,20 @@ func Project(wr *prompb.WriteRequest) (instanceLabel, collectorID string, observ
 			continue
 		}
 		key := loaderBucket{pipeline: pipeline, loader: path.Join(controllerPath, controllerID), healthType: healthType}
-		latest[key] = ts.Samples[len(ts.Samples)-1].Value
+		v := ts.Samples[len(ts.Samples)-1].Value
+		if value.IsStaleNaN(v) {
+			// A staleness marker: remote_write sends one, in the next
+			// scrape, for a series the scrape no longer produced — here a
+			// loader Alloy unloaded (a disabled pipeline). It ends the
+			// series, as Prometheus reads it (no lookback reaches past it),
+			// so it is no sample: the bucket is absent, and a pipeline whose
+			// every bucket went stale is not observed at all (0.21
+			// walkthrough: taken as a value, the marker's NaN refreshed the
+			// unloaded pipeline's row as healthy for one more cycle).
+			delete(latest, key)
+			continue
+		}
+		latest[key] = v
 	}
 
 	if mixedCollectorIDs {
@@ -208,7 +223,17 @@ func Project(wr *prompb.WriteRequest) (instanceLabel, collectorID string, observ
 // health_type -> count map — describes an all-healthy component group: at
 // least one component counted as healthy, and zero counted in any other
 // bucket.
+//
+// A non-finite count (an ordinary NaN or an infinity; staleness markers
+// never get here) is no count of components, so it is never healthy, in
+// whichever bucket it appears: NaN compares false with everything, and
+// would otherwise pass both checks below.
 func isHealthy(byHealthType map[string]float64) bool {
+	for _, count := range byHealthType {
+		if math.IsNaN(count) || math.IsInf(count, 0) {
+			return false
+		}
+	}
 	if byHealthType[healthTypeHealthy] <= 0 {
 		return false
 	}

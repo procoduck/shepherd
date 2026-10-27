@@ -267,6 +267,13 @@ func (s *AdminService) UpdateOrg(ctx context.Context, req *connect.Request[mgmtv
 	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck // no-op once committed; rollback error on the success path is expected and harmless
 	txQ := s.store.Queries.WithTx(tx)
 
+	before, err := txQ.GetOrgByID(ctx, id)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, connect.NewError(connect.CodeNotFound, errors.New("org not found"))
+		}
+		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to update org"))
+	}
 	o, err := txQ.UpdateOrg(ctx, sqlc.UpdateOrgParams{
 		ID:                          id,
 		DisplayName:                 msg.GetDisplayName(),
@@ -283,9 +290,15 @@ func (s *AdminService) UpdateOrg(ctx context.Context, req *connect.Request[mgmtv
 		}
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to update org"))
 	}
-	if err := auditInsert(ctx, txQ, actorFromCtx(ctx), "user", o.ID, "org.update", "org", o.ID.String(), nil); err != nil {
-		s.logger.Warn("update org: audit insert failed, rolling back", "org_id", o.ID, "err", err)
-		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to record org update"))
+	// Audited only when a field this call writes changed, naming each change
+	// (0.21 walkthrough: every Save wrote an empty org.update, including one
+	// that only toggled strict mode — SetOrgStrictTenants audits that itself).
+	if changes := orgUpdateChanges(before, o); len(changes) > 0 {
+		if err := auditInsert(ctx, txQ, actorFromCtx(ctx), "user", o.ID, "org.update", "org", o.ID.String(),
+			map[string]any{"changes": changes}); err != nil {
+			s.logger.Warn("update org: audit insert failed, rolling back", "org_id", o.ID, "err", err)
+			return nil, connect.NewError(connect.CodeInternal, errors.New("failed to record org update"))
+		}
 	}
 	out, err := orgProtoWithTenants(ctx, txQ, o, s.requireOwned)
 	if err != nil {
@@ -295,6 +308,33 @@ func (s *AdminService) UpdateOrg(ctx context.Context, req *connect.Request[mgmtv
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to commit org update"))
 	}
 	return connect.NewResponse(out), nil
+}
+
+// orgFieldChange is one changed field of an org.update audit row, in the
+// value / previous_value shape the collector label audits use.
+type orgFieldChange struct {
+	Value         any `json:"value"`
+	PreviousValue any `json:"previous_value"`
+}
+
+// orgUpdateChanges lists the fields UpdateOrg writes that differ between the
+// stored org before and after it, keyed by column name. An unset group id is
+// "" either way (the API does not tell NULL from "").
+func orgUpdateChanges(before, after sqlc.Org) map[string]orgFieldChange {
+	changes := map[string]orgFieldChange{}
+	add := func(field string, prev, next any) {
+		if prev != next {
+			changes[field] = orgFieldChange{Value: next, PreviousValue: prev}
+		}
+	}
+	add("display_name", before.DisplayName, after.DisplayName)
+	add("admin_group_id", before.AdminGroupID, after.AdminGroupID)
+	add("viewer_group_id", before.ViewerGroupID.String, after.ViewerGroupID.String)
+	add("editor_group_id", before.EditorGroupID.String, after.EditorGroupID.String)
+	add("allow_experimental_components", before.AllowExperimentalComponents, after.AllowExperimentalComponents)
+	add("allow_label_matching", before.AllowLabelMatching, after.AllowLabelMatching)
+	add("allow_local_attribute_matching", before.AllowLocalAttributeMatching, after.AllowLocalAttributeMatching)
+	return changes
 }
 
 // DeleteOrg deletes an org.

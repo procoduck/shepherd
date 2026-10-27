@@ -51,6 +51,22 @@ func buildLogHandler(format string, w io.Writer, lvl slog.Level) (slog.Handler, 
 	}
 }
 
+// newServeLogger builds the server's logger and installs it as the slog
+// default. The server passes it to every component it constructs, but a few
+// packages log through the package-level slog functions (internal/tenancy's
+// tenant-index warnings, internal/validate's version check, among others);
+// without the default they wrote plain text into a JSON log stream (0.21
+// walkthrough).
+func newServeLogger(format string, w io.Writer, lvl slog.Level) (*slog.Logger, error) {
+	h, err := buildLogHandler(format, w, lvl)
+	if err != nil {
+		return nil, err
+	}
+	l := slog.New(h)
+	slog.SetDefault(l)
+	return l, nil
+}
+
 func runServe(*cobra.Command, []string) error {
 	c, e := config.Load(cfgFile)
 	if e != nil {
@@ -66,11 +82,10 @@ func runServe(*cobra.Command, []string) error {
 	if err != nil {
 		return err
 	}
-	h, err := buildLogHandler(c.Log.Format, os.Stderr, lvl)
+	l, err := newServeLogger(c.Log.Format, os.Stderr, lvl)
 	if err != nil {
 		return err
 	}
-	l := slog.New(h)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	s, e := server.New(c, l)
