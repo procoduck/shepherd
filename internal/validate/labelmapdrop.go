@@ -327,7 +327,8 @@ const exporterDropPrefix = "shepherd_tenant_drop_"
 // its forward_to becomes [loki.process.<exporterDropPrefix><label>.receiver],
 // and that loki.process — forwarding to the original forward_to, verbatim,
 // with a stage.label_drop of __tenant_id__ — is inserted on lines of its own
-// right after b, indented as b's line is. A forward_to that is absent, empty
+// right after b (and after a comment trailing b's closing brace on that line,
+// afterTrailingComment), indented as b's line is. A forward_to that is absent, empty
 // or not a plain list of receivers (plainReceiverList) is left alone: the
 // lint refuses the last. A component of that name already in scope (stmts)
 // is an error: the served form cannot be built.
@@ -379,8 +380,38 @@ func (d *dropper) exporterLoki(b *ast.BlockStmt, stmts ast.Body) error {
 			sb.WriteString(l)
 		}
 	}
-	d.splices = append(d.splices, dropSplice{start: end, end: end, text: sb.String()})
+	at := afterTrailingComment(d.text, end)
+	d.splices = append(d.splices, dropSplice{start: at, end: at, text: sb.String()})
 	return nil
+}
+
+// afterTrailingComment is the offset to insert after a block that closes at
+// end: past a comment that trails the closing brace on its own line — the
+// chart writes `} // otelcol.exporter.loki "loki"` — so the comment stays
+// with the block it belongs to, not with the inserted one. The comment is a
+// `//` comment to the end of the line, or a `/* */` one closed before it with
+// nothing else after; anything else on the line (or no comment) leaves end as
+// it is. The offset is before the line ending (CR LF or LF), or the end of the
+// text.
+func afterTrailingComment(text string, end int) int {
+	rest := text[end:]
+	eol := strings.IndexByte(rest, '\n')
+	if eol < 0 {
+		eol = len(rest)
+	}
+	line := strings.TrimSuffix(rest[:eol], "\r")
+	trimmed := strings.TrimLeft(line, " \t")
+	switch {
+	case strings.HasPrefix(trimmed, "//"):
+	case strings.HasPrefix(trimmed, "/*"):
+		closing := strings.Index(trimmed[2:], "*/")
+		if closing < 0 || strings.TrimRight(trimmed[2+closing+2:], " \t") != "" {
+			return end
+		}
+	default:
+		return end
+	}
+	return end + len(line)
 }
 
 // plainReceiverList reports whether v is a list literal of component

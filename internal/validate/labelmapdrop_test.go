@@ -217,6 +217,41 @@ var _ = Describe("the tenant lint on a labelmap (#410)", func() {
 		Expect(served).To(ContainSubstring("loki.process \"shepherd_tenant_drop_loki\" {\n  forward_to = [loki.write.loki.receiver]\n"))
 	})
 
+	// v0.20.0 follow-up: the chart writes `} // otelcol.exporter.loki "loki"`
+	// on the exporter's closing line. The drop block used to be spliced in
+	// right after the brace, which pushed that comment onto the inserted
+	// loki.process's closing line, where it reads as that block's.
+	It("keeps a comment trailing the exporter's closing brace on that line", func() {
+		served := insertDrops(k8smon("logs"))
+		Expect(served).To(ContainSubstring("otelcol.exporter.loki \"loki\" {\n  forward_to = [loki.process.shepherd_tenant_drop_loki.receiver]\n} // otelcol.exporter.loki \"loki\"\n\nloki.process \"shepherd_tenant_drop_loki\" {\n"))
+		Expect(served).NotTo(ContainSubstring("  }\n} // otelcol.exporter.loki"))
+
+		for _, c := range []struct{ src, want string }{
+			{ // a line comment, CRLF line endings
+				"otelcol.exporter.loki \"x\" {\r\n  forward_to = [loki.write.w.receiver]\r\n} // the exporter\r\nloki.write \"w\" {}\r\n",
+				"} // the exporter\r\n\r\nloki.process \"shepherd_tenant_drop_x\" {\r\n",
+			},
+			{ // a block comment closing the line, at the end of the text
+				"otelcol.exporter.loki \"x\" {\n  forward_to = [loki.write.w.receiver]\n}   /* the exporter */",
+				"}   /* the exporter */\n\nloki.process \"shepherd_tenant_drop_x\" {\n",
+			},
+			{ // no comment: the block goes right after the brace, as before
+				"otelcol.exporter.loki \"x\" {\n  forward_to = [loki.write.w.receiver]\n}\n",
+				"}\n\nloki.process \"shepherd_tenant_drop_x\" {\n",
+			},
+			{ // a comment on the next line is not the exporter's: unchanged placement
+				"otelcol.exporter.loki \"x\" {\n  forward_to = [loki.write.w.receiver]\n}\n// next\n",
+				"}\n\nloki.process \"shepherd_tenant_drop_x\" {\n",
+			},
+			{ // a block comment that runs past the line is left where it is
+				"otelcol.exporter.loki \"x\" {\n  forward_to = [loki.write.w.receiver]\n} /* runs\non */\n",
+				"}\n\nloki.process \"shepherd_tenant_drop_x\" {\n",
+			},
+		} {
+			Expect(insertDrops(c.src)).To(ContainSubstring(c.want), c.src)
+		}
+	})
+
 	It("finds the chart's labelmaps and exporter in both k8s-monitoring fixtures, and none once the drops are in", func() {
 		for name, n := range map[string]int{"logs": 1, "metrics": 2} {
 			src := k8smon(name)
