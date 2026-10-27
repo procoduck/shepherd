@@ -43,7 +43,7 @@
 |---|---|
 | `docs/project-status.md` | this ledger — verified baseline, open bugs, unbuilt features, open follow-ups |
 | `docs/spec.md` | authoritative product/build specification (§ numbers referenced below) |
-| `docs/plans/` | dated per-PR implementation plans while their work is unreleased; a plan moves to `docs/archive/plans/` once it has shipped in a tag. Empty between releases. The last shipped, `2026-10-26-v020-queue.md` (0.19.1 and 0.20, #389–#418), is in `docs/archive/plans/` with every earlier plan |
+| `docs/plans/` | dated per-PR implementation plans while their work is unreleased; a plan moves to `docs/archive/plans/` once it has shipped in a tag. Empty between releases; open now: `2026-10-27-v021-queue.md` (0.21, #420–#426). The last shipped, `2026-10-26-v020-queue.md` (0.19.1 and 0.20, #389–#418), is in `docs/archive/plans/` with every earlier plan |
 | `docs/visual-builder-design-VB1.md` | visual builder design — M1–M8 built; §6.4 (S3) is the live spec for the sandbox feature (enabled by default in the Helm chart since v0.0.1) |
 | `docs/reviews/` | **live decision records only**: `canvas-framework-evaluation.md` (the React Flow decision and the controlled-mode contract `CanvasPane` depends on). Closed reviews move to `docs/archive/reviews/` |
 | `docs/dev-guide.md` | running the dev stack |
