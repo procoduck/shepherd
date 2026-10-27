@@ -54,7 +54,8 @@ additive; non-strict orgs are served the same bytes.
   applies to the component — and the UI marks each entry "admin-allowed, unreviewed". A component
   strict mode already accepts is refused (`invalid_argument`); removing an entry is refused
   (`failed_precondition`, naming the pipelines) while the org is strict and an enabled pipeline
-  uses it, as for the import allowlist. Both changes recompute the org's served configs.
+  uses it, as for the import allowlist (only enabled pipelines are checked; a disabled one that
+  uses the component is refused when it is enabled). Both changes recompute the org's served configs.
   Migration `0047` adds `org_strict_components`. (#421)
 
 ### Tests

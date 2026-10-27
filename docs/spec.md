@@ -753,9 +753,14 @@ attributes the lint already checks; `checks` names each, from `validate.StrictCh
 and a one-line `reason`. A component classified refused, or with no classification, is refused at
 every component position the lint walks (the top level, a declare body, a `foreach` template, a
 readable `import.string` module, a pinned `import.git` module), with a message naming it and saying
-an application administrator can allow it for the org. Only a dotted name is judged: an instance of
-a declare or of an import's module is judged by its body, and Alloy's own blocks (`argument`,
-`export`, `logging`, …) are Stage 2's. A repo test (`TestEveryShippedComponentIsClassified`) fails
+an application administrator can allow it for the org. Only a dotted name is judged (a declare
+instance and Alloy's own blocks — `argument`, `export`, `logging`, … — have none; the latter are
+Stage 2's). A name a shipped schema has is always judged as that built-in, whatever import labels
+are in scope: an import labelled `otelcol` does not make `otelcol.auth.google` a module instance
+(Alloy runs the built-in). Any other dotted name is a module instance — judged by the module's body
+— only when it is exactly `<label>.<declare>` for an import in scope whose module the lint read
+(literal `import.string`, pinned `import.git`) and which declares `<declare>`; anything else is
+refused as unclassified. A repo test (`TestEveryShippedComponentIsClassified`) fails
 when a shipped schema has a component without a classification, a classification names a component
 no shipped schema has, or a `checked` entry names a check that does not exist or does not cover the
 component (`validate.StrictCheckCovers`: a `headers` check needs a headers map in the component's
@@ -780,7 +785,9 @@ still applies to the component, and the UI shows it as "admin-allowed, unreviewe
 refused (`failed_precondition`, naming each pipeline) while the strict rule applies to the org and
 an enabled pipeline — directly or through a cached pinned module — would then be refused for the
 component (`tenancy.StrictComponentUsers`), the import allowlist's rule (#390); otherwise it audits
-`org.strict_component.remove`. Both run under the exclusive ownership lock, mark the org's served
+`org.strict_component.remove` with `in_use_check` saying what was checked — only enabled pipelines,
+so a disabled one may still use the component and is refused when it is enabled (Stage 3 and the
+serve-time check run again). Both run under the exclusive ownership lock, mark the org's served
 configs dirty and recompute them. The serve-time verdict cache is keyed by the org's allowed
 components too, so a change is seen on the next recompute. `make e2e-strict` (`e2e-strict.yml`)
 runs every refused and accepted construct through a real Alloy against a recording sink and

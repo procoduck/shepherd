@@ -84,7 +84,8 @@ export function OrgStrictComponentsEditor({ org }: { org: Org }) {
       <p className='text-xs text-muted-2'>
         Strict tenant mode accepts only components with a reviewed classification. A component
         allowed here is accepted for this organisation without one; every other strict tenant check
-        still applies to it.
+        still applies to it. An entry can be removed when no enabled pipeline uses the component; a
+        disabled pipeline that uses it is checked again, and refused, when it is enabled.
       </p>
       {listQ.isLoading ? (
         <p className='text-xs text-muted-3'>Loading…</p>

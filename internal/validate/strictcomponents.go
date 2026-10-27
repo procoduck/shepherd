@@ -295,8 +295,17 @@ func isComponentName(s string) bool {
 // application administrator allowed it. Only a dotted name can be a built-in
 // component (namespace.name); a name without a dot is a declare instance or
 // one of Alloy's own blocks (argument, export, logging, …), which Stage 2
-// judges. Custom components — instances of a declare or of an import's
-// module — are judged by their bodies.
+// judges.
+//
+// A name a shipped schema has is always judged as that built-in, whatever
+// import labels are in scope: an import label equal to a component
+// namespace (import.string "otelcol") does not make otelcol.auth.google a
+// custom component — Alloy runs the built-in. Any other dotted name is a
+// module instance only when it is exactly "<label>.<declare>" for an import
+// in scope whose module the lint read and which declares <declare>
+// (resolveModuleInstances, once the walk has read every module); such an
+// instance is judged by the module's body. Anything else is refused as
+// unclassified.
 func (l *tenantLinter) strictComponent(b *ast.BlockStmt, name string, sc scope) {
 	if l.policy.literalsOnly || !strings.Contains(name, ".") || strings.HasPrefix(name, "import.") {
 		return
@@ -304,13 +313,48 @@ func (l *tenantLinter) strictComponent(b *ast.BlockStmt, name string, sc scope) 
 	if !l.budget.charge(1 + len(sc.declare)/64) {
 		return
 	}
-	if l.lookupDeclare(sc.declare, name) != nil || l.isModuleInstance(sc.declare, name) {
-		return
+	c, classified := ClassifyComponent(name)
+	if !classified {
+		if key, ok := l.moduleImport(sc.declare, name); ok {
+			l.pendingInstances = append(l.pendingInstances, pendingInstance{block: b, name: name, importKey: key})
+			return
+		}
 	}
+	l.judgeComponent(b, name, c, classified)
+}
+
+// pendingInstance is a possible module instance strictComponent left for
+// resolveModuleInstances.
+type pendingInstance struct {
+	block     *ast.BlockStmt
+	name      string
+	importKey string
+}
+
+// resolveModuleInstances judges every pending module instance once the walk
+// has read every module of the text: "<label>.<declare>" whose module
+// declares <declare> is judged by that body (already linted); any other is
+// refused as unclassified (a module the lint could not read, a declare it
+// does not have, a longer name).
+func (l *tenantLinter) resolveModuleInstances() {
+	for _, p := range l.pendingInstances {
+		label := p.importKey[strings.LastIndex(p.importKey, "/")+1:]
+		decl := strings.TrimPrefix(p.name, label+".")
+		if l.moduleDeclares[p.importKey][decl] {
+			continue
+		}
+		l.judgeComponent(p.block, p.name, ComponentClassification{}, false)
+	}
+	l.pendingInstances = nil
+}
+
+// judgeComponent refuses built-in component b (named name, classified c when
+// classified) unless strict mode accepts it or the org allowed it.
+func (l *tenantLinter) judgeComponent(b *ast.BlockStmt, name string, c ComponentClassification, classified bool) {
 	if l.policy.AllowedComponents[name] {
 		return
 	}
-	c, ok := ClassifyComponent(name)
+	ok := classified
 	switch {
 	case !ok:
 		l.refuse(b, fmt.Sprintf("%s %q: %s, and %s has none — strict tenant mode refuses it; an application "+
@@ -322,19 +366,20 @@ func (l *tenantLinter) strictComponent(b *ast.BlockStmt, name string, sc scope) 
 	}
 }
 
-// isModuleInstance reports whether name instantiates a declare of a module
-// imported in scope (an import block "<label>" there, name "<label>.<…>").
-func (l *tenantLinter) isModuleInstance(scopeKey, name string) bool {
+// moduleImport finds the import a name "<label>.<…>" may instantiate a
+// module declare of: the innermost import block "<label>" visible in scope,
+// returned by its key.
+func (l *tenantLinter) moduleImport(scopeKey, name string) (string, bool) {
 	label, _, ok := strings.Cut(name, ".")
 	if !ok {
-		return false
+		return "", false
 	}
 	for k := scopeKey; ; {
-		if l.imports[declareKey(k, label)] {
-			return true
+		if key := declareKey(k, label); l.imports[key] {
+			return key, true
 		}
 		if k == "" {
-			return false
+			return "", false
 		}
 		if i := strings.LastIndex(k, "/"); i >= 0 {
 			k = k[:i]

@@ -409,7 +409,7 @@ func newTenantLinter(content string, p TenantPolicy, external map[string]map[str
 	l := &tenantLinter{
 		policy: p, declares: map[string]*declareInfo{}, depth: depth, gitDepth: gitDepth, git: git, budget: b,
 		memo: map[string]*resolved{}, components: map[string]map[string]*ast.BlockStmt{},
-		seenLiteral: map[string]bool{}, imports: map[string]bool{},
+		seenLiteral: map[string]bool{}, imports: map[string]bool{}, moduleDeclares: map[string]map[string]bool{},
 	}
 	if len(content) > maxContentBytes {
 		l.diags = append(l.diags, Diagnostic{Line: 1, Col: 1, Stage: 1, Message: fmt.Sprintf(
@@ -432,6 +432,7 @@ func newTenantLinter(content string, p TenantPolicy, external map[string]map[str
 	l.collectImports(file.Body, "", 0)
 	l.collectComponents(file.Body, "", 0)
 	l.body(file.Body, scope{})
+	l.resolveModuleInstances()
 	l.pushSourcePaths()
 	if depth == 0 && !b.timedOut && time.Now().After(b.deadline) {
 		b.timedOut = true
@@ -461,9 +462,14 @@ type tenantLinter struct {
 	// imports are the import blocks' labels, keyed by scope as declares
 	// are: where isModuleInstance looks a custom component up.
 	imports map[string]bool
-	memo    map[string]*resolved
-	depth   int
-	budget  *budget
+	// moduleDeclares are, by import key, the declares of the module the
+	// lint read for that import; pendingInstances are the module instances
+	// strictComponent left for resolveModuleInstances.
+	moduleDeclares   map[string]map[string]bool
+	pendingInstances []pendingInstance
+	memo             map[string]*resolved
+	depth            int
+	budget           *budget
 	// gitDepth is how many import.git modules enclose this text; git is
 	// what the TenantLintChecked call has fetched (nil: none can be).
 	gitDepth int
@@ -1184,7 +1190,7 @@ func (l *tenantLinter) importBlock(b *ast.BlockStmt, name string, sc scope, sibl
 	switch name {
 	case "import.string":
 	case "import.git":
-		l.gitImport(b, where, siblings)
+		l.gitImport(b, where, sc, siblings)
 		return
 	default:
 		l.refuse(b, where+" loads configuration from outside the pipeline, which cannot be verified — strict "+
@@ -1200,13 +1206,15 @@ func (l *tenantLinter) importBlock(b *ast.BlockStmt, name string, sc scope, sibl
 		l.refuse(content, where+" content cannot be verified — strict tenant mode refuses it")
 		return
 	}
-	l.lintModule(content, where, texts[0], l.moduleArguments(b.Label, siblings), l.gitDepth)
+	l.lintModule(content, where, texts[0], l.moduleArguments(b.Label, siblings), l.gitDepth, declareKey(sc.declare, b.Label))
 }
 
 // lintModule lints an imported module's text with the same rules, at the
 // next depth (gitDepth is the module's import.git depth), and reports its
-// findings at the import (at).
-func (l *tenantLinter) lintModule(at ast.Node, where, text string, args map[string]map[string][]resolved, gitDepth int) {
+// findings at the import (at). importKey is the import's key (as declares
+// are keyed): the module's declares are recorded under it, for the module
+// instances that refer to them (resolveModuleInstances).
+func (l *tenantLinter) lintModule(at ast.Node, where, text string, args map[string]map[string][]resolved, gitDepth int, importKey string) {
 	if l.depth >= maxDepth {
 		l.refuse(at, where+" nests modules too deeply to verify — strict tenant mode refuses it")
 		return
@@ -1216,6 +1224,13 @@ func (l *tenantLinter) lintModule(at ast.Node, where, text string, args map[stri
 		l.refuse(at, where+" content does not parse, so it cannot be verified — strict tenant mode refuses it")
 		return
 	}
+	decls := map[string]bool{}
+	for k := range inner.declares {
+		if !strings.Contains(k, "/") {
+			decls[k] = true
+		}
+	}
+	l.moduleDeclares[importKey] = decls
 	for _, t := range inner.literals {
 		l.addLiteral(t)
 	}
@@ -1237,7 +1252,7 @@ func (l *tenantLinter) lintModule(at ast.Node, where, text string, args map[stri
 // the org's allowlist (policy.Git) and the import nests at most
 // MaxGitImportDepth deep. The module is then fetched and linted with the
 // same rules, nested imports included.
-func (l *tenantLinter) gitImport(b *ast.BlockStmt, where string, siblings ast.Body) {
+func (l *tenantLinter) gitImport(b *ast.BlockStmt, where string, sc scope, siblings ast.Body) {
 	if l.policy.Git == nil || l.git == nil {
 		l.refuse(b, where+" loads configuration from outside the pipeline, which cannot be verified — strict "+
 			"tenant mode refuses it; inline the module (declare, or import.string with literal content)")
@@ -1303,7 +1318,7 @@ func (l *tenantLinter) gitImport(b *ast.BlockStmt, where string, siblings ast.Bo
 	if got.warning != "" {
 		l.warn(b, where+": "+got.warning)
 	}
-	l.lintModule(b, where, got.content, l.moduleArguments(b.Label, siblings), l.gitDepth+1)
+	l.lintModule(b, where, got.content, l.moduleArguments(b.Label, siblings), l.gitDepth+1, declareKey(sc.declare, b.Label))
 }
 
 // revisionProblem says what is wrong with an import.git revision for strict

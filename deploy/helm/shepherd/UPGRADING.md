@@ -52,7 +52,8 @@ component refusal: every other strict check — tenants, headers, label maps, ca
 — still applies to the component, and the page marks it "admin-allowed, unreviewed". Both changes
 are audited (`org.strict_component.add` / `.remove`). An entry cannot be removed while the
 organisation is strict and an enabled pipeline uses the component; the refusal names those
-pipelines.
+pipelines. Only enabled pipelines are checked: a disabled pipeline that uses the component is
+refused when it is enabled again.
 
 ## 0.23.x → 0.24.0
 

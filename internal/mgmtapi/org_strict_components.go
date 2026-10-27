@@ -36,6 +36,18 @@ type orgStrictComponentDetail struct {
 	// has not been reviewed for strict mode.
 	Classification string `json:"classification"`
 	Reviewed       bool   `json:"reviewed"`
+	// InUseCheck, on a removal, says what was checked: only enabled
+	// pipelines (and the pinned modules cached for them). A disabled one may
+	// still use the component; enabling it runs the full check again.
+	InUseCheck string `json:"in_use_check,omitempty"`
+}
+
+// removalInUseCheck is what a removal's audit row says was checked.
+func removalInUseCheck(strict bool) string {
+	if !strict {
+		return "not checked: the organisation is not in strict tenant mode"
+	}
+	return "no enabled pipeline currently uses it (disabled pipelines are not checked; enabling one re-checks it)"
 }
 
 // componentClassification is component's shipped strict classification as
@@ -150,15 +162,17 @@ func (s *AdminService) RemoveOrgStrictComponent(ctx context.Context, req *connec
 			}
 			if len(users) > 0 {
 				return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf(
-					"%s is still used by enabled pipeline(s) of org %q, which strict tenant mode would then refuse: %s; "+
-						"edit or disable them first", row.Component, org.Name, strings.Join(users, "; ")))
+					"%s is used by enabled pipeline(s) of org %q, which strict tenant mode would then refuse: %s; "+
+						"edit or disable them first (only enabled pipelines are checked)", row.Component, org.Name, strings.Join(users, "; ")))
 			}
 		}
+		detail := strictComponentDetail(row.Component)
+		detail.InUseCheck = removalInUseCheck(org.StrictTenants || s.requireOwned)
 		if _, err := q.DeleteOrgStrictComponent(ctx, sqlc.DeleteOrgStrictComponentParams{ID: id, OrgID: orgID}); err != nil {
 			return connect.NewError(connect.CodeInternal, errors.New("failed to remove the allowed component"))
 		}
 		if err := auditInsert(ctx, q, actorFromCtx(ctx), "user", orgID, "org.strict_component.remove", "org", orgID.String(),
-			strictComponentDetail(row.Component)); err != nil {
+			detail); err != nil {
 			return connect.NewError(connect.CodeInternal, errors.New("failed to record the change"))
 		}
 		if err := q.MarkServeCacheDirtyByOrg(ctx, orgID); err != nil {

@@ -1237,7 +1237,7 @@ export function installDefaultHandlers(router: Router) {
         r,
         400,
         'failed_precondition',
-        `${held.component} is still used by enabled pipeline(s) of org ${JSON.stringify(s(o, 'name'))}, which strict tenant mode would then refuse: ${held.in_use_by.map((p) => `pipeline ${JSON.stringify(p)}`).join('; ')}; edit or disable them first`,
+        `${held.component} is used by enabled pipeline(s) of org ${JSON.stringify(s(o, 'name'))}, which strict tenant mode would then refuse: ${held.in_use_by.map((p) => `pipeline ${JSON.stringify(p)}`).join('; ')}; edit or disable them first (only enabled pipelines are checked)`,
       );
     o['strict_components'] = strictComponentsOf(o).filter((x) => x !== held);
     return json(r, 200, {});

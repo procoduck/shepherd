@@ -208,6 +208,14 @@ func refusedCases() map[string]refusedCase {
 				lokiWriter(`    headers = { "X-Scope-OrgID" = "victim" }`),
 			"strict tenant mode accepts only classified components",
 		},
+		// An import labelled like a component namespace leaves the built-in a
+		// built-in: otelcol.auth.google is still refused.
+		"r-shadowed-component": {
+			"import.string \"otelcol\" {\n  content = \"declare \\\"x\\\" {\\n}\\n\"\n}\n\n" +
+				"otelcol.auth.google \"g\" { }\n" + lokiSource("r-shadowed-component", toWriter) +
+				lokiWriter(`    headers = { "X-Scope-OrgID" = "victim" }`),
+			"classified refused",
+		},
 		"r-unclassified-component": {
 			"loki.source.future \"f\" {\n  forward_to = [loki.write.w.receiver]\n}\n" +
 				lokiWriter(`    tenant_id = "victim"`),
@@ -423,10 +431,10 @@ VALUES ('%s', '%s', %s, '["cluster=\"%s\""]'::jsonb, true, 'ui', '{}'::jsonb, 'e
 
 	// The control: the sink and the Alloy under test do show another tenant
 	// when nothing excludes the stored pipelines. With strict mode off they
-	// are served as stored (the three a real Alloy cannot run disabled
+	// are served as stored (the four a real Alloy cannot run disabled
 	// first), and their entries arrive under the tenants they set.
 	It("a control: with strict mode off, the same stored pipelines reach the sink under other tenants", func() {
-		for _, name := range []string{"r-refused-component", "r-unclassified-component", "r-admin-allowed"} {
+		for _, name := range []string{"r-refused-component", "r-shadowed-component", "r-unclassified-component", "r-admin-allowed"} {
 			id := psql(`SELECT id FROM pipelines WHERE org_id = '` + orgID + `' AND name = '` + name + `';`)
 			admin.mustRPC("PipelineService", "DisablePipeline", map[string]any{"org_id": orgID, "id": id}, nil)
 		}

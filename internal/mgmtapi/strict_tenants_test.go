@@ -1014,7 +1014,8 @@ var _ = Describe("Strict tenant mode", Label("integration"), func() {
 
 			Expect(actions()).To(ConsistOf(
 				And(HavePrefix("org.strict_component.remove "), ContainSubstring(`"component": "otelcol.auth.google"`),
-					ContainSubstring(`"classification": "refused"`), ContainSubstring(`"reviewed": false`)),
+					ContainSubstring(`"classification": "refused"`), ContainSubstring(`"reviewed": false`),
+					ContainSubstring(`"in_use_check": "no enabled pipeline currently uses it`)),
 				And(HavePrefix("org.strict_component.add "), ContainSubstring(`"classification": "unclassified"`)),
 				HavePrefix("org.strict_component.add "),
 			))

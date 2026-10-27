@@ -186,6 +186,38 @@ var _ = Describe("strict tenant mode accepts only classified components (#421)",
 		Expect(validate.TenantLint(src, strictFor())).To(BeEmpty())
 	})
 
+	// An import label equal to a component namespace does not make the
+	// built-in a custom component: Alloy runs the built-in.
+	Describe("an import label shadowing a component namespace", func() {
+		shadow := "import.string \"otelcol\" {\n  content = " + `"declare \"x\" {\n}\n"` + "\n}\n"
+		It("still judges the built-in at the top level, in a declare and in a foreach template", func() {
+			inDeclare := "declare \"d\" {\n" + shadow + google + "}\nd \"i\" { }\n"
+			template := shadow + "foreach \"f\" {\n  collection = [1]\n  var = \"i\"\n  template {\n" + google + "  }\n}\n"
+			for _, src := range []string{shadow + google, inDeclare, template} {
+				Expect(refused(src, strictFor())).To(ConsistOf(ContainSubstring("classified refused")), src)
+			}
+		})
+		It("still judges the built-in beside a pinned import.git of that label", func() {
+			m := &fakeModules{
+				allowed: map[string]bool{repoA: true},
+				modules: map[validate.GitModule]string{{Repository: repoA, Revision: shaA, Path: "m.alloy"}: "declare \"x\" {\n}\n"},
+			}
+			d := lintGit(gitImport("otelcol", repoA, shaA, "m.alloy")+google, m)
+			Expect(errorsOf(d)).To(ConsistOf(ContainSubstring("classified refused")))
+		})
+		It("refuses a name the module does not declare, or longer than <label>.<declare>", func() {
+			for _, inst := range []string{"otelcol.y \"i\" { }\n", "otelcol.x.y \"i\" { }\n"} {
+				Expect(refused(shadow+inst, strictFor())).To(ConsistOf(ContainSubstring("has none")), inst)
+			}
+			Expect(refused("import.file \"m\" {\n  filename = \"/m.alloy\"\n}\nm.x \"i\" { }\n", strictFor())).
+				To(ConsistOf(ContainSubstring("has none")), "a module the lint cannot read declares nothing it knows")
+		})
+		It("accepts <label>.<declare> of a declare the module has, wherever the instance is written", func() {
+			Expect(validate.TenantLint(shadow+"otelcol.x \"i\" { }\n", strictFor())).To(BeEmpty())
+			Expect(validate.TenantLint("otelcol.x \"i\" { }\n"+shadow, strictFor())).To(BeEmpty())
+		})
+	})
+
 	It("judges only dotted names: Alloy's own blocks are Stage 2's", func() {
 		Expect(validate.TenantLint("logging { level = \"info\" }\n", strictFor())).To(BeEmpty())
 	})
