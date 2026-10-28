@@ -165,7 +165,7 @@ func newHumanSession(t *testing.T, st *store.Store, email string) *http.Cookie {
 	// (which actor performed which half) rather than re-proving G11's
 	// team-ownership authorization, already covered by W10's own suite.
 	if _, err := st.Queries.CreateSession(context.Background(), sqlc.CreateSessionParams{
-		ID: id, UserOid: "user-" + id, Email: email, DisplayName: "W11 Human",
+		ID: auth.HashSessionToken(id), UserOid: "user-" + id, Email: email, DisplayName: "W11 Human",
 		GroupIds: groupsJSON, IsAppAdmin: true,
 		ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true},
 		Source:    "test",

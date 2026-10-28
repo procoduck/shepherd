@@ -75,7 +75,7 @@ var _ = Describe("shepherd.mgmt.v1.FleetService RPC", Label("integration"), func
 		Expect(err).NotTo(HaveOccurred())
 		sessionID := fmt.Sprintf("fleet-rpc-session-%d", time.Now().UnixNano())
 		_, err = st.Queries.CreateSession(ctx, sqlc.CreateSessionParams{
-			ID: sessionID, UserOid: "fleet-user-oid", Email: "fleet-user@example.com", DisplayName: "Fleet User",
+			ID: auth.HashSessionToken(sessionID), UserOid: "fleet-user-oid", Email: "fleet-user@example.com", DisplayName: "Fleet User",
 			GroupIds:   groupsJSON,
 			IsAppAdmin: isAppAdmin,
 			ExpiresAt:  pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true},

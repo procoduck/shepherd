@@ -230,7 +230,7 @@ var _ = Describe("Connect role matrix: org editor rung, CSRF", Label("integratio
 		sessID := "role-matrix-id-token-expired-sess"
 		groupsJSON := []byte(`["role-matrix-editor-grp"]`)
 		_, err := st.Queries.CreateSession(ctx, sqlc.CreateSessionParams{
-			ID: sessID, UserOid: "user-" + sessID, Email: sessID + "@example.com", DisplayName: "Expired ID Token",
+			ID: auth.HashSessionToken(sessID), UserOid: "user-" + sessID, Email: sessID + "@example.com", DisplayName: "Expired ID Token",
 			GroupIds:       groupsJSON,
 			IsAppAdmin:     false,
 			IDTokenExpires: idExpired,

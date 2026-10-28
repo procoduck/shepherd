@@ -70,7 +70,7 @@ var _ = Describe("AdminService agent tokens", Label("integration"), func() {
 		Expect(err).NotTo(HaveOccurred())
 		id := fmt.Sprintf("tokens-%d", time.Now().UnixNano())
 		_, err = st.Queries.CreateSession(ctx, sqlc.CreateSessionParams{
-			ID: id, UserOid: "oid", Email: "u@example.com", DisplayName: "U",
+			ID: auth.HashSessionToken(id), UserOid: "oid", Email: "u@example.com", DisplayName: "U",
 			GroupIds: groupsJSON, IsAppAdmin: appAdmin,
 			ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true},
 			Source:    "test",

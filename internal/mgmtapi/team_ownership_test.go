@@ -179,7 +179,7 @@ func g11Session(ctx context.Context, st *store.Store, userOID string, groupIDs [
 	Expect(err).NotTo(HaveOccurred())
 	sessionID := fmt.Sprintf("g11-session-%s-%d", userOID, time.Now().UnixNano())
 	_, err = st.Queries.CreateSession(ctx, sqlc.CreateSessionParams{
-		ID: sessionID, UserOid: userOID, Email: userOID + "@example.com", DisplayName: userOID,
+		ID: auth.HashSessionToken(sessionID), UserOid: userOID, Email: userOID + "@example.com", DisplayName: userOID,
 		GroupIds: groupsJSON, IsAppAdmin: false,
 		ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true},
 		Source:    "test",

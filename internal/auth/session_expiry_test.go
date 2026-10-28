@@ -63,7 +63,7 @@ var _ = Describe("Session expiry", Label("integration"), func() {
 		groupsJSON, err := json.Marshal([]string{})
 		Expect(err).NotTo(HaveOccurred())
 		_, err = st.Queries.CreateSession(ctx, sqlc.CreateSessionParams{
-			ID: sessionID, UserOid: "user-oid", Email: "user@example.com", DisplayName: "User",
+			ID: auth.HashSessionToken(sessionID), UserOid: "user-oid", Email: "user@example.com", DisplayName: "User",
 			GroupIds:       groupsJSON,
 			IDTokenExpires: pgtype.Timestamptz{Time: time.Now().Add(-time.Minute), Valid: true},
 			ExpiresAt:      pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true},
@@ -74,7 +74,7 @@ var _ = Describe("Session expiry", Label("integration"), func() {
 		rr := authedRequest(sessionID)
 		Expect(rr.Code).To(Equal(http.StatusUnauthorized))
 
-		_, err = st.Queries.GetSessionByID(ctx, sessionID)
+		_, err = st.Queries.GetSessionByID(ctx, auth.HashSessionToken(sessionID))
 		Expect(err).To(HaveOccurred(), "a session past its ID token's expiry should be deleted, not merely ignored")
 	})
 
@@ -83,7 +83,7 @@ var _ = Describe("Session expiry", Label("integration"), func() {
 		groupsJSON, err := json.Marshal([]string{})
 		Expect(err).NotTo(HaveOccurred())
 		_, err = st.Queries.CreateSession(ctx, sqlc.CreateSessionParams{
-			ID: sessionID, UserOid: "user-oid", Email: "user@example.com", DisplayName: "User",
+			ID: auth.HashSessionToken(sessionID), UserOid: "user-oid", Email: "user@example.com", DisplayName: "User",
 			GroupIds:       groupsJSON,
 			IDTokenExpires: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true},
 			ExpiresAt:      pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true},
@@ -100,7 +100,7 @@ var _ = Describe("Session expiry", Label("integration"), func() {
 		groupsJSON, err := json.Marshal([]string{})
 		Expect(err).NotTo(HaveOccurred())
 		_, err = st.Queries.CreateSession(ctx, sqlc.CreateSessionParams{
-			ID: sessionID, UserOid: "local:admin", Email: "admin@example.com", DisplayName: "Admin",
+			ID: auth.HashSessionToken(sessionID), UserOid: "local:admin", Email: "admin@example.com", DisplayName: "Admin",
 			GroupIds:  groupsJSON,
 			ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true},
 			Source:    "local",

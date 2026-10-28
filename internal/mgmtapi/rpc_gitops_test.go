@@ -133,7 +133,7 @@ var _ = Describe("GitOpsService (Connect RPC)", Label("integration"), func() {
 		groupsJSON, err := json.Marshal(groupIDs)
 		Expect(err).NotTo(HaveOccurred())
 		_, err = st.Queries.CreateSession(ctx, sqlc.CreateSessionParams{
-			ID: id, UserOid: "oid-" + id, Email: id + "@example.com", DisplayName: id,
+			ID: auth.HashSessionToken(id), UserOid: "oid-" + id, Email: id + "@example.com", DisplayName: id,
 			GroupIds:   groupsJSON,
 			IsAppAdmin: isAppAdmin,
 			ExpiresAt:  pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true},

@@ -86,7 +86,7 @@ var _ = Describe("PipelineService Connect RPC", Label("integration"), func() {
 	sessionCookie := func(isAppAdmin bool) *http.Cookie {
 		sessionID := "pipeline-rpc-session-" + time.Now().Format(time.RFC3339Nano)
 		_, err := st.Queries.CreateSession(ctx, sqlc.CreateSessionParams{
-			ID: sessionID, UserOid: "user-oid", Email: "user@example.com", DisplayName: "User",
+			ID: auth.HashSessionToken(sessionID), UserOid: "user-oid", Email: "user@example.com", DisplayName: "User",
 			GroupIds:   json.RawMessage(`[]`),
 			IsAppAdmin: isAppAdmin,
 			ExpiresAt:  pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true},

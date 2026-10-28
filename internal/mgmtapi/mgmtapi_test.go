@@ -240,7 +240,7 @@ func newAppAdminSession(ctx context.Context, st *store.Store) *http.Cookie {
 	groupsJSON, err := json.Marshal([]string{})
 	Expect(err).NotTo(HaveOccurred())
 	_, err = st.Queries.CreateSession(ctx, sqlc.CreateSessionParams{
-		ID: id, UserOid: "user-" + id, Email: id + "@example.com", DisplayName: "Test App Admin",
+		ID: auth.HashSessionToken(id), UserOid: "user-" + id, Email: id + "@example.com", DisplayName: "Test App Admin",
 		GroupIds:   groupsJSON,
 		IsAppAdmin: true,
 		ExpiresAt:  pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true},

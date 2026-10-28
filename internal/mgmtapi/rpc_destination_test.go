@@ -70,7 +70,7 @@ var _ = Describe("shepherd.mgmt.v1.DestinationService RPC", Label("integration")
 		Expect(err).NotTo(HaveOccurred())
 		sessionID := fmt.Sprintf("destination-rpc-session-%d", time.Now().UnixNano())
 		_, err = st.Queries.CreateSession(ctx, sqlc.CreateSessionParams{
-			ID: sessionID, UserOid: "destination-user-oid", Email: "destination-user@example.com", DisplayName: "Destination User",
+			ID: auth.HashSessionToken(sessionID), UserOid: "destination-user-oid", Email: "destination-user@example.com", DisplayName: "Destination User",
 			GroupIds:   groupsJSON,
 			IsAppAdmin: isAppAdmin,
 			ExpiresAt:  pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true},

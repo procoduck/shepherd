@@ -74,7 +74,7 @@ var _ = Describe("Session logout", Label("integration"), func() {
 		sessionID := "logout-session"
 		expiresAt := time.Now().Add(time.Hour)
 		_, err := st.Queries.CreateSession(ctx, sqlc.CreateSessionParams{
-			ID: sessionID, UserOid: "user-oid", Email: "user@example.com", DisplayName: "User",
+			ID: auth.HashSessionToken(sessionID), UserOid: "user-oid", Email: "user@example.com", DisplayName: "User",
 			GroupIds: json.RawMessage(`[]`), ExpiresAt: pgtype.Timestamptz{Time: expiresAt, Valid: true}, Source: "test",
 		})
 		Expect(err).NotTo(HaveOccurred())
@@ -84,7 +84,7 @@ var _ = Describe("Session logout", Label("integration"), func() {
 		rr := httptest.NewRecorder()
 		h.LogoutHandler(rr, req)
 
-		_, err = st.Queries.GetSessionByID(ctx, sessionID)
+		_, err = st.Queries.GetSessionByID(ctx, auth.HashSessionToken(sessionID))
 		Expect(err).To(HaveOccurred())
 		cookies := rr.Result().Cookies()
 		Expect(cookies).To(HaveLen(1))
@@ -96,7 +96,7 @@ var _ = Describe("Session logout", Label("integration"), func() {
 		sessionID := "replayed-session"
 		expiresAt := time.Now().Add(time.Hour)
 		_, err := st.Queries.CreateSession(ctx, sqlc.CreateSessionParams{
-			ID: sessionID, UserOid: "user-oid", Email: "user@example.com", DisplayName: "User",
+			ID: auth.HashSessionToken(sessionID), UserOid: "user-oid", Email: "user@example.com", DisplayName: "User",
 			GroupIds: json.RawMessage(`[]`), ExpiresAt: pgtype.Timestamptz{Time: expiresAt, Valid: true}, Source: "test",
 		})
 		Expect(err).NotTo(HaveOccurred())

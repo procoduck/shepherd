@@ -1,5 +1,29 @@
 # Upgrading the Shepherd chart
 
+## Unreleased: migration `0052`
+
+The session table now keeps a SHA-256 digest of each `shepherd_session` cookie instead of the
+cookie value. Migration `0052` deletes every existing session rather than converting it, so
+**everyone signs in again once after the upgrade**. Service-account tokens, agent tokens and
+collectors are not affected.
+
+### During the rollout
+
+Old and new pods do not recognise each other's sessions: an old pod looks a cookie up by its
+value, a new pod by its digest. While both run, a user whose requests reach the other kind of pod
+may be sent back to the sign-in page; this stops once the rollout completes. Signing in again
+after the rollout is enough. Until the last old pod is gone, an old pod would also accept a value
+copied out of the session table as a cookie, and the rows old pods write are keyed by the cookie
+value until they expire (`auth.session_ttl`), so keep the rollout short.
+
+### Rolling back
+
+Run `shepherd migrate down` once **with the new image** (back to `0051`) before `helm rollback`.
+This step is required. The down migration deletes every session, so everyone signs in again
+after the rollback too. Skipping it leaves the digest-keyed rows in place, and an older server
+looks a cookie up by its value, so it would accept a value copied out of the session table as a
+session cookie until those rows expire.
+
 ## 0.24.x → 0.25.0
 
 Shepherd v0.21.0 (chart 0.25.1 is v0.21.1, which adds migration `0051`; upgrade straight to it,

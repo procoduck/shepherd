@@ -68,7 +68,7 @@ var _ = Describe("shepherd.mgmt.v1.AuditService RPC", Label("integration"), func
 		Expect(err).NotTo(HaveOccurred())
 		sessionID := fmt.Sprintf("audit-rpc-session-%d", time.Now().UnixNano())
 		_, err = st.Queries.CreateSession(ctx, sqlc.CreateSessionParams{
-			ID: sessionID, UserOid: "audit-user-oid", Email: "audit-user@example.com", DisplayName: "Audit User",
+			ID: auth.HashSessionToken(sessionID), UserOid: "audit-user-oid", Email: "audit-user@example.com", DisplayName: "Audit User",
 			GroupIds:   groupsJSON,
 			IsAppAdmin: isAppAdmin,
 			ExpiresAt:  pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true},

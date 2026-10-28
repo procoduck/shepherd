@@ -77,7 +77,7 @@ var _ = Describe("shepherd.mgmt.v1.TenantRouteService RPC", Label("integration")
 		Expect(err).NotTo(HaveOccurred())
 		sessionID := fmt.Sprintf("tenant-route-rpc-session-%d", time.Now().UnixNano())
 		_, err = st.Queries.CreateSession(ctx, sqlc.CreateSessionParams{
-			ID: sessionID, UserOid: "tenant-route-user-oid", Email: "tenant-route-user@example.com", DisplayName: "Tenant Route User",
+			ID: auth.HashSessionToken(sessionID), UserOid: "tenant-route-user-oid", Email: "tenant-route-user@example.com", DisplayName: "Tenant Route User",
 			GroupIds:   groupsJSON,
 			IsAppAdmin: isAppAdmin,
 			ExpiresAt:  pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true},

@@ -938,13 +938,24 @@ func runDevCreateSession(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("encoding groups: %w", err)
 	}
-	id := fmt.Sprintf("dev-%s-%d", persona, time.Now().UnixNano())
+	token := devSessionToken(persona)
 	now := time.Now()
-	_, err = st.Queries.CreateSession(cmd.Context(), sqlc.CreateSessionParams{ID: id, UserOid: p.userOID, Email: p.email, DisplayName: p.displayName, GroupIds: groups, IsAppAdmin: p.appAdmin, ExpiresAt: pgtype.Timestamptz{Time: now.Add(ttl), Valid: true}, Source: "dev"})
+	_, err = st.Queries.CreateSession(cmd.Context(), sqlc.CreateSessionParams{ID: auth.HashSessionToken(token), UserOid: p.userOID, Email: p.email, DisplayName: p.displayName, GroupIds: groups, IsAppAdmin: p.appAdmin, ExpiresAt: pgtype.Timestamptz{Time: now.Add(ttl), Valid: true}, Source: "dev"})
 	if err != nil {
 		return fmt.Errorf("creating session: %w", err)
 	}
-	fmt.Printf("session_id=%s persona=%s ttl=%s\n", id, persona, ttl)
-	fmt.Println("# Set cookie: shepherd_session=<session_id>")
+	out := cmd.OutOrStdout()
+	if _, err := fmt.Fprintf(out, "session_id=%s persona=%s ttl=%s\n", token, persona, ttl); err != nil {
+		return fmt.Errorf("writing output: %w", err)
+	}
+	if _, err := fmt.Fprintln(out, "# Set cookie: shepherd_session=<session_id>"); err != nil {
+		return fmt.Errorf("writing output: %w", err)
+	}
 	return nil
+}
+
+// devSessionToken is the cookie value dev create-session prints: a readable
+// persona label plus a fresh auth.NewSessionToken. Only its digest is stored.
+func devSessionToken(persona string) string {
+	return "dev-" + persona + "-" + auth.NewSessionToken()
 }
