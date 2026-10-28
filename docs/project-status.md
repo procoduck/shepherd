@@ -50,7 +50,7 @@
 | `docs/frontend-testing.md` | three-layer frontend test strategy |
 | `docs/git-provider-design.md` | GitOps provider-auth design; live at top level because Go source cites its § numbers |
 | `docs/platform-monitoring-architecture.md` | target-fleet reference notes |
-| `docs/kind-test-environment-plan.md` | kind-based Kubernetes test environment (`make e2e-k8s`, weekly + path-filtered on qualifying PRs) plus §11 the reusable dev stack it shares pins with (`make dev-kind`, the Kubernetes flavour of `make dev`). Steps 1, 2, 4, 6 done; step 3 (full-values install, true previous-version upgrade spec) and step 5 (`NOTES.txt` CNI warning) still open, step 7 (Layer C, LGTM) not started — see its status header |
+| `docs/kind-test-environment-plan.md` | kind-based Kubernetes test environment (`make e2e-k8s`, weekly + path-filtered on qualifying PRs) plus §11 the reusable dev stack it shares pins with (`make dev-kind`, the Kubernetes flavour of `make dev`). Steps 1, 2, 4, 6 done; step 3 (full-values install; the previous-version upgrade spec is written, #425) and step 5 (`NOTES.txt` CNI warning) still open, step 7 (Layer C, LGTM) not started — see its status header |
 | `docs/gateway-tier-plan.md` | **all 11 workstreams shipped** as of v0.12.0; every review gate signed (R1, R2, R3, R5, R6). Kept live for its decisions (D1–D11), §9 step ledger and the open questions in §11 (beacon retention, team scope/ownership, proposal shape) |
 | `docs/proofs/` | red–green proofs for shipped controls. Not archived: Go source and CI workflows cite these paths |
 | `docs/archive/` | finished work, kept as the record of why things are the way they are |
@@ -655,10 +655,11 @@ In rough priority order; closed items stay in place, marked with the release tha
       (built upstream with Go 1.26.5). v1.19.2 is built on a patched Go and carries 2, both in
       grpc (upstream). Bumped as a schema bump: `ALLOY_IMAGE`/`ALLOY_VERSION`, `make schema`,
       overlay reconciliation, the v1.18.1 artifact kept embedded for upgrade-review diffs.
-- [ ] **Typed `Source` enum.** `pipelines.source` is a plain `string`-typed constant, not a
-      distinct Go type — the `exhaustive` linter cannot check a switch over it for completeness the
-      way it can for the four enums W2-S5 closed. (The role half is done: step 7a, #361, made
-      `auth.Role` and `auth.Requirement` typed.)
+- [x] **Typed `Source` enum (done 2026-10-28, #425).** `pipelines.source` is
+      `pipelinesource.Source` from the sqlc models up (a `sqlc.yaml` column override), so the
+      `exhaustive` linter checks switches over it; a test keeps the constants and the CHECK
+      constraint in step. (The role half: step 7a, #361, made `auth.Role` and `auth.Requirement`
+      typed.)
 - [ ] **Canvas keyboard wiring is partial.** Delete/undo/redo/copy-paste and re-focus-on-drop work
       (`web/src/visual/components/CanvasPane.tsx`); the a11y pass `docs/visual-builder-design-VB1.md`
       §8 calls for — keyboard node navigation, a focus ring on ports — is not built.
@@ -667,8 +668,8 @@ In rough priority order; closed items stay in place, marked with the release tha
       correctly into `props` and renders, but the separate `GraphBinding`/`doc.bindings[]` channel
       stays flat-top-level-prop-only by design, not yet extended.
 - [ ] **Kind suite, plan steps 3 and 5** (`docs/kind-test-environment-plan.md`): the full-values
-      install and the true previous-version Helm upgrade spec (no longer blocked — charts 0.9.0
-      through 0.18.0 are published), and the `NOTES.txt` CNI/NetworkPolicy warning. (G10 shipped
+      install, and the `NOTES.txt` CNI/NetworkPolicy warning. (The true previous-version Helm
+      upgrade spec is written, #425, `e2e/k8s/helm_upgrade_test.go`.) (G10 shipped
       with the chart-values UI in v0.12.0, #112.)
 - [ ] Overlay entries scaffolded by `make schema` carry `needs_review: true` and need an editorial
       pass on the next Alloy bump.

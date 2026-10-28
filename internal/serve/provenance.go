@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"shepherd/internal/merge"
+	"shepherd/internal/pipelinesource"
 )
 
 // provenanceVersion is the version of the stored Provenance JSON
@@ -49,10 +50,10 @@ type LineSpan struct {
 
 // ContributorRecord is one pipeline in the served config.
 type ContributorRecord struct {
-	PipelineID string `json:"pipeline_id"`
-	Name       string `json:"name"`
-	Source     string `json:"source"`
-	Revision   int    `json:"revision"`
+	PipelineID string                `json:"pipeline_id"`
+	Name       string                `json:"name"`
+	Source     pipelinesource.Source `json:"source"`
+	Revision   int                   `json:"revision"`
 	// RepoLink: a git pipeline, matched by its repo link (Matchers empty).
 	RepoLink bool            `json:"repo_link,omitempty"`
 	Matchers []MatcherRecord `json:"matchers,omitempty"`

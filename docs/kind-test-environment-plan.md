@@ -1,5 +1,10 @@
 # Kubernetes test environment — plan
 
+> **2026-10-28 (#425):** fifteen features. The true previous-version upgrade spec is written
+> (`e2e/k8s/helm_upgrade_test.go`): the highest released chart below `Chart.yaml`'s version,
+> pulled from ghcr.io with its own image, seeded, then upgraded to the tree's chart and images.
+> Step 3's remaining gap is the full-values install. The status lines below are history.
+>
 > **Re-checked 2026-10-01 (v0.14.0 / chart 0.18.0):** twelve `func Test*` features, green on the
 > release PR (`e2e-k8s.yml` run 36845733118), including the check that the app Services' EndpointSlices
 > list only server pods (#239, `helm_install_test.go`). Steps 1, 2, 4 and 6 done; step 3 partial (full-values
@@ -317,8 +322,8 @@ fails for reasons unrelated to policy.
 4. **Chart upgrade coverage** needs a previous version to upgrade from. **No longer blocked**:
    `v0.3.5` (tagged 2026-08-27) is a released chart version 0.9.0
    (`git show v0.3.5:deploy/helm/shepherd/Chart.yaml`); every chart through 0.18.0 is
-   published since — step 3's true previous-version upgrade spec has plenty to install first. Still
-   not written (see the status header and §8 step 3); this only removes the reason it was deferred.
+   published since — step 3's true previous-version upgrade spec has plenty to install first.
+   **Written 2026-10-28** (#425, `e2e/k8s/helm_upgrade_test.go`; `e2e/k8s/README.md` Known limits).
 
 ## 10. What this does not do
 

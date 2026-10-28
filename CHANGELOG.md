@@ -11,6 +11,47 @@ Categories used here:
 - **RPC only** — the API exists and is callable; there is no UI.
 - **Built, not wired** — the code and tests exist, nothing calls them in production yet.
 
+## Unreleased
+
+### Fixed
+
+- **The chart's install notes print each URL's real scheme.** Shipped. `NOTES.txt` printed
+  `https://` for every Ingress host and HTTPRoute hostname whether or not anything terminated TLS,
+  so a remotecfg block pasted from it failed its first poll. An Ingress host is now `https` only
+  when an `ingress.tls` entry covers it (its exact name, a `*.parent` wildcard one label above it,
+  or an entry with no `hosts`, which Kubernetes applies to every host) and `http` otherwise. An
+  HTTPRoute's scheme is the new `route.scheme` value (`http` or `https`); left empty it is `http`
+  when the first `parentRef` names port 80, `https` when it names 443, and otherwise `https` with
+  a line saying it was assumed. Every hostname is listed with its scheme, and the collector spoke
+  URL is the first TLS host that is not a wildcard, else the first non-wildcard host, else the
+  in-cluster URL. NodePort, LoadBalancer and port-forward instructions now spell out the `http://`
+  URL to open. Chart notes only: no rendered object changes. (#425)
+
+### Changed
+
+- **`pipelines.source` is a Go type.** `pipelinesource.Source` (`ui`, `wizard`, `git`, `visual`)
+  replaces the plain string in the sqlc models (a `sqlc.yaml` column override), the merge engine,
+  served-config provenance, git sync, the wizard and pipeline services and the dev seed, so the
+  `exhaustive` linter checks every switch over it; a test fails when the constants and the
+  column's CHECK constraint disagree. The one behaviour change: `CreatePipeline` and
+  `UpdatePipeline` refuse a `source` outside those four as `invalid_argument` instead of a
+  constraint violation answered as `internal`. No migration, no proto change, and served configs
+  are byte-identical. (#425)
+
+### Tests
+
+- **The kind suite upgrades from the previous published chart.** `e2e-k8s` gains a fifteenth
+  feature, `TestHelmChartUpgradesFromPreviousRelease` (`e2e/k8s/helm_upgrade_test.go`): it
+  installs the highest released chart below the tree's `Chart.yaml` version from
+  `oci://ghcr.io/procoduck/charts/shepherd` (an `-rc.N` tree upgrades from the last release, never
+  its own earlier rc; `E2E_K8S_PREVIOUS_CHART` overrides it) with that release's own images, seeds
+  an org, an agent token, a claimed collector and an enabled pipeline through it, then `helm
+  upgrade`s to the tree's chart and images and checks the release reports the tree's chart, the
+  schema is at the tree's latest migration and not dirty, `/readyz` is ok, the org and pipeline
+  are unchanged, and the collector, polling on its pre-upgrade token, is still served the
+  pipeline. It pulls from ghcr.io: offline it skips with the reason, in CI an unreachable
+  registry fails it. The version choice is unit-tested on every `go test ./...`. (#425)
+
 ## v0.21.0-rc.1 (prerelease)
 
 Chart 0.25.0-rc.1, a **release candidate** for v0.21.0. It is published as a GitHub prerelease:

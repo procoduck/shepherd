@@ -27,6 +27,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"shepherd/internal/pinnedimport"
+	"shepherd/internal/pipelinesource"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
 	"shepherd/internal/validate"
@@ -353,7 +354,7 @@ func modulePipelineItems() []seedPipelineItem {
 		{
 			name:     "pinned-module",
 			contents: pinnedImportContents("platform", seedModuleCleanSHA, seedModuleCleanPath, "platform_metrics"),
-			source:   "ui",
+			source:   pipelinesource.UI,
 			matchers: singleton,
 			enabled:  true,
 		},
@@ -362,7 +363,7 @@ func modulePipelineItems() []seedPipelineItem {
 			// expects the foreign tenant to be refused.
 			name:     "pinned-module-foreign",
 			contents: pinnedImportContents("foreign", seedModuleForeignSHA, seedModuleForeignPath, "foreign_tenant_metrics"),
-			source:   "ui",
+			source:   pipelinesource.UI,
 			matchers: singleton,
 			enabled:  false,
 		},
@@ -399,7 +400,7 @@ func k8smonPipelineItems() ([]seedPipelineItem, error) {
 		out = append(out, seedPipelineItem{
 			name:     it.name,
 			contents: strings.Replace(string(b), quoted, fmt.Sprintf("%q", it.toURL), 1),
-			source:   "ui",
+			source:   pipelinesource.UI,
 			matchers: []string{fmt.Sprintf("cluster=%q", seedClusterPlatformName), fmt.Sprintf("role=%q", it.role)},
 			enabled:  false,
 		})

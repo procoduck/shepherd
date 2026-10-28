@@ -11,6 +11,7 @@ import (
 
 	"shepherd/internal/config"
 	"shepherd/internal/merge"
+	"shepherd/internal/pipelinesource"
 	"shepherd/internal/schema"
 	"shepherd/internal/validate"
 	"shepherd/internal/version"
@@ -146,7 +147,7 @@ var _ = Describe("seed pipeline contents", func() {
 
 	It("seeds a visual-source demo pipeline with a valid alloy-graph/v1 wizard_state (D1/R3-H5)", func() {
 		demo := findSeedPipelineItem("demo-visual")
-		Expect(demo.source).To(Equal("visual"))
+		Expect(demo.source).To(Equal(pipelinesource.Visual))
 		Expect(demo.matchers).NotTo(BeEmpty())
 		Expect(demo.wizardState).NotTo(BeEmpty())
 

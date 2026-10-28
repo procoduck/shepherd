@@ -27,6 +27,7 @@ import (
 	"shepherd/internal/merge"
 	"shepherd/internal/metrics"
 	"shepherd/internal/pinnedimport"
+	"shepherd/internal/pipelinesource"
 	"shepherd/internal/schema"
 	"shepherd/internal/serve"
 	"shepherd/internal/signals"
@@ -121,6 +122,21 @@ var (
 	errReservedChangeNote   = errors.New(`change_note may not be "created" or start with "re-rendered:" — those notes mark revisions a wizard wrote`)
 )
 
+// requestSource parses a create or update request's source field. Empty is
+// "not given" and returns ""; anything else must be a pipelinesource value,
+// and is refused as an invalid argument rather than reaching the column's
+// CHECK constraint as an internal error.
+func requestSource(s string) (pipelinesource.Source, error) {
+	if s == "" {
+		return "", nil
+	}
+	src, err := pipelinesource.Parse(s)
+	if err != nil {
+		return "", connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	return src, nil
+}
+
 // errEnabledMeanwhile is UpdatePipeline's refusal when the pipeline was
 // enabled after the handler decided Stage 3 did not apply (see writeUpdate).
 var errEnabledMeanwhile = errors.New("pipeline was enabled while you were saving — save again to validate it against the served config")
@@ -194,7 +210,7 @@ func pipelineToProto(p sqlc.Pipeline) *mgmtv1.Pipeline {
 		Contents:  p.Contents,
 		Matchers:  matchers,
 		Enabled:   p.Enabled,
-		Source:    p.Source,
+		Source:    p.Source.String(),
 		CreatedBy: p.CreatedBy,
 		UpdatedBy: p.UpdatedBy,
 		CreatedAt: protoTimestamp(p.CreatedAt),
@@ -493,7 +509,7 @@ func (s *PipelineService) ListPipelines(ctx context.Context, req *connect.Reques
 		current := s.schema.CurrentVersion()
 		filtered := pipelines[:0]
 		for i := range pipelines {
-			if pipelines[i].Source == "visual" && visualNeedsUpgrade(pipelines[i].WizardState, current) {
+			if pipelines[i].Source == pipelinesource.Visual && visualNeedsUpgrade(pipelines[i].WizardState, current) {
 				filtered = append(filtered, pipelines[i])
 			}
 		}
@@ -545,11 +561,13 @@ func (s *PipelineService) GetPipeline(ctx context.Context, req *connect.Request[
 type pipelineSaveInput struct {
 	// OrgID is the pipeline's org, whose strict tenant policy the gate's
 	// tenant lint applies.
-	OrgID       pgtype.UUID
-	Name        string
-	Contents    string
-	Matchers    []string
-	Source      string
+	OrgID    pgtype.UUID
+	Name     string
+	Contents string
+	Matchers []string
+	// Source is the request's source (or the stored one); empty when the
+	// request named none.
+	Source      pipelinesource.Source
 	WizardState []byte
 }
 
@@ -574,7 +592,7 @@ func (s *PipelineService) validateSaveInput(ctx context.Context, in pipelineSave
 	if strings.ContainsFunc(in.Name, func(r rune) bool { return unicode.Is(unicode.Cc, r) || unicode.Is(unicode.Cf, r) }) {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errPipelineNameControl)
 	}
-	if in.Source == "visual" && len(in.WizardState) > 0 {
+	if in.Source == pipelinesource.Visual && len(in.WizardState) > 0 {
 		mismatch, checkErr := s.checkVisualRenderMatch(ctx, in.Contents, in.WizardState)
 		if checkErr != nil {
 			s.logger.Warn("visual render-equality check failed", "err", checkErr)
@@ -634,19 +652,22 @@ func (s *PipelineService) CreatePipeline(ctx context.Context, req *connect.Reque
 		}
 	}
 
+	source, err := requestSource(msg.GetSource())
+	if err != nil {
+		return nil, err
+	}
+	if source == "" {
+		source = pipelinesource.UI
+	}
 	matchersJSON, err := s.validateSaveInput(ctx, pipelineSaveInput{
 		OrgID: orgID, Name: msg.GetName(), Contents: msg.GetContents(), Matchers: msg.GetMatchers(),
-		Source: msg.GetSource(), WizardState: wsJSON,
+		Source: source, WizardState: wsJSON,
 	})
 	if err != nil {
 		return nil, err
 	}
 
 	actor := actorFromCtx(ctx)
-	source := msg.GetSource()
-	if source == "" {
-		source = "ui"
-	}
 	// The row and its revision-1 "created" row are written together, as every
 	// other pipeline write is: a pipeline with no revision would report
 	// revision 0, which no editor sends back as expected_revision.
@@ -716,8 +737,12 @@ func (s *PipelineService) UpdatePipeline(ctx context.Context, req *connect.Reque
 	if err := s.authorizeOwnership(ctx, msg.GetOrgId(), pipelineOwnerTeamID(p)); err != nil {
 		return nil, err
 	}
-	if p.Source == "git" {
+	if p.Source == pipelinesource.Git {
 		return nil, connect.NewError(connect.CodePermissionDenied, errGitSourceReadOnly)
+	}
+	source, err := requestSource(msg.GetSource())
+	if err != nil {
+		return nil, err
 	}
 
 	var wsJSON []byte
@@ -729,7 +754,7 @@ func (s *PipelineService) UpdatePipeline(ctx context.Context, req *connect.Reque
 
 	matchersJSON, err := s.validateSaveInput(ctx, pipelineSaveInput{
 		OrgID: p.OrgID, Name: msg.GetName(), Contents: msg.GetContents(), Matchers: msg.GetMatchers(),
-		Source: msg.GetSource(), WizardState: wsJSON,
+		Source: source, WizardState: wsJSON,
 	})
 	if err != nil {
 		return nil, err
@@ -908,7 +933,7 @@ func (s *PipelineService) DeletePipeline(ctx context.Context, req *connect.Reque
 	if err := s.authorizeOwnership(ctx, req.Msg.GetOrgId(), pipelineOwnerTeamID(p)); err != nil {
 		return nil, err
 	}
-	if p.Source == "git" {
+	if p.Source == pipelinesource.Git {
 		return nil, connect.NewError(connect.CodePermissionDenied, errGitSourceReadOnly)
 	}
 	actor := actorFromCtx(ctx)
@@ -1170,9 +1195,9 @@ func (s *PipelineService) PreviewMatches(ctx context.Context, req *connect.Reque
 	}
 	// A git pipeline matches by its linked collector, not by matchers
 	// (merge.MatchesPipeline compares RepoLinkCollectorID when Source is
-	// "git"). The row only carries RepoLinkID; the target collector is on the
+	// pipelinesource.Git). The row only carries RepoLinkID; the target collector is on the
 	// repo_link row. Left empty, the preview of any git pipeline was empty.
-	if p.Source == "git" && p.RepoLinkID.Valid {
+	if p.Source == pipelinesource.Git && p.RepoLinkID.Valid {
 		link, linkErr := s.store.Queries.GetRepoLinkByID(ctx, p.RepoLinkID)
 		if linkErr != nil {
 			s.logger.Debug("preview matches: load repo link", "err", linkErr)

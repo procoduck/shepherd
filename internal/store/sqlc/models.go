@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 
 	"github.com/jackc/pgx/v5/pgtype"
+	"shepherd/internal/pipelinesource"
 )
 
 type AgentIdentity struct {
@@ -254,24 +255,24 @@ type PinnedImportModule struct {
 }
 
 type Pipeline struct {
-	ID                 pgtype.UUID        `json:"id"`
-	OrgID              pgtype.UUID        `json:"org_id"`
-	Name               string             `json:"name"`
-	Contents           string             `json:"contents"`
-	Matchers           json.RawMessage    `json:"matchers"`
-	Enabled            bool               `json:"enabled"`
-	Source             string             `json:"source"`
-	WizardKind         pgtype.Text        `json:"wizard_kind"`
-	WizardState        json.RawMessage    `json:"wizard_state"`
-	RepoLinkID         pgtype.UUID        `json:"repo_link_id"`
-	GitPath            pgtype.Text        `json:"git_path"`
-	CreatedBy          string             `json:"created_by"`
-	UpdatedBy          string             `json:"updated_by"`
-	CreatedAt          pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
-	SanitizedName      pgtype.Text        `json:"sanitized_name"`
-	OwnerTeamID        pgtype.UUID        `json:"owner_team_id"`
-	WizardRenderSha256 pgtype.Text        `json:"wizard_render_sha256"`
+	ID                 pgtype.UUID           `json:"id"`
+	OrgID              pgtype.UUID           `json:"org_id"`
+	Name               string                `json:"name"`
+	Contents           string                `json:"contents"`
+	Matchers           json.RawMessage       `json:"matchers"`
+	Enabled            bool                  `json:"enabled"`
+	Source             pipelinesource.Source `json:"source"`
+	WizardKind         pgtype.Text           `json:"wizard_kind"`
+	WizardState        json.RawMessage       `json:"wizard_state"`
+	RepoLinkID         pgtype.UUID           `json:"repo_link_id"`
+	GitPath            pgtype.Text           `json:"git_path"`
+	CreatedBy          string                `json:"created_by"`
+	UpdatedBy          string                `json:"updated_by"`
+	CreatedAt          pgtype.Timestamptz    `json:"created_at"`
+	UpdatedAt          pgtype.Timestamptz    `json:"updated_at"`
+	SanitizedName      pgtype.Text           `json:"sanitized_name"`
+	OwnerTeamID        pgtype.UUID           `json:"owner_team_id"`
+	WizardRenderSha256 pgtype.Text           `json:"wizard_render_sha256"`
 }
 
 type PipelineRevision struct {

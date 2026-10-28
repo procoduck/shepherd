@@ -15,6 +15,7 @@ import (
 
 	"shepherd/internal/auth"
 	"shepherd/internal/config"
+	"shepherd/internal/pipelinesource"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
 )
@@ -150,7 +151,7 @@ var _ = Describe("PipelineService.DetachFromWizard", Label("integration"), func(
 		Expect(out["source"]).To(Equal("ui"))
 
 		got := pipeline(ownedByTeam.ID)
-		Expect(got.Source).To(Equal("ui"))
+		Expect(got.Source).To(Equal(pipelinesource.UI))
 		Expect(got.WizardKind.Valid).To(BeFalse())
 		Expect(got.WizardState).To(BeNil())
 		Expect(got.WizardRenderSha256.Valid).To(BeFalse())
@@ -234,13 +235,13 @@ var _ = Describe("PipelineService.DetachFromWizard", Label("integration"), func(
 		Expect(out["code"]).To(Equal("permission_denied"))
 		code, _ = detach(nonMember, org, ownedByTeam)
 		Expect(code).To(Equal(http.StatusForbidden))
-		Expect(pipeline(ownedByTeam.ID).Source).To(Equal("wizard"))
+		Expect(pipeline(ownedByTeam.ID).Source).To(Equal(pipelinesource.Wizard))
 	})
 
 	It("does not reach another org's pipeline", func() {
 		code, out := detach(admin, other, ownedByTeam)
 		Expect(code).To(Equal(http.StatusNotFound), "%v", out)
-		Expect(pipeline(ownedByTeam.ID).Source).To(Equal("wizard"))
+		Expect(pipeline(ownedByTeam.ID).Source).To(Equal(pipelinesource.Wizard))
 	})
 
 	It("refuses a pipeline that is not a wizard pipeline", func() {

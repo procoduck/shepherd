@@ -12,6 +12,8 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+
+	"shepherd/internal/pipelinesource"
 )
 
 // Pipeline is the minimal representation of a pipeline needed by the merge engine.
@@ -25,8 +27,9 @@ type Pipeline struct {
 	// Matchers is the list of Alertmanager matcher strings (all must match — AND).
 	// Empty means match nothing (safety default).
 	Matchers []string
-	// Source is "ui", "wizard", or "git".
-	Source string
+	// Source is where the pipeline came from; a Git pipeline is matched by
+	// RepoLinkCollectorID, every other source by Matchers.
+	Source pipelinesource.Source
 	// Revision is the pipeline's current revision (its newest
 	// pipeline_revisions row), printed in the served header as "(rev N)".
 	// It is part of the served bytes and so of the hash: every serve path
@@ -34,7 +37,7 @@ type Pipeline struct {
 	// the hash moves whenever a poll switches path (#296). A legacy pipeline
 	// with no revision row has 0 and shows "(rev 0)".
 	Revision int
-	// RepoLinkCollectorID is set (non-empty) when Source == "git".
+	// RepoLinkCollectorID is set (non-empty) when Source is pipelinesource.Git.
 	// Git pipelines match only their target collector, not via matchers.
 	RepoLinkCollectorID string
 	// TenantProblem is set (non-empty) for a strict org's pipeline that
@@ -290,7 +293,7 @@ func Assemble(collectorID, collectorDisplayName string, cl CollectorLabels, pipe
 		spans = append(spans, span)
 		contributors = append(contributors, Contributor{
 			PipelineID: p.ID, PipelineName: p.Name, Source: p.Source, Revision: p.Revision,
-			RepoLink: p.Source == "git", Matchers: evidence[p.Name], Span: span,
+			RepoLink: p.Source == pipelinesource.Git, Matchers: evidence[p.Name], Span: span,
 		})
 	}
 
