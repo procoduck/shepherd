@@ -1,9 +1,11 @@
 package simsvc
 
 import (
+	"bytes"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -170,12 +172,25 @@ func remainingSeconds(run Run) int {
 	return remaining
 }
 
+// writeJSON encodes body fully before writing anything. Streaming straight
+// into w committed the status line first, so an encode failure (a NaN sample
+// once did this) sent a 200 with a truncated body that the client could only
+// report as "unexpected end of JSON input"; now it is a 500 naming the cause.
 func (s *Server) writeJSON(w http.ResponseWriter, status int, body any) {
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(body); err != nil {
+		s.logger.Error("control api: encode response failed", "error", err)
+		buf.Reset()
+		status = http.StatusInternalServerError
+		// APIError is two strings: encoding it cannot fail.
+		_ = json.NewEncoder(&buf).Encode(APIError{ //nolint:errcheck // see above
+			Code:    "encode_failed",
+			Message: fmt.Sprintf("the simulator could not encode its response: %v", err),
+		})
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(body); err != nil {
-		s.logger.Warn("control api: encode response failed", "error", err)
-	}
+	_, _ = w.Write(buf.Bytes()) //nolint:errcheck // a write failure is the client's problem
 }
 
 func (s *Server) writeError(w http.ResponseWriter, status int, code, message string) {

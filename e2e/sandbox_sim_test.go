@@ -258,6 +258,60 @@ var _ = Describe("Scenario sandbox-sim: S3 sandbox run against the real simulato
 		Expect(run.FinishedAt.Sub(run.StartedAt)).To(BeNumerically(">=", 30*time.Second),
 			"the simulator must run for the effective duration")
 	})
+
+	It("a prometheus.exporter.self graph, whose samples include NaN, completes with captured series", func() {
+		// Alloy's own metrics carry NaN sample values (an unobserved
+		// summary's quantiles). The simulator's control API used to refuse to
+		// encode them ("json: unsupported value: NaN") and answer a truncated
+		// 200, which failed this exact graph with "simulator: decode
+		// response: unexpected end of JSON input".
+		selfGraph := map[string]any{
+			"kind":           "alloy-graph/v1",
+			"schema_version": "alloy-v1.18.1",
+			"nodes": []map[string]any{
+				{"id": "n1", "component": "prometheus.exporter.self", "label": "self", "props": map[string]any{}},
+				{
+					"id": "n2", "component": "prometheus.scrape", "label": "self_scrape",
+					"props": map[string]any{"job_name": "self", "scrape_interval": "5s", "scrape_timeout": "2s"},
+				},
+				{
+					"id": "n3", "component": "prometheus.remote_write", "label": "sink",
+					"props": map[string]any{
+						"endpoint": []map[string]any{{"url": "https://prometheus.example.com/api/v1/write"}},
+					},
+				},
+			},
+			"edges": []map[string]any{
+				{"id": "e1", "from": map[string]string{"node": "n1", "port": "targets"}, "to": map[string]string{"node": "n2", "port": "targets"}},
+				{"id": "e2", "from": map[string]string{"node": "n2", "port": "forward_to"}, "to": map[string]string{"node": "n3", "port": "receiver"}},
+			},
+		}
+
+		var created struct {
+			RunID string `json:"runId"`
+		}
+		status := adminClient.rpc("SimulateService", "CreateRun", map[string]any{
+			"org_id":           simOrgID,
+			"graph":            selfGraph,
+			"duration_seconds": 18,
+		}, &created)
+		Expect(status).To(Equal(http.StatusOK), "CreateRun must succeed")
+		Expect(created.RunID).NotTo(BeEmpty())
+		selfRunID := created.RunID
+
+		Eventually(func() string {
+			return getRunStatus(simOrgID, selfRunID)
+		}).WithTimeout(90 * time.Second).WithPolling(2 * time.Second).Should(BeElementOf("completed", "failed"))
+
+		run := getRun(simOrgID, selfRunID)
+		Expect(run.Status).To(Equal("completed"), "run failed: %s: %s", run.ErrorCode, run.ErrorMessage)
+		Expect(run.CapturedSeries).NotTo(BeEmpty(), "exporter.self must have delivered Alloy's own metrics to the harness")
+		names := make([]string, 0, len(run.CapturedSeries))
+		for _, s := range run.CapturedSeries {
+			names = append(names, s.Name)
+		}
+		Expect(names).To(ContainElement(HavePrefix("alloy_")), "expected Alloy self-metrics among captured series")
+	})
 })
 
 // capturedSeries/componentHealth/rewrite/simulateRunView mirror the protojson

@@ -186,6 +186,16 @@ additive; non-strict orgs are served the same bytes.
   comment ended up on the inserted block's closing line. The block now goes after a comment that
   ends the exporter's closing line. Only the served text of a strict org's pipeline with such a
   comment changes (its collectors reload once); non-strict orgs are served the same bytes.
+- **A sandbox run whose captured samples include NaN or ±Inf completes.** Shipped. A pipeline
+  scraping `prometheus.exporter.self` failed every run with "simulator: decode response:
+  unexpected end of JSON input": Alloy's own metrics carry NaN samples (an unobserved summary's
+  quantiles), which the simulator's control API could not encode, and it had already sent a 200
+  when the encode failed. Captured first/last values now travel as a JSON number when finite and
+  as `"NaN"`, `"+Inf"`, `"-Inf"` or `"StaleNaN"` (the Prometheus stale marker) otherwise, and the
+  control API encodes a response in full before sending it, so a future encode failure answers
+  500 `encode_failed` naming the cause. Upgrade the simulator image with the server: an older
+  server cannot decode the new non-finite spellings (finite values are unchanged on the wire).
+  The run view's captured series and the API are unchanged.
 
 ### Tests
 

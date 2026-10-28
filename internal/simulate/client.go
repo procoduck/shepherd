@@ -36,13 +36,14 @@ type ClientRunError struct {
 	Message string `json:"message"`
 }
 
-// ClientSeries mirrors simsvc.Series.
+// ClientSeries mirrors simsvc.Series. Its values are SampleValue, the one
+// codec both sides share, so NaN/±Inf/stale samples decode losslessly.
 type ClientSeries struct {
 	Name             string            `json:"name"`
 	Labels           map[string]string `json:"labels"`
 	SampleCount      int               `json:"sample_count"`
-	FirstValue       float64           `json:"first_value"`
-	LastValue        float64           `json:"last_value"`
+	FirstValue       SampleValue       `json:"first_value"`
+	LastValue        SampleValue       `json:"last_value"`
 	FirstTimestampMS int64             `json:"first_timestamp_ms"`
 	LastTimestampMS  int64             `json:"last_timestamp_ms"`
 }
