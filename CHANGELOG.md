@@ -138,9 +138,38 @@ additive; non-strict orgs are served the same bytes.
   series records a report only for a writer whose collector the beacon's org check verified. A
   collector with no recent report, or no live instance, still reads unknown; a
   replica that has no record yet falls back to the previous rule.
-- **The wizard preview counts warnings.** Shipped. Its summary said "No problems" beside a
-  warning (a strict org's tenant-lint warning, a version note); it now shows the pipeline editor's
-  verdict, with "N warning(s)" beside it. Warnings still do not block Create.
+- **The wizard preview's verdict is the pipeline editor's.** Shipped. Its summary said "No
+  problems" beside the wizard's own notes (a logs option left out for want of a destination) and
+  without the warnings the pipeline editor reports for the same text, such as a collector in the
+  org running an Alloy version that is not a release: the preview checked only the render's own
+  diagnostics, which carry neither. It now validates the rendered text with the editor's call
+  (`ValidatePipeline`) and counts the wizard's notes and that call's warnings, "N warning(s)",
+  each shown with its text below the preview. Warnings still do not block Create.
+- **`shepherd admin tenant-preflight` says how to fix each kind of finding.** Shipped. Its line
+  for a pipeline always ended "or assign the tenant to the organisation", which fixes nothing for
+  a component or gateway route refusal. The hint now follows the findings: assign the tenant (a
+  tenant finding), use one of the organisation's tenant routes (a route finding), or ask an
+  application administrator to allow the component (only for a shipped component classified
+  refused; a name no shipped schema has gets only "edit or disable the pipeline"). A failing check
+  no longer prints the command's usage block; it still exits non-zero.
+- **Admin-allowed component messages.** Shipped. Refusing to allow a name now says which case it
+  is: "No shipped Alloy schema has a component named X." or "The component X is already accepted
+  in strict tenant mode (classified …); there is nothing to allow." Refusing a removal starts "The
+  component X is used by…", so the page no longer capitalises the component's name. The editor
+  also notes that an allowed public-preview or experimental component still needs the
+  collector's `--stability.level` (Alloy refuses it and keeps the previous config; Shepherd records
+  a `collector.version_warning` naming the flag).
+- **A refusal for the organisation's own unusable route says why.** Shipped. An endpoint under
+  one of the organisation's own route segments that no longer routes for it was refused as "not
+  one of this organisation's tenant routes". It now says "…which is this organisation's route,
+  but it is revoked" or "…but its tenant "x" is no longer one the organisation owns". Another
+  organisation's segment keeps the neutral wording and names no owner. The reason is also printed
+  in the served header's strict tenant exclusions, so the served text changes only for a strict
+  org's collectors with such an exclusion (they reload once). The message is new in 0.21 and was
+  never released; hashing and `serve.Format` are unchanged.
+- **A served-config highlight can be linked to.** Shipped. The collector page keeps its tab and
+  the Pipelines tab's "Lines N–M" highlight in the URL (`?tab=config&lines=31-36`); opening such a
+  link highlights the block and scrolls to it.
 - **Junk and flapping `collector.version` strings.** Shipped. An agent-chosen version reached the
   version check's audit row and the collector's check fingerprint unbounded (up to the agent API's
   8 MiB request limit) and uncapped; both now hold each version trimmed and cut to 64 bytes, at

@@ -87,6 +87,13 @@ export function OrgStrictComponentsEditor({ org }: { org: Org }) {
         still applies to it. An entry can be removed when no enabled pipeline uses the component; a
         disabled pipeline that uses it is checked again, and refused, when it is enabled.
       </p>
+      <p className='text-xs text-muted-2' data-testid='org-strict-components-stability'>
+        Allowing a component does not let a collector run it: Alloy refuses a public-preview or
+        experimental component below the collector&rsquo;s{' '}
+        <code className='font-mono'>--stability.level</code> and keeps its previous config. Shepherd
+        then records a <code className='font-mono'>collector.version_warning</code> naming the flag
+        the collector needs.
+      </p>
       {listQ.isLoading ? (
         <p className='text-xs text-muted-3'>Loading…</p>
       ) : items.length === 0 ? (

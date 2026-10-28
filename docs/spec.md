@@ -1244,8 +1244,9 @@ enabled). Turning it off always succeeds. `AdminService.TenantPreflight` (app ad
 returns the same list as data — for one org, or with `org_id` empty for every org, as
 `tenants.require_owned` would see it. With `tenants.require_owned` on, `shepherd serve` runs that
 all-org preflight at boot and **refuses to start** while anything is listed (fail closed), naming
-each object and how to clear it (assign the tenant to its org, or edit, disable or delete the
-object); `shepherd admin tenant-preflight` prints the same list without starting the server and
+each object and how to clear it (edit, disable or delete the object, or, by the kind of finding,
+assign the tenant to its org, use one of the org's tenant routes, or have an app admin allow a
+shipped component classified refused); `shepherd admin tenant-preflight` prints the same list without starting the server and
 exits non-zero while anything is listed. `Org.strict_tenants` is the flag, `Org.tenants_required`
 and `OrgMembership.tenants_required` the effective state; the destination form then offers only
 the org's tenants. Every pipeline write (create, update, restore, enable, wizard commit, a

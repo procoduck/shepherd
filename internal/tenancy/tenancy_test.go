@@ -216,6 +216,9 @@ var _ = Describe("CheckRequireOwned", Label("integration"), func() {
 		vs, err := tenancy.Preflight(ctx, st.Queries, org, false, pinnedimport.Cached)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(vs).To(HaveLen(2))
+		// A tenant finding's hint is to assign the tenant.
+		Expect(vs).To(ContainElement(SatisfyAll(HaveField("Name", "w"),
+			HaveField("Message", ContainSubstring("or assign the tenant to the organisation")))))
 	})
 
 	It("needs a tenant for per-org strict mode only (requireTenant)", func() {
@@ -276,6 +279,19 @@ var _ = Describe("CheckRequireOwned", Label("integration"), func() {
 		Expect(err).To(HaveOccurred())
 	})
 
+	It("offers no allow hint for a component no shipped schema has", func() {
+		_, err := st.Queries.CreatePipeline(ctx, sqlc.CreatePipelineParams{
+			OrgID: org.ID, Name: "future", Contents: "loki.source.future \"f\" { }\n", Matchers: json.RawMessage(`[]`),
+			Source: "ui", Enabled: true,
+		})
+		Expect(err).NotTo(HaveOccurred())
+		vs, err := tenancy.Preflight(ctx, st.Queries, org, false, pinnedimport.Cached)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(vs).To(HaveLen(1))
+		Expect(vs[0].Message).To(And(ContainSubstring("edit or disable the pipeline"),
+			Not(ContainSubstring("assign the tenant")), Not(ContainSubstring("ask an application administrator"))))
+	})
+
 	// #421: the admin-allowed components are part of the policy every check
 	// loads — the save, the preflight, the in-transaction lint and the
 	// removal guard.
@@ -295,6 +311,11 @@ var _ = Describe("CheckRequireOwned", Label("integration"), func() {
 		vs, err := tenancy.Preflight(ctx, st.Queries, org, false, pinnedimport.Cached)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(names(vs)).To(ConsistOf("google"))
+		// The fix hint follows the finding (0.21.0-rc.1 walkthrough): a refused
+		// shipped component can be allowed; assigning a tenant fixes nothing.
+		Expect(vs[0].Message).To(And(
+			ContainSubstring("or ask an application administrator to allow the component for this organisation"),
+			Not(ContainSubstring("assign the tenant"))))
 		Expect(tenancy.LintLocked(ctx, st.Queries, org.ID, true, tenancy.Pipeline{Name: "google", Contents: google})).
 			To(MatchError(tenancy.ErrPipelineNotOwned))
 
@@ -413,6 +434,8 @@ var _ = Describe("gateway route endpoints in the policy", Label("integration"), 
 		Expect(err).NotTo(HaveOccurred())
 		Expect(vs).To(ConsistOf(SatisfyAll(
 			HaveField("Name", "foreign"), HaveField("Message", ContainSubstring(validate.GatewayEndpointRefusal)))))
+		Expect(vs[0].Message).To(And(ContainSubstring("or use one of this organisation's tenant routes"),
+			Not(ContainSubstring("assign the tenant"))))
 		Expect(tenancy.LintLocked(ctx, st.Queries, org.ID, true, tenancy.Pipeline{Name: "foreign", Contents: exporter(foreign.Segment)})).
 			To(MatchError(ContainSubstring(foreign.Segment)))
 		Expect(tenancy.LintLocked(ctx, st.Queries, org.ID, true, tenancy.Pipeline{Name: "own", Contents: exporter(own.Segment)})).To(Succeed())
@@ -440,6 +463,31 @@ var _ = Describe("gateway route endpoints in the policy", Label("integration"), 
 			Expect(err).NotTo(HaveOccurred())
 		}
 		Expect(tenancy.LintLocked(ctx, st.Queries, org.ID, true, tenancy.Pipeline{Name: "computed", Contents: computed})).To(Succeed())
+	})
+
+	// 0.21.0-rc.1 walkthrough: after the org's own route was revoked, the
+	// refusal said the segment was "not one of this organisation's tenant
+	// routes". It is the org's route; say why it no longer routes. Another
+	// org's segment stays neutral and names no owner.
+	It("says why the org's own route no longer counts, and nothing about another org's", func() {
+		lint := func(segment string) error {
+			GinkgoHelper()
+			return tenancy.LintLocked(ctx, st.Queries, org.ID, true, tenancy.Pipeline{Name: "p", Contents: exporter(segment)})
+		}
+		foreignErr := lint(foreign.Segment)
+		Expect(foreignErr).To(MatchError(ContainSubstring("which is not one of this organisation's tenant routes")))
+		Expect(foreignErr.Error()).NotTo(Or(ContainSubstring(other.Name), ContainSubstring("revoked"), ContainSubstring("this organisation's route,")))
+
+		_, err := st.Queries.RevokeTenantRoute(ctx, own.ID)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(lint(own.Segment)).To(MatchError(ContainSubstring(
+			`the otlp route segment "` + own.Segment + `", which is this organisation's route, but it is revoked`)))
+
+		old := route(org, "acme-old", "otlp", "acme-old-5e6f7a8b")
+		Expect(lint(old.Segment)).To(Succeed())
+		Expect(st.Queries.DeleteOrgTenant(ctx, sqlc.DeleteOrgTenantParams{OrgID: org.ID, Tenant: "acme-old", Kind: "exact"})).To(Equal(int64(1)))
+		Expect(lint(old.Segment)).To(MatchError(ContainSubstring(
+			`which is this organisation's route, but its tenant "acme-old" is no longer one the organisation owns`)))
 	})
 
 	It("takes the gateway's hosts from the configuration, refusing one that is not a host", func() {

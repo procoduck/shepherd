@@ -11,6 +11,7 @@ import type { PipelineLandedFrom } from '@/components/PipelineLandingBanner';
 import { RequireRole } from '@/components/RequireRole';
 import { RouteErrorFallback } from '@/components/RouteErrorFallback';
 import { Shell } from '@/components/Shell';
+import { validateCollectorSearch } from '@/lib/collectorSearch';
 import { lazyNamed } from '@/lib/lazyNamed';
 import { AdminAuthPage } from '@/pages/AdminAuthPage';
 import { AdminClustersPage } from '@/pages/AdminClustersPage';
@@ -141,6 +142,9 @@ const collectorsRoute = createRoute({
 const collectorDetailRoute = createRoute({
   getParentRoute: () => contentRoute,
   path: '/collectors/$id',
+  // The open tab and a highlighted span of the served config (the Pipelines
+  // tab's "Lines N–M"), so either can be linked to.
+  validateSearch: validateCollectorSearch,
   component: CollectorDetailPage,
 });
 

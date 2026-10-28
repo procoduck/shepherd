@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useParams } from '@tanstack/react-router';
+import { useNavigate, useParams, useSearch } from '@tanstack/react-router';
 import { CheckCircle, Copy, Plus, Search } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { clients } from '@/api/transport';
 import { CollectorAttributes, CollectorLabelsButton } from '@/components/CollectorLabels';
@@ -13,71 +13,41 @@ import {
 import { CollectorRefusedBanner, RefusedBadge, refusalState } from '@/components/CollectorRefusal';
 import { CollectorVersionWarningBanner } from '@/components/CollectorVersionWarning';
 import { QueryError } from '@/components/QueryError';
+import { ServedConfigText } from '@/components/ServedConfigText';
 import { DataTable } from '@/components/ui/DataTable';
 import { Field, Input } from '@/components/ui/Field';
 import { FormError } from '@/components/ui/FormError';
 import { useMe } from '@/hooks/useMe';
 import { useOrgId } from '@/hooks/useOrg';
+import { type CollectorTab as Tab } from '@/lib/collectorSearch';
 import { errorText, formError } from '@/lib/formError';
 import { Role } from '@/lib/roles';
-import { linesLabel, spanContains } from '@/lib/servedProvenance';
+import { lineSpanParam, linesLabel, parseLineSpan } from '@/lib/servedProvenance';
 import { formatTimestampRelative } from '@/lib/utils';
 import { assignmentColumns, instanceColumns, statusColor, statusTitle } from './collectorColumns';
 
-type Tab = 'config' | 'pipelines' | 'reconciliation' | 'info' | 'attributes' | 'access';
-
-/**
- * The served config as read-only text, one span per line so a pipeline's
- * block (F-CONTRIB: the Pipelines tab's "Lines N–M") can be highlighted and
- * scrolled to. The text content is the served content unchanged.
- */
-function ServedConfigText({ content, highlight }: { content: string; highlight?: ShowLines }) {
-  const first = useRef<HTMLSpanElement>(null);
-  useEffect(() => {
-    if (highlight) first.current?.scrollIntoView?.({ block: 'center' });
-  }, [highlight]);
-  const lines = content.split('\n');
-  return (
-    <pre
-      data-testid='served-config-text'
-      className='rounded-lg border border-border bg-background p-4 text-xs font-mono text-zinc-300 overflow-auto max-h-[60vh] whitespace-pre-wrap'
-    >
-      {lines.map((line, i) => {
-        const n = i + 1;
-        const on = spanContains(highlight?.lines, n);
-        const text = i < lines.length - 1 ? `${line}\n` : line;
-        if (!on) return text;
-        return (
-          <mark
-            key={n}
-            ref={n === highlight?.lines.first ? first : undefined}
-            data-line={n}
-            className='bg-info-surface text-info'
-          >
-            {text}
-          </mark>
-        );
-      })}
-    </pre>
-  );
-}
-
 export function CollectorDetailPage() {
   const { id } = useParams({ from: '/shell/content/collectors/$id' });
+  const search = useSearch({ from: '/shell/content/collectors/$id' });
+  const navigate = useNavigate({ from: '/collectors/$id' });
   const orgId = useOrgId();
   const { data: me } = useMe();
-  const [tab, setTab] = useState<Tab>('config');
   const [copied, setCopied] = useState(false);
-  const [highlight, setHighlight] = useState<ShowLines | undefined>();
-
   const isOrgAdmin =
     !!me?.isAppAdmin || me?.orgs?.some((o) => o.id === orgId && o.role === Role.ADMIN) === true;
-
-  // Keep the Access tab from being stranded selected-but-hidden if the org
-  // switcher moves to an org where the viewer isn't an admin.
-  useEffect(() => {
-    if (tab === 'access' && !isOrgAdmin) setTab('config');
-  }, [tab, isOrgAdmin]);
+  // The tab and the highlight live in the URL (0.21.0-rc.1 walkthrough: a
+  // "Lines N–M" view could not be linked to). The Access tab is never
+  // stranded selected-but-hidden: for a viewer who is not an org admin (the
+  // org switcher moved, or a shared link) it reads as Served Config.
+  const tab: Tab = search.tab === 'access' && !isOrgAdmin ? 'config' : (search.tab ?? 'config');
+  const setTab = (t: Tab) =>
+    navigate({ search: t === 'config' ? {} : { tab: t }, replace: true, resetScroll: false });
+  const highlightLines = parseLineSpan(search.lines);
+  const setHighlight = (s: ShowLines | undefined) =>
+    navigate({
+      search: s ? { tab: 'config', lines: lineSpanParam(s.lines) } : { tab: 'config' },
+      resetScroll: false,
+    });
 
   const {
     data: collector,
@@ -97,6 +67,19 @@ export function CollectorDetailPage() {
     enabled: !!orgId && (tab === 'config' || tab === 'pipelines'),
     refetchInterval: 30000,
   });
+  // The highlighted span, named as the Pipelines tab names it: the
+  // contributing pipeline (or the baseline) whose block it is, if any.
+  const highlight: ShowLines | undefined = highlightLines && {
+    lines: highlightLines,
+    name:
+      servedConfig?.contributing.find(
+        (p) => p.lines?.first === highlightLines.first && p.lines?.last === highlightLines.last,
+      )?.name ??
+      (servedConfig?.baselineLines?.first === highlightLines.first &&
+      servedConfig?.baselineLines?.last === highlightLines.last
+        ? 'Self-monitoring baseline'
+        : ''),
+  };
 
   const qc = useQueryClient();
   const [groupQuery, setGroupQuery] = useState('');
@@ -297,7 +280,8 @@ export function CollectorDetailPage() {
                   data-testid='served-config-highlight'
                 >
                   <span>
-                    Highlighting {linesLabel(highlight.lines).toLowerCase()} — {highlight.name}
+                    Highlighting {linesLabel(highlight.lines).toLowerCase()}
+                    {highlight.name && ` — ${highlight.name}`}
                   </span>
                   <button
                     type='button'
@@ -325,10 +309,7 @@ export function CollectorDetailPage() {
         <CollectorPipelines
           served={servedConfig}
           loading={configLoading}
-          onShowLines={(s) => {
-            setHighlight(s);
-            setTab('config');
-          }}
+          onShowLines={setHighlight}
         />
       )}
 

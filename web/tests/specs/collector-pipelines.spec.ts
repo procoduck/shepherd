@@ -134,6 +134,42 @@ test("a contributor's lines open the served config with its block highlighted", 
   await expect(marked).toHaveCount(0);
 });
 
+// 0.21.0-rc.1 walkthrough: the highlight was page state only, so a "Lines
+// N–M" view could not be linked to. It is now in the URL.
+test('a served-config highlight is addressable in the URL', async ({ page, api }) => {
+  await api.loginAs(viewer);
+  const s = basicScenario();
+  const c = collector({ id: 'col-contrib-1', role: 'metrics' });
+  api.seed({ orgs: [s.org], collectors: [c], servedConfig: provenance });
+
+  // The button puts the highlight in the URL…
+  await page.goto(`/collectors/${c.id}`);
+  await page.getByRole('button', { name: 'Pipelines', exact: true }).click();
+  await page.getByTestId('contributing-row').getByTestId('contributing-lines').click();
+  await expect(page).toHaveURL(/[?&]tab=config(&|$)/);
+  await expect(page).toHaveURL(/[?&]lines=8-14(&|$)/);
+
+  // …and opening that URL highlights the block, named from the provenance.
+  await page.goto(`/collectors/${c.id}?tab=config&lines=8-14`);
+  await expect(page.getByTestId('served-config-highlight')).toContainText(
+    'Highlighting lines 8–14 — app-metrics',
+  );
+  const marked = page.getByTestId('served-config-text').locator('mark');
+  await expect(marked).toHaveCount(7);
+  await expect(marked.first()).toBeInViewport();
+
+  // Clear drops it from the URL; a tab link opens that tab.
+  await page.getByRole('button', { name: 'Clear' }).click();
+  await expect(marked).toHaveCount(0);
+  await expect(page).not.toHaveURL(/lines=/);
+  await page.goto(`/collectors/${c.id}?tab=pipelines`);
+  await expect(page.getByTestId('contributing-row')).toBeVisible();
+  // A range that is not one is ignored.
+  await page.goto(`/collectors/${c.id}?tab=config&lines=14-8`);
+  await expect(page.getByTestId('served-config-text')).toBeVisible();
+  await expect(page.getByTestId('served-config-highlight')).toHaveCount(0);
+});
+
 test('the Pipelines tab shows empty states, and says when provenance is not recorded yet', async ({
   page,
   api,

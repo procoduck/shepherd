@@ -1202,14 +1202,14 @@ export function installDefaultHandlers(router: Router) {
         r,
         400,
         'invalid_argument',
-        `not a component strict tenant mode refuses: ${JSON.stringify(component)} is not a component name (such as otelcol.auth.google)`,
+        `${JSON.stringify(component)} is not a component name (such as otelcol.auth.google).`,
       );
     if (acceptedComponents.has(component))
       return connectError(
         r,
         400,
         'invalid_argument',
-        `not a component strict tenant mode refuses: ${component} is classified checked, so strict tenant mode already accepts it`,
+        `The component ${component} is already accepted in strict tenant mode (classified checked); there is nothing to allow.`,
       );
     if (strictComponentsOf(o).some((x) => x.component === component))
       return connectError(
@@ -1239,7 +1239,7 @@ export function installDefaultHandlers(router: Router) {
         r,
         400,
         'failed_precondition',
-        `${held.component} is used by enabled pipeline(s) of org ${JSON.stringify(s(o, 'name'))}, which strict tenant mode would then refuse: ${held.in_use_by.map((p) => `pipeline ${JSON.stringify(p)}`).join('; ')}; edit or disable them first (only enabled pipelines are checked)`,
+        `the component ${held.component} is used by enabled pipeline(s) of org ${JSON.stringify(s(o, 'name'))}, which strict tenant mode would then refuse: ${held.in_use_by.map((p) => `pipeline ${JSON.stringify(p)}`).join('; ')}; edit or disable them first (only enabled pipelines are checked)`,
       );
     o['strict_components'] = strictComponentsOf(o).filter((x) => x !== held);
     return json(r, 200, {});

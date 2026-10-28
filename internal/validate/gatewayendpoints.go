@@ -58,6 +58,11 @@ type GatewayRoutes struct {
 	// Owns reports whether the org owns the route of kind ("otlp" or
 	// "faro") with this segment. A nil Owns owns none.
 	Owns func(kind, segment string) bool
+	// Unusable, for a route of the org's own that Owns refuses, says why
+	// ("it is revoked"); "" for a segment that is not one of the org's
+	// routes, which says nothing about whose it is. A nil Unusable knows
+	// none.
+	Unusable func(kind, segment string) string
 	// RoutesInUse is whether the installation has a live (not revoked)
 	// tenant route: an endpoint the lint cannot read is then refused.
 	RoutesInUse bool
@@ -515,6 +520,12 @@ func (g GatewayRoutes) foreignRoute(p string) string {
 		}
 		kind, seg := strings.ToLower(segs[0]), strings.ToLower(segs[1])
 		if routeKinds[kind] && IsRouteSegmentShape(seg) && !g.owns(kind, seg) {
+			if g.Unusable != nil {
+				if why := g.Unusable(kind, seg); why != "" {
+					return fmt.Sprintf("its path is under the %s route segment %q, which is this organisation's "+
+						"route, but %s", kind, seg, why)
+				}
+			}
 			return fmt.Sprintf("its path is under the %s route segment %q, which is not one of this organisation's "+
 				"tenant routes", kind, seg)
 		}
@@ -648,7 +659,7 @@ func (l *tenantLinter) endpointTargetList(v ast.Expr, key, where string, sc scop
 	arr, ok := unparen(v).(*ast.ArrayExpr)
 	if !ok {
 		if g.checkUnread() {
-			l.refuse(v, fmt.Sprintf("%s is not a literal list, so the tenant check cannot tell which tenant route a "+
+			l.refuseAs(v, FindingRoute, fmt.Sprintf("%s is not a literal list, so the tenant check cannot tell which tenant route a "+
 				"target reaches — %s, and refuses it; write the targets as a literal list", where, GatewayEndpointRefusal))
 		}
 		return
@@ -657,7 +668,7 @@ func (l *tenantLinter) endpointTargetList(v ast.Expr, key, where string, sc scop
 		obj, ok := unparen(el).(*ast.ObjectExpr)
 		if !ok {
 			if g.checkUnread() {
-				l.refuse(el, fmt.Sprintf("%s has a target that is not an object literal, so the tenant check cannot "+
+				l.refuseAs(el, FindingRoute, fmt.Sprintf("%s has a target that is not an object literal, so the tenant check cannot "+
 					"tell which tenant route it reaches — %s, and refuses it", where, GatewayEndpointRefusal))
 			}
 			continue
@@ -682,7 +693,7 @@ func (l *tenantLinter) endpointValue(v ast.Expr, kind EndpointAttrKind, where st
 		if !g.checkUnread() || l.provenPath(v, kind, sc) {
 			return
 		}
-		l.refuse(v, unreadRefusal(where))
+		l.refuseAs(v, FindingRoute, unreadRefusal(where))
 		return
 	}
 	for _, s := range values {
@@ -690,7 +701,7 @@ func (l *tenantLinter) endpointValue(v ast.Expr, kind EndpointAttrKind, where st
 			return
 		}
 		if p := g.endpointProblem(s, kind); p != "" {
-			l.refuse(v, fmt.Sprintf("%s: %s — %s, and refuses it; send to one of this organisation's tenant routes",
+			l.refuseAs(v, FindingRoute, fmt.Sprintf("%s: %s — %s, and refuses it; send to one of this organisation's tenant routes",
 				where, p, GatewayEndpointRefusal))
 		}
 	}
@@ -779,7 +790,7 @@ func (l *tenantLinter) hostHeader(v ast.Expr, sc scope) {
 	}
 	values, ok := l.resolve(v, sc, 0)
 	if !ok {
-		l.refuse(v, "a Host header set from a value the tenant check cannot read may name the gateway — "+
+		l.refuseAs(v, FindingRoute, "a Host header set from a value the tenant check cannot read may name the gateway — "+
 			GatewayEndpointRefusal+", and refuses it; write it as a literal")
 		return
 	}
@@ -789,7 +800,7 @@ func (l *tenantLinter) hostHeader(v ast.Expr, sc scope) {
 			h = hu.Hostname()
 		}
 		if hostIsGateway(h, g.Hosts) {
-			l.refuse(v, fmt.Sprintf("a Host header %q names the gateway, so the request would reach a tenant route "+
+			l.refuseAs(v, FindingRoute, fmt.Sprintf("a Host header %q names the gateway, so the request would reach a tenant route "+
 				"the endpoint does not name — %s, and refuses it; send to one of this organisation's tenant routes "+
 				"on the gateway instead", s, GatewayEndpointRefusal))
 		}

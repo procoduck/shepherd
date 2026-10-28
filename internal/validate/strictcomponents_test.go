@@ -359,6 +359,18 @@ var _ = Describe("strict tenant mode accepts only classified components (#421)",
 				Expect(validate.CheckAllowableComponent(s)).To(MatchError(validate.ErrComponentNotAllowable), s)
 			}
 		})
+		// 0.21.0-rc.1 walkthrough: "Not a component strict tenant mode
+		// refuses: no shipped Alloy schema has …" read awkwardly. Two plain
+		// cases, neither starting with the name (the UI capitalises a
+		// message's first letter).
+		It("says plainly why a name cannot be allowed", func() {
+			Expect(validate.CheckAllowableComponent("loki.source.future").Error()).To(Equal(
+				"No shipped Alloy schema has a component named loki.source.future."))
+			Expect(validate.CheckAllowableComponent("loki.write").Error()).To(Equal(
+				"The component loki.write is already accepted in strict tenant mode (classified checked); there is nothing to allow."))
+			Expect(validate.CheckAllowableComponent("Loki.write").Error()).To(Equal(
+				`"Loki.write" is not a component name (such as otelcol.auth.google).`))
+		})
 	})
 })
 

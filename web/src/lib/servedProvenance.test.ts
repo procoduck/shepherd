@@ -1,10 +1,25 @@
 import { describe, expect, it } from 'vitest';
 import {
   exclusionReasonLabel,
+  lineSpanParam,
   linesLabel,
   matcherEvidenceText,
+  parseLineSpan,
   spanContains,
 } from './servedProvenance';
+
+describe('the collector page lines parameter', () => {
+  it('round-trips a span, and ignores anything that names none', () => {
+    expect(lineSpanParam({ first: 8, last: 14 })).toBe('8-14');
+    expect(lineSpanParam({ first: 8, last: 8 })).toBe('8');
+    expect(parseLineSpan('8-14')).toEqual({ first: 8, last: 14 });
+    expect(parseLineSpan(8)).toEqual({ first: 8, last: 8 });
+    expect(parseLineSpan('8')).toEqual({ first: 8, last: 8 });
+    for (const bad of [undefined, '', '14-8', '0-3', '0', 'a-b', '8-', '-8', ' 8', {}, 8.5, -3]) {
+      expect(parseLineSpan(bad)).toBeUndefined();
+    }
+  });
+});
 
 describe('served-config provenance helpers (F-CONTRIB)', () => {
   it('labels every exclusion reason the server sends, and falls back for an unknown one', () => {

@@ -21,13 +21,18 @@ var adminTenantPreflightCmd = &cobra.Command{
 tenants.require_owned is true, without starting the server: across every
 organisation it lists each live tenant route, destination and destination
 binding on a tenant the organisation does not own, and each enabled pipeline
-whose text sets a literal tenant (an X-Scope-OrgID header or a tenant
-attribute) the organisation does not own.
+that fails the strict tenant check (a tenant the organisation does not own or
+the check cannot read, a component strict tenant mode refuses, an endpoint
+under a tenant route that is not the organisation's).
 
-It exits non-zero while anything is listed. Clear each entry by assigning the
-tenant to its organisation (Admin -> Organisations), or by editing, disabling
-or deleting the object, then turn the setting on.`,
-	RunE: runAdminTenantPreflight,
+It exits non-zero while anything is listed. Each entry says how to clear it:
+edit, disable or delete the object, or, as the entry suggests, assign the
+tenant to its organisation (Admin -> Organisations), use one of the
+organisation's tenant routes, or have an application administrator allow the
+component for the organisation. Then turn the setting on.`,
+	// A failing check is not a misused command: no usage block under the list.
+	SilenceUsage: true,
+	RunE:         runAdminTenantPreflight,
 }
 
 func init() {

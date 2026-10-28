@@ -48,3 +48,21 @@ export function linesLabel(span: LineSpanLike | undefined): string {
 export function spanContains(span: LineSpanLike | undefined, line: number): boolean {
   return !!span && line >= span.first && line <= span.last;
 }
+
+/** A line span as the collector page's `lines` search parameter: "8-14",
+ *  or "8" for one line. */
+export function lineSpanParam(span: LineSpanLike): string {
+  return span.first === span.last ? `${span.first}` : `${span.first}-${span.last}`;
+}
+
+/** The span a `lines` search parameter names, or undefined when it names
+ *  none (absent, not a range, reversed, or before line 1). TanStack's search
+ *  parser JSON-decodes values, so "8" arrives as the number 8. */
+export function parseLineSpan(v: unknown): LineSpanLike | undefined {
+  const s = typeof v === 'number' || typeof v === 'string' ? String(v) : '';
+  const m = /^(\d{1,7})(?:-(\d{1,7}))?$/.exec(s);
+  if (!m) return undefined;
+  const first = Number(m[1]);
+  const last = m[2] === undefined ? first : Number(m[2]);
+  return first >= 1 && last >= first ? { first, last } : undefined;
+}

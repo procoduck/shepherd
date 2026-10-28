@@ -675,6 +675,20 @@ In rough priority order; closed items stay in place, marked with the release tha
       (re-verified 2026-08-25: not in the build graph, no fix exists on that module path,
       `govulncheck` 0 reachable). Re-open and re-check if `golang-migrate`/`dktest` moves to
       `docker/docker/v29`.
+- [ ] **The served header's role section cites an internal doc.** `internal/merge/merge.go`'s
+      `// Excluded (N) - signal/role mismatch (docs/gateway-tier-plan.md W1, gate G6):` names a
+      planning document operators do not have. Owner decision (0.21.0-rc.1 walkthrough): leave it
+      until the next served-format change, so the fleet reloads once for both; do not change the
+      served text on its own.
+- [ ] **`k8smon-logs` under strict tenant mode is logged as unreadable yet accepted and served.**
+      In the 0.21.0-rc.1 walkthrough (`make dev-kind`, platform-org strict) the server logged
+      `strict tenants: the pipeline sets a tenant the lint cannot read; recorded as incomplete`
+      (`pipeline_id` 7780b985-…, the seeded k8s-monitoring logs pipeline, 2026-10-28T05:34:23Z),
+      while the pipeline passed the save-time lint and its served form (walkthrough artefact
+      `step4c-logs-served.alloy`) was served. Investigate in a later item which reading is right —
+      the tenant index's (`tenancy.RebuildPipelineTenants`, incomplete) or the lint's (accepted)
+      — and whether "incomplete" here can hide a tenant the assignment check should see. Behaviour
+      unchanged for now.
 
 Closed since the last pass, with the evidence in `docs/archive/completed-2026-09-11.md`: the React
 19 / TypeScript 7 / Vite 8 migrations, request-gate authentication, the lazy editor chunk, the

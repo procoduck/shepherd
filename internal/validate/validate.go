@@ -42,7 +42,27 @@ type Diagnostic struct {
 	// (display form, "v1.18.1") that lack the item — what a caller needs to
 	// name the instances whose versions resolved to them. Not serialised.
 	AlloySchemas []string `json:"-"`
+	// Finding, on a TenantLint refusal, is what it is about — what a
+	// caller's fix hint names (tenancy.Preflight). Not serialised.
+	Finding Finding `json:"-"`
 }
+
+// Finding is what a strict tenant lint refusal is about.
+type Finding int
+
+const (
+	// FindingTenant is a tenant label or header the org does not own or the
+	// lint cannot read: the zero value, every refusal not named below.
+	FindingTenant Finding = iota
+	// FindingComponent is a component a shipped schema classifies refused:
+	// an application administrator may allow it for the org.
+	FindingComponent
+	// FindingUnknownComponent is a name no shipped schema has, or a module
+	// instance whose declare was not found: there is nothing to allow.
+	FindingUnknownComponent
+	// FindingRoute is an endpoint under a tenant route the org may not use.
+	FindingRoute
+)
 
 // Result is returned by all validation functions.
 type Result struct {
