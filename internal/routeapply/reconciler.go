@@ -24,6 +24,8 @@ import (
 	"math/rand/v2"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgtype"
+
 	"shepherd/internal/config"
 	"shepherd/internal/gateway"
 	"shepherd/internal/store/sqlc"
@@ -54,6 +56,16 @@ type Store interface {
 	RevokeExpiredTenantRoutes(ctx context.Context) ([]sqlc.TenantRoute, error)
 	ListTenantRoutesForReconcile(ctx context.Context) ([]sqlc.TenantRoute, error)
 	SetTenantRouteApplyStatus(ctx context.Context, arg sqlc.SetTenantRouteApplyStatusParams) (sqlc.TenantRoute, error)
+	// MarkServeCacheDirtyByOrg marks an org's served configs for recompute:
+	// strict tenant mode checks gateway route endpoints against the org's
+	// routes, so a route revoked here can change what its collectors are
+	// served.
+	MarkServeCacheDirtyByOrg(ctx context.Context, orgID pgtype.UUID) error
+	// AnyLiveTenantRoute and MarkServeCacheDirtyAll: when the last live
+	// route is revoked, every org's strict tenant verdict on an endpoint the
+	// lint cannot read changes, so every served config is recomputed.
+	AnyLiveTenantRoute(ctx context.Context) (bool, error)
+	MarkServeCacheDirtyAll(ctx context.Context) error
 }
 
 type backoff struct {
@@ -140,8 +152,26 @@ func (r *Reconciler) Reconcile(ctx context.Context) {
 	if revoked, err := r.store.RevokeExpiredTenantRoutes(ctx); err != nil {
 		r.logger.Error("revoking expired deprecated routes", "err", err)
 	} else {
+		dirtied := map[pgtype.UUID]bool{}
 		for i := range revoked {
 			r.logger.Info("rotation overlap ended; route revoked", "route_id", revoked[i].ID.String())
+			if dirtied[revoked[i].OrgID] {
+				continue
+			}
+			dirtied[revoked[i].OrgID] = true
+			if err := r.store.MarkServeCacheDirtyByOrg(ctx, revoked[i].OrgID); err != nil {
+				r.logger.Error("marking the org's served configs for recompute after a route was revoked",
+					"org_id", revoked[i].OrgID.String(), "err", err)
+			}
+		}
+		if len(revoked) > 0 {
+			inUse, err := r.store.AnyLiveTenantRoute(ctx)
+			if err == nil && !inUse {
+				err = r.store.MarkServeCacheDirtyAll(ctx)
+			}
+			if err != nil {
+				r.logger.Error("marking every served config for recompute after the last route was revoked", "err", err)
+			}
 		}
 	}
 

@@ -52,6 +52,9 @@ var relabelRuleSignature = []string{"action", "regex", "replacement", "source_la
 type schemaIndex struct {
 	relabelRules, relabelAttrs map[string]map[string]bool
 	mapAttrs                   []SchemaMapAttribute
+	// endpointAttrs are the attributes named like an endpoint
+	// (gatewayendpoints.go).
+	endpointAttrs []SchemaEndpointAttribute
 }
 
 var (
@@ -64,7 +67,14 @@ func loadedSchemaIndex() (schemaIndex, error) {
 	schemaIndexOnce.Do(func() {
 		idx := schemaIndex{relabelRules: map[string]map[string]bool{}, relabelAttrs: map[string]map[string]bool{}}
 		seen := map[SchemaMapAttribute]bool{}
+		seenEndpoint := map[SchemaEndpointAttribute]bool{}
 		schemaIdxErr = eachSchemaComponent(schema.Embedded, func(name string, c schemaComponent) {
+			collectEndpointAttributes(name, "", c.Attributes, c.Blocks, func(a SchemaEndpointAttribute) {
+				if !seenEndpoint[a] {
+					seenEndpoint[a] = true
+					idx.endpointAttrs = append(idx.endpointAttrs, a)
+				}
+			})
 			collectRelabelRules(name, "", c.Blocks, idx.relabelRules)
 			addRelabelRuleAttributes(name, c, idx.relabelAttrs)
 			collectMapAttributes(name, "", c.Attributes, c.Blocks, func(a SchemaMapAttribute) {

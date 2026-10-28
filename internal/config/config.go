@@ -415,6 +415,29 @@ type GatewayRoutesConfig struct {
 	// to. It prefills the "connect an app" snippets; Shepherd cannot discover
 	// it. Optional: users can enter one on the page instead.
 	PublicBaseURL string `mapstructure:"public_base_url"`
+	// Hosts are further host names or IP addresses the gateway answers to
+	// (its in-cluster Service name, a second public name), besides
+	// PublicBaseURL's host. Strict tenant mode checks every endpoint on one
+	// of these hosts against the org's own tenant routes (internal/tenancy
+	// ConfigureGateway); with none at all, it checks no endpoint.
+	Hosts []string `mapstructure:"hosts"`
+}
+
+// GatewayHosts is every host the gateway answers to as configured:
+// PublicBaseURL's host, then Hosts, as written (not normalised).
+func (c GatewayRoutesConfig) GatewayHosts() []string {
+	var out []string
+	if c.PublicBaseURL != "" {
+		if u, err := url.Parse(c.PublicBaseURL); err == nil && u.Hostname() != "" {
+			out = append(out, u.Hostname())
+		}
+	}
+	for _, h := range c.Hosts {
+		if strings.TrimSpace(h) != "" {
+			out = append(out, h)
+		}
+	}
+	return out
 }
 
 // RouteApplyConfig configures the tenant-route reconciler (internal/routeapply,
@@ -647,6 +670,7 @@ func Load(file string) (*Config, error) {
 		{"tracing.service_name", "SHEPHERD_TRACING_SERVICE_NAME"},
 		{"tracing.service_version", "SHEPHERD_TRACING_SERVICE_VERSION"},
 		{"gateway.routes.public_base_url", "SHEPHERD_GATEWAY_ROUTES_PUBLIC_BASE_URL"},
+		{"gateway.routes.hosts", "SHEPHERD_GATEWAY_ROUTES_HOSTS"},
 		{"gateway.routes.apply.enabled", "SHEPHERD_GATEWAY_ROUTES_APPLY_ENABLED"},
 		{"gateway.routes.apply.namespace", "SHEPHERD_GATEWAY_ROUTES_APPLY_NAMESPACE"},
 		{"gateway.routes.apply.backend_service", "SHEPHERD_GATEWAY_ROUTES_APPLY_BACKEND_SERVICE"},

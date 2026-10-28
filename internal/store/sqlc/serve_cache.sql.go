@@ -82,6 +82,22 @@ func (q *Queries) MarkServeCacheDirty(ctx context.Context, collectorID pgtype.UU
 	return err
 }
 
+const markServeCacheDirtyAll = `-- name: MarkServeCacheDirtyAll :exec
+INSERT INTO serve_cache (collector_id, content, hash, dirty, dirty_seq)
+SELECT c.id, '', '', true, 1
+FROM collectors c
+ON CONFLICT (collector_id) DO UPDATE SET
+    dirty = true,
+    dirty_seq = serve_cache.dirty_seq + 1
+`
+
+// Every collector's served config, for a change every org's strict tenant
+// check reads (the installation's first live tenant route, or its last).
+func (q *Queries) MarkServeCacheDirtyAll(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, markServeCacheDirtyAll)
+	return err
+}
+
 const markServeCacheDirtyByCluster = `-- name: MarkServeCacheDirtyByCluster :exec
 INSERT INTO serve_cache (collector_id, content, hash, dirty, dirty_seq)
 SELECT c.id, '', '', true, 1

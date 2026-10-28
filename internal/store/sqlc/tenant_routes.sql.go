@@ -11,6 +11,20 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const anyLiveTenantRoute = `-- name: AnyLiveTenantRoute :one
+SELECT EXISTS(SELECT 1 FROM tenant_routes WHERE status <> 'revoked') AS exists
+`
+
+// Whether the installation has a tenant route that still routes: strict
+// tenant mode then refuses an endpoint it cannot read (any route segment
+// may be reached through it).
+func (q *Queries) AnyLiveTenantRoute(ctx context.Context) (bool, error) {
+	row := q.db.QueryRow(ctx, anyLiveTenantRoute)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const createTenantRoute = `-- name: CreateTenantRoute :one
 INSERT INTO tenant_routes (org_id, tenant_id, kind, segment, gateway_mode, gateway_name, gateway_namespace, rotated_from_id)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)

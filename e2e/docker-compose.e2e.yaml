@@ -248,6 +248,12 @@ services:
       SHEPHERD_AUTH_APP_ADMIN_GROUP_IDS: "11111111-1111-1111-1111-111111111111"
       SHEPHERD_GITSYNC_TICK: 2s
       SHEPHERD_LOG_LEVEL: debug
+      # The strict suite's stand-in for the tenant-route gateway is the sink
+      # under its alias `gateway` (e2e/strict_tenant_test.go): strict tenant
+      # mode checks every endpoint on this host against the org's own tenant
+      # routes. Only strict orgs are checked, so the other suites see no
+      # difference.
+      SHEPHERD_GATEWAY_ROUTES_HOSTS: gateway
       # Local admin enabled alongside OIDC for e2e scenario 8 (LA-1).
       # allow_with_oidc=true required when OIDC is also configured.
       # Empty by default so the default stack exercises the "simulator not
@@ -422,6 +428,13 @@ services:
       LISTEN: ":3100"
     ports:
       - "127.0.0.1:13100:3100"
+    # The sink also plays the tenant-route gateway, reached by the name
+    # `gateway` (shepherd's SHEPHERD_GATEWAY_ROUTES_HOSTS) and by `ingress`,
+    # a name Shepherd is not told about: a push under /otlp/<segment> goes
+    # through that tenant route whichever name reached it.
+    networks:
+      default:
+        aliases: [gateway, ingress]
     healthcheck:
       test: ["CMD", "/tenantsink", "-health-check"]
       interval: 2s

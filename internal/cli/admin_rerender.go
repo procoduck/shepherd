@@ -12,6 +12,7 @@ import (
 	"shepherd/internal/mgmtapi"
 	"shepherd/internal/schema"
 	"shepherd/internal/store"
+	"shepherd/internal/tenancy"
 	"shepherd/internal/validate"
 	"shepherd/internal/version"
 )
@@ -86,6 +87,11 @@ func runAdminRerenderDestinations(cmd *cobra.Command, _ []string) error {
 	}
 	cfg, err := config.Load(cfgFile)
 	if err != nil {
+		return err
+	}
+	// Re-rendered pipelines go through the gate, whose strict tenant check
+	// reads the gateway hosts the server uses.
+	if err := tenancy.ConfigureGateway(cfg.Gateway.Routes); err != nil {
 		return err
 	}
 	st, err := store.New(cmd.Context(), &cfg.Database)

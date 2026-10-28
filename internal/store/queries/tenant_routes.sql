@@ -50,3 +50,9 @@ UPDATE tenant_routes
 SET status = 'revoked', revoked_at = now(), updated_at = now()
 WHERE status = 'deprecated' AND valid_until IS NOT NULL AND valid_until < now()
 RETURNING *;
+
+-- name: AnyLiveTenantRoute :one
+-- Whether the installation has a tenant route that still routes: strict
+-- tenant mode then refuses an endpoint it cannot read (any route segment
+-- may be reached through it).
+SELECT EXISTS(SELECT 1 FROM tenant_routes WHERE status <> 'revoked') AS exists;

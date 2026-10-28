@@ -44,6 +44,10 @@ type TenantPolicy struct {
 	// (strictcomponents.go). It lifts that refusal only; every other check
 	// still applies.
 	AllowedComponents map[string]bool
+	// Gateway is the tenant-route gateway: in strict mode an endpoint on one
+	// of its hosts must be under one of the org's own routes
+	// (gatewayendpoints.go). No hosts: nothing to check.
+	Gateway GatewayRoutes
 	// literalsOnly is set by TenantLiteralsWith: it reads tenants, so it
 	// does not judge components.
 	literalsOnly bool
@@ -310,6 +314,9 @@ func runLint(ctx context.Context, content string, p TenantPolicy) (*tenantLinter
 	}
 	if _, err := ComponentClassifications(); err != nil {
 		return nil, fmt.Errorf("the tenant check cannot read the component classifications: %w", err)
+	}
+	if _, err := endpointAttributes(); err != nil {
+		return nil, fmt.Errorf("the tenant check cannot read the component schemas: %w", err)
 	}
 	git := &gitState{fetched: map[GitModule]gitFetch{}}
 	for round := 0; ; round++ {
@@ -865,6 +872,7 @@ func (l *tenantLinter) attribute(a *ast.AttributeStmt, sc scope) {
 	if isRulesAttribute(enclosing, name) {
 		return
 	}
+	l.gatewayEndpoint(a, sc)
 	if isHeadersMapAttr(name) {
 		l.headers(a.Value, sc)
 		return
@@ -941,6 +949,10 @@ func (l *tenantLinter) headers(v ast.Expr, sc scope) {
 		return
 	case *ast.ObjectExpr:
 		for _, f := range e.Fields {
+			if strings.EqualFold(f.Name.Name, "host") || strings.EqualFold(f.Name.Name, ":authority") {
+				l.hostHeader(f.Value, sc)
+				continue
+			}
 			if !strings.EqualFold(f.Name.Name, tenantHeader) {
 				continue
 			}

@@ -749,11 +749,14 @@ schema overlay (`internal/schema/artifacts/overlay.json`, `components.<name>.str
 attributes the lint already checks; `checks` names each, from `validate.StrictCheckNames`:
 `tenant_attributes`, `headers`, `label_maps`, `targets`, `relabel_rules`, `group_labels`,
 `secretfilter_origin`, `enrich_labels`, `push_source`, `auth_headers`, `auth_bearer`,
-`blackbox_config`) or `refused` (it can produce tenant-affecting output the lint cannot prove) —
-and a one-line `reason`. A component classified refused, or with no classification, is refused at
-every component position the lint walks (the top level, a declare body, a `foreach` template, a
-readable `import.string` module, a pinned `import.git` module), with a message naming it and saying
-an application administrator can allow it for the org. Only a dotted name is judged (a declare
+`blackbox_config`, `gateway_endpoints`) or `refused` (it can produce tenant-affecting output the
+lint cannot prove) — and a one-line `reason`. A component classified refused, or with no
+classification, is refused at every component position the lint walks (the top level, a declare
+body, a `foreach` template, a readable `import.string` module, a pinned `import.git` module), with
+a message naming it; for one classified refused the message says an application administrator can
+allow it for the org, for a name no shipped schema has it says so (no one can allow it), and for a
+module instance whose module or declare the lint did not find it says the module or declare was not
+found. Only a dotted name is judged (a declare
 instance and Alloy's own blocks — `argument`, `export`, `logging`, … — have none; the latter are
 Stage 2's). A name a shipped schema has is always judged as that built-in, whatever import labels
 are in scope: an import labelled `otelcol` does not make `otelcol.auth.google` a module instance
@@ -764,7 +767,9 @@ refused as unclassified. A repo test (`TestEveryShippedComponentIsClassified`) f
 when a shipped schema has a component without a classification, a classification names a component
 no shipped schema has, or a `checked` entry names a check that does not exist or does not cover the
 component (`validate.StrictCheckCovers`: a `headers` check needs a headers map in the component's
-schema, `relabel_rules` a rule block or rules attribute, and so on). The k8s-monitoring fixtures,
+schema, `relabel_rules` a rule block or rules attribute, and so on), and when a component with an
+endpoint attribute (below) is classified allowed, or checked without naming `gateway_endpoints`.
+The k8s-monitoring fixtures,
 every wizard golden and the dev seed pipelines use only allowed or checked components (a spec).
 In v1.21.2 the one refused component is `otelcol.auth.google` (`token_header` may name
 `X-Scope-OrgID`, and the token it sends there is fetched at run time).
@@ -775,10 +780,79 @@ answer), so `config` must be a readable literal that parses as YAML (as blackbox
 it) and names `X-Scope-OrgID` nowhere — no key and no string, compared case-insensitively after
 YAML decoding — and has no `query_response`; `config_file` is refused.
 
+**Gateway route endpoints (`gateway_endpoints`).** Shepherd's tenant routes set the tenant
+themselves: the gateway sends a request under `/{kind}/{segment}` on with the route tenant's
+`X-Scope-OrgID`, whatever the request carried (`gateway.RenderHTTPRoute`, its `PathPrefix` match).
+The routes name no host, so the gateway routes such a request however it is reached — an address,
+another load balancer's name, a `Host` header. Segments are unique per kind across the installation
+and never reused (0009: `UNIQUE (kind, segment)` over every row), so the rule is on the path, on
+**every host**: in strict mode every endpoint whose path's first two elements are `otlp` or `faro`
+and a string with a route segment's shape (`validate.IsRouteSegmentShape`, pinned to
+`gateway.ValidateSegment`: 3–63 lower-case alphanumerics in single-hyphen runs) must be under one
+of the org's own routes — a route of that kind of the org (`tenant_routes.org_id`) that still
+routes (active, or deprecated during its rotation overlap until it is revoked; revoked is not) and
+whose tenant the org owns (`tenancy.Policy.OwnsRoute`). The path is read in every form a gateway
+may read it in (`foreignRoute`): percent-decoded, with backslashes as slashes, with empty, `.` and
+`..` segments resolved, and case-folded; matched element by element as the prefix match is
+(`/otlp/<segment>`, `/otlp/<segment>/` and `/otlp/<segment>/v1/logs` are under it,
+`/otlp/<segment>x` is not). Paths that cannot be a route pass on any host: Grafana Cloud's
+`/otlp` and `/otlp/v1/…` (`v1` is shorter than a segment), `/v1/traces` and other vendors' OTLP
+paths (a spec lists them).
+
+**The gateway's hosts** add a stricter rule there. They are `gateway.routes.public_base_url`'s
+host and `gateway.routes.hosts` (`SHEPHERD_GATEWAY_ROUTES_HOSTS`, comma-separated: further names
+and addresses, such as the gateway's in-cluster Service name), set once per process
+(`tenancy.ConfigureGateway`: at server start, in `admin tenant-preflight`,
+`admin rerender-destinations` and the `dev` commands; a value that is not a host refuses to
+start). They are an extra, not the basis of the check. On a configured host every endpoint must be
+under one of the org's routes, written plainly (no percent-encoding, backslash, empty, `.` or `..`
+segment); a gRPC target (no path) and anything else is refused. A `proxy_url` on it is refused (its
+routes are not a proxy), a `site`/`universe_domain` when a gateway host is it or under it, a `Host`
+or `:authority` request header (any case) naming it, or one the lint cannot read, and a blackbox
+`config` naming it in any key or string. Hosts are compared by name as a client connects: lower
+case, trailing dots dropped, an IDN in its ASCII (lookup) form, percent-encoding decoded, IPv6
+zones dropped, IPv4-mapped IPv6 and the numeric forms `inet_aton` reads (`10.0.0.05`,
+`167772165`, `0xa.0.0.5`) as the address, on every port, userinfo ignored.
+
+**Values the lint cannot read.** A function call (`sys.env`), a component export (`local.file`,
+`remote.*`), a value a declare is given in a `foreach` template: the lint cannot read the path, so
+it cannot prove no foreign segment. Such an endpoint is refused **when the installation has a live
+tenant route or a gateway host is configured** (`GatewayRoutes.RoutesInUse`, `tenancy.Policy`
+from `AnyLiveTenantRoute`), unless it is a concatenation whose literal start completes the whole
+path — an `http(s)` URL whose path is followed by `?` or `#` in the literal part — and that URL
+passes. A literal start that stops inside the path proves nothing: what follows may add any
+element, `..` included. With no live route and no gateway host nothing can route by segment, and
+only literal paths are checked. The installation's first live route, and its last revoke (by the
+API or by `internal/routeapply` when a rotation overlap ends), therefore mark every served config
+dirty. Declare and module arguments are followed to their literals exactly as tenants are
+(`resolve`). Blackbox `targets` must then be a literal list of object literals; each `address`
+is checked, as is every string of a blackbox `config`.
+
+**Which attributes are endpoints** is read from every shipped schema
+(`validate.SchemaEndpointAttributes`): every string, list or secret attribute named like a URL,
+URI, endpoint, address, host, server or broker (`api_server`, Datadog's `site`,
+`universe_domain`, `connection_string` too), at any block depth, unless an exclusion with a
+reason says it is not one the component sends data to (`validate.ClassifyEndpointAttribute`:
+listen addresses, receiver paths, TLS server names, `no_proxy`, OAuth2 `token_url` (the client
+sends it only a form-encoded token request, which no OTLP or Faro route accepts; Shepherd's wizards
+read it from a Kubernetes secret; to revisit if a route kind ever accepts an arbitrary body), names
+that are identities or selectors, every `otelcol.receiver.*`, and protocols other than HTTP —
+Kafka, ZooKeeper, Redis, memcached, DNS, NTP, SNMP, StatsD, syslog, database connections). A spec
+fails when an exclusion matches no shipped attribute, and a spec pins that Shepherd's wizard
+goldens, the D6 baseline, the dev seed and the k8s-monitoring fixtures pass with a gateway
+configured and routes in use. The check runs wherever the lint walks (the top level, declares,
+`foreach` templates, literal `import.string` and pinned `import.git` modules), at save, at serve
+time and in the preflight; creating, rotating or revoking a route, and the rotation overlap ending,
+mark the org's served configs dirty (the API path recomputes them), and the serve-time verdict
+cache is keyed by the gateway's hosts, whether routes are in use, and the org's routes. DNS, and
+where an endpoint's server sends a client next, are not followed. An org not in strict mode is not
+checked, and is served the same bytes with or without a gateway configured.
+
 **Admin-allowed components (0047).** An app admin may allow a component strict mode refuses for one
 org (`AdminService.List/Add/RemoveOrgStrictComponent`; Admin → Organisations → Edit). `Add` takes a
-component name (dotted lower-case identifiers) whose classification is refused or missing —
-one classified allowed or checked is `invalid_argument`, a second entry `already_exists` — and
+component a shipped schema has (the pinned one, or an older one: `strict_retired`) whose
+classification is refused — one classified allowed or checked, and any other name (no component
+Alloy runs), is `invalid_argument`, a second entry `already_exists` — and
 audits `org.strict_component.add` with the shipped classification and `reviewed: false`. The entry
 lifts **only** the component refusal (`validate.TenantPolicy.AllowedComponents`); every other check
 still applies to the component, and the UI shows it as "admin-allowed, unreviewed". `Remove` is
@@ -808,7 +882,8 @@ neither an unchecked pipeline nor a config without it is served; only a refusal 
 recomputes every strict org, so a collector keeps a config from before an upgrade only while the
 check stays unable to finish, and while one pipeline's check cannot finish the org's collectors
 receive no config updates.
-Verdicts are cached in-process by the org's policy and the text, so a steady fleet's polls do not
+Verdicts are cached in-process by the org's policy (its tenants, import allowlist, allowed
+components, the gateway's hosts and its tenant routes) and the text, so a steady fleet's polls do not
 re-lint; a pipeline with `import.git` is not cached, since its verdict depends on the module cache.
 Turning strict mode off for an org (`SetOrgStrictTenants`, or `tenants.require_owned` going off
 between boots) clears its rows, auditing each as cleared. `pipeline_tenant_exclusions` records what is excluded, with a

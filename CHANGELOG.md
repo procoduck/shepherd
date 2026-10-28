@@ -16,7 +16,11 @@ Categories used here:
 **Strict tenant mode accepts only classified components.** Run `shepherd admin tenant-preflight`
 before upgrading if any org uses strict tenant mode: a stored pipeline that uses a component the
 schema overlay classifies `refused` (or one no shipped schema classifies) is excluded from served
-config until it is fixed or an app admin allows the component for its org. Migration `0047` is
+config until it is fixed or an app admin allows the component for its org. Strict tenant mode
+also checks gateway route endpoints: a stored pipeline sending under another organisation's tenant
+route segment, on any host, or to the configured gateway hosts (`gateway.routes.public_base_url`,
+`gateway.routes.hosts`) outside its own routes, or (once any tenant route exists) to an endpoint
+the check cannot read, is excluded the same way. Migration `0047` is
 additive; non-strict orgs are served the same bytes.
 
 ### Added
@@ -27,7 +31,7 @@ additive; non-strict orgs are served the same bytes.
   for a component only an older shipped schema has): `allowed` (it cannot introduce or alter a
   tenant label or header), `checked` (it can, only through attributes the tenant lint already
   checks, each check named), or `refused` (it can produce tenant-affecting output the lint cannot
-  prove), each with a one-line reason. Of the 187 shipped components, 105 are allowed, 81 checked
+  prove), each with a one-line reason. Of the 187 shipped components, 82 are allowed, 104 checked
   and 1 refused (`otelcol.auth.google`: its `token_header` may name `X-Scope-OrgID`). In a strict
   org a component classified refused, or not classified at all, is refused wherever the lint
   walks — the top level, a declare, a `foreach` template, a literal or pinned module — with a
@@ -40,6 +44,39 @@ additive; non-strict orgs are served the same bytes.
   is excluded at serve time, with the served header, a `strict_tenant_excluded` reconciliation
   finding and one audit row per change; `shepherd admin tenant-preflight` lists such pipelines.
   (#421)
+- **Strict tenant mode checks gateway route endpoints.** Shipped. Shepherd's tenant routes set
+  the tenant themselves (`/otlp/<segment>`, `/faro/<segment>`) and name no host, and segments are
+  unique across the installation and never reused. So in a strict org every endpoint, on any
+  host, whose path starts with `otlp` or `faro` and a string shaped like a route segment must be
+  under one of the org's own routes: a live route (active, or deprecated during its rotation
+  overlap) of that kind whose tenant the org owns. The path is read as a gateway may read it
+  (percent-decoded, backslashes as slashes, `.`/`..` and empty segments resolved, case-folded),
+  element by element as the route's prefix match is; vendors' OTLP paths (Grafana Cloud's `/otlp`
+  and `/otlp/v1/...`, `/v1/traces`) are untouched. The gateway's hosts, when configured
+  (`gateway.routes.public_base_url`'s and the new `gateway.routes.hosts`,
+  `SHEPHERD_GATEWAY_ROUTES_HOSTS`, comma-separated), add a stricter rule there: every endpoint on
+  them must be under an owned route, written plainly, and a `proxy_url`, a `Host`/`:authority`
+  header, Datadog's `site` or a blackbox module setting naming them is refused. Hosts are compared
+  as a client resolves them (case, trailing dot, IDN, percent-encoding and numeric IPv4 forms
+  normalised, on every port). An endpoint the lint cannot read — a function call, a component
+  export, `sys.env`, a value a declare is given in a `foreach` template — is refused whenever the
+  installation has a live tenant route or a gateway host is configured, unless its literal start
+  completes the path (a `?` or `#` follows it); declare and module arguments are followed to
+  literals as for tenants. Which attributes are endpoints is read from every shipped schema (a
+  URL, endpoint, address, host or server attribute, less listen addresses, TLS server names,
+  OAuth2 token URLs and non-HTTP protocols); the new `gateway_endpoints` check is named on all 71
+  components that have one, and 23 moved from `allowed` to `checked` for it: `beyla.ebpf`,
+  `discovery.consulagent`, `.nerve`, `.openstack`, `.ovhcloud`, `.serverset`, `.triton`,
+  `otelcol.exporter.awss3`, `.datadog`, `.googlecloud`, `.googlecloudpubsub`, `.splunkhec`,
+  `otelcol.processor.resourcedetection`, `prometheus.exporter.apache`, `.cadvisor`, `.consul`,
+  `.databricks`, `.elasticsearch`, `.github`, `.squid`, `.unix`, `remote.s3` and `remote.vault`.
+  The repo test fails when a component with an endpoint attribute does not name the check, and a
+  spec pins that Shepherd's wizards, baseline, dev seed and the k8s-monitoring fixtures pass.
+  Refused at save, excluded at serve time and listed by `shepherd admin tenant-preflight`, as the
+  other checks; creating, rotating or revoking a route (and the rotation overlap ending) marks the
+  org's served configs dirty and recomputes them — the installation's first live route and its
+  last revoke mark every served config — and the serve-time verdict cache is keyed by the
+  gateway's hosts, whether routes are in use, and the org's routes.
 - **`prometheus.exporter.blackbox` in strict tenant mode.** Shipped. A probe sends the requests
   its modules define, so in a strict org the blackbox exporter's `config` must be a literal YAML
   config that names the `X-Scope-OrgID` header nowhere (keys and strings, case-insensitively,
@@ -51,8 +88,11 @@ additive; non-strict orgs are served the same bytes.
   refuses for one org (Admin → Organisations → Edit → Admin-allowed components;
   `AdminService.List/Add/RemoveOrgStrictComponent`, audited as `org.strict_component.add` /
   `.remove` with `reviewed: false`). It lifts only that refusal — every other strict check still
-  applies to the component — and the UI marks each entry "admin-allowed, unreviewed". A component
-  strict mode already accepts is refused (`invalid_argument`); removing an entry is refused
+  applies to the component — and the UI marks each entry "admin-allowed, unreviewed". Only a
+  component a shipped schema has (`strict_retired` included) whose classification is refused can
+  be allowed; one strict mode already accepts, and any other name, is refused (`invalid_argument`),
+  and the refusal of a name no shipped schema has, or of a module instance whose module or
+  declare was not found, no longer suggests allowing it; removing an entry is refused
   (`failed_precondition`, naming the pipelines) while the org is strict and an enabled pipeline
   uses it, as for the import allowlist (only enabled pipelines are checked; a disabled one that
   uses the component is refused when it is enabled). Both changes recompute the org's served configs.
@@ -96,7 +136,9 @@ additive; non-strict orgs are served the same bytes.
 - **A real-Alloy regression suite for strict tenant mode.** `make e2e-strict` runs
   a strict org's collector against a recording sink and checks the tenant each push arrives
   under: every refused construct is refused at save and, stored directly, left out of the served
-  config; every accepted one arrives under the org's tenant only. `e2e-strict.yml` runs it on PRs
+  config; every accepted one arrives under the org's tenant only. The sink also plays the
+  tenant-route gateway, so a strict org's exporter to a second org's route is refused and
+  excluded while one to its own route arrives. `e2e-strict.yml` runs it on PRs
   touching the lint, the serve-time check, the policy, pinned modules or the schemas, on Alloy
   pin bumps, weekly, and on demand. (#421)
 

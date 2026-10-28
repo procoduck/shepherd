@@ -202,6 +202,27 @@ func TestGatewayPublicBaseURL(t *testing.T) {
 	}
 }
 
+// TestGatewayHosts: the hosts strict tenant mode checks gateway route
+// endpoints against are public_base_url's host and gateway.routes.hosts,
+// which loads from a comma-separated env var.
+func TestGatewayHosts(t *testing.T) {
+	t.Setenv("SHEPHERD_DATABASE_URL", "postgres://example")
+	t.Setenv("SHEPHERD_SECURITY_ENCRYPTION_KEY", base64.StdEncoding.EncodeToString(make([]byte, 32)))
+	t.Setenv("SHEPHERD_GATEWAY_ROUTES_PUBLIC_BASE_URL", "https://telemetry.example.com:8443/base")
+	t.Setenv("SHEPHERD_GATEWAY_ROUTES_HOSTS", "gateway.ingress.svc.cluster.local,10.0.0.5")
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Join(cfg.Gateway.Routes.GatewayHosts(), " ")
+	if want := "telemetry.example.com gateway.ingress.svc.cluster.local 10.0.0.5"; got != want {
+		t.Errorf("GatewayHosts() = %q, want %q", got, want)
+	}
+	if h := (GatewayRoutesConfig{}).GatewayHosts(); len(h) != 0 {
+		t.Errorf("no gateway configured: GatewayHosts() = %v, want none", h)
+	}
+}
+
 // TestAgentOutageCacheTTL: agent.outage_cache_ttl (#374) defaults to 60s,
 // loads from the env var the chart's config file can override, accepts 0
 // (disabled), and refuses a negative value or one past an hour — the window

@@ -32,6 +32,28 @@ type fakeStore struct {
 	rows    []sqlc.TenantRoute
 	writes  int
 	listErr error
+	// dirtied is every org whose served configs were marked dirty.
+	dirtied    []pgtype.UUID
+	dirtiedAll int
+}
+
+func (f *fakeStore) MarkServeCacheDirtyByOrg(_ context.Context, orgID pgtype.UUID) error {
+	f.dirtied = append(f.dirtied, orgID)
+	return nil
+}
+
+func (f *fakeStore) AnyLiveTenantRoute(context.Context) (bool, error) {
+	for i := range f.rows {
+		if f.rows[i].Status != "revoked" {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (f *fakeStore) MarkServeCacheDirtyAll(context.Context) error {
+	f.dirtiedAll++
+	return nil
 }
 
 func (f *fakeStore) RevokeExpiredTenantRoutes(context.Context) ([]sqlc.TenantRoute, error) {
@@ -182,10 +204,11 @@ var _ = Describe("Reconciler", func() {
 		routeapply.SetClock(rec, func() time.Time { return clock })
 	})
 
+	orgOf := pgtype.UUID{Bytes: [16]byte{0xa}, Valid: true}
 	addRow := func(kind, status, gatewayName string, validUntil time.Time) pgtype.UUID {
 		id := newUUID()
 		row := sqlc.TenantRoute{
-			ID: id, TenantID: "acme", Kind: kind, Segment: fmt.Sprintf("acme-%d", seq), Status: status,
+			ID: id, OrgID: orgOf, TenantID: "acme", Kind: kind, Segment: fmt.Sprintf("acme-%d", seq), Status: status,
 			GatewayMode: "operator", GatewayName: gatewayName, GatewayNamespace: "gateways",
 			ApplyStatus: string(gateway.ApplyPending),
 		}
@@ -235,6 +258,10 @@ var _ = Describe("Reconciler", func() {
 		row := st.row(id)
 		Expect(row.Status).To(Equal("revoked"))
 		Expect(row.ApplyStatus).To(Equal(string(gateway.ApplyRemoved)))
+		// Strict tenant mode checks gateway route endpoints against the
+		// org's routes: its served configs are recomputed on the next poll.
+		Expect(st.dirtied).To(ConsistOf(row.OrgID))
+		Expect(st.dirtiedAll).To(Equal(1), "the last live route: every served config")
 	})
 
 	It("removes a revoked route's HTTPRoute, and does not rewrite the row once removed", func() {

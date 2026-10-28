@@ -25,6 +25,13 @@ import (
 // accepts arrives at the sink — and nothing ever arrives there under any
 // tenant but `mine`, which is what would fail if a refused construct were
 // served after all. Each pipeline labels its entries case=<its name>.
+//
+// The sink also plays Shepherd's tenant-route gateway (the compose stack has
+// none): Shepherd is configured with the sink's alias `gateway` as the
+// gateway's host (SHEPHERD_GATEWAY_ROUTES_HOSTS), the strict org and a second org each get a
+// tenant route, and the sink records a push under /otlp/<segment> under that
+// route's tenant, as the gateway would. So it is the lint, not Alloy or the
+// sink, that keeps the strict org's exporter off the second org's route.
 
 const (
 	sinkURL       = "http://localhost:13100"
@@ -55,6 +62,25 @@ func lokiWriter(extra string) string {
 }
 
 const toWriter = "loki.write.w.receiver"
+
+// The tenant routes BeforeAll creates: the strict org's (tenant mine) and
+// the second org's (tenant theirs).
+var ownSegment, otherSegment string
+
+// routeWriter is a loki.write "w" to the sink through the tenant route
+// segment, as an exporter to the gateway is written.
+func routeWriter(segment string) string { return routeWriterVia("gateway", segment) }
+
+// routeWriterVia is routeWriter reaching the gateway by the name host.
+func routeWriterVia(host, segment string) string {
+	return `loki.write "w" {
+  endpoint {
+    url       = "http://` + host + `:3100/otlp/` + segment + `/loki/api/v1/push"
+    tenant_id = "mine"
+  }
+}
+`
+}
 
 // outDeclare is a module writing to the sink under its argument tenant.
 const outDeclare = `declare "out" {
@@ -133,6 +159,8 @@ func acceptedCases() map[string]string {
 			"otelcol.exporter.loki \"e\" {\n  forward_to = [loki.write.w.receiver]\n}\n" + lokiWriter(`    tenant_id = "mine"`),
 		"a-secretfilter": lokiSource("a-secretfilter", "loki.secretfilter.s.receiver") +
 			"loki.secretfilter \"s\" {\n  forward_to   = [loki.write.w.receiver]\n  origin_label = \"job\"\n}\n" + lokiWriter(`    tenant_id = "mine"`),
+		// Through the org's own tenant route on the gateway.
+		"a-gateway-route": lokiSource("a-gateway-route", toWriter) + routeWriter(ownSegment),
 	}
 }
 
@@ -221,19 +249,31 @@ func refusedCases() map[string]refusedCase {
 				lokiWriter(`    tenant_id = "victim"`),
 			"strict tenant mode accepts only classified components",
 		},
+		// Through the second org's tenant route on the gateway: the gateway
+		// would send it under that route's tenant, whatever tenant_id says.
+		"r-gateway-route": {
+			lokiSource("r-gateway-route", toWriter) + routeWriter(otherSegment),
+			"strict tenant mode checks gateway route endpoints",
+		},
+		// The same route reached by a name Shepherd is not told is the
+		// gateway's: the segment alone decides.
+		"r-gateway-unlisted-host": {
+			lokiSource("r-gateway-unlisted-host", toWriter) + routeWriterVia("ingress", otherSegment),
+			"strict tenant mode checks gateway route endpoints",
+		},
 	}
 }
 
-// adminAllowed is the component the suite allows for the org; adminAllowedCase
-// uses it with an X-Scope-OrgID header the org does not own in its own
-// attributes: the component refusal is lifted, every other check still
-// applies. (No shipped schema has it, so a real Alloy could not run it; the
-// case is refused at save and, stored directly, excluded, so none ever does.)
-const adminAllowed = "otelcol.exporter.future"
+// adminAllowed is the component the suite allows for the org, for one spec:
+// the only one an application administrator can allow is a shipped
+// component classified refused. adminAllowedCase uses it beside an
+// X-Scope-OrgID header the org does not own: the component refusal is
+// lifted, every other check still applies.
+const adminAllowed = "otelcol.auth.google"
 
 var adminAllowedCase = refusedCase{
-	adminAllowed + " \"f\" {\n  client {\n    endpoint = \"http://tenantsink:3100\"\n" +
-		"    headers  = { \"X-Scope-OrgID\" = \"victim\" }\n  }\n}\n",
+	adminAllowed + " \"g\" { }\n" + lokiSource("r-admin-allowed", toWriter) +
+		lokiWriter(`    headers = { "X-Scope-OrgID" = "victim" }`),
 	`tenant "victim" is not one this organisation owns`,
 }
 
@@ -366,7 +406,31 @@ JOIN clusters cl ON cl.id = c.cluster_id WHERE cl.name = '` + strictCluster + `'
 			"org_id": orgID, "tenant": "mine", "kind": "ORG_TENANT_KIND_EXACT", "make_default": true,
 		}, nil)
 		admin.mustRPC("AdminService", "SetOrgStrictTenants", map[string]any{"org_id": orgID, "strict_tenants": true}, nil)
-		admin.mustRPC("AdminService", "AddOrgStrictComponent", map[string]any{"org_id": orgID, "component": adminAllowed}, nil)
+		// A second org owning tenant theirs, and a tenant route for each.
+		var other struct {
+			ID string `json:"id"`
+		}
+		admin.mustRPC("AdminService", "CreateOrg", map[string]any{
+			"name": "e2e-strict-other", "display_name": "E2E Strict Other",
+			"admin_group_id": "22222222-2222-2222-2222-222222222222", "tenant_id": "theirs",
+		}, &other)
+		route := func(org, tenant string) string {
+			GinkgoHelper()
+			var r struct {
+				Segment string `json:"segment"`
+			}
+			admin.mustRPC("TenantRouteService", "CreateTenantRoute", map[string]any{
+				"org_id": org, "kind": "otlp", "gateway_mode": "operator", "gateway_name": "edge",
+			}, &r)
+			Expect(r.Segment).NotTo(BeEmpty())
+			resp, err := http.Post(sinkURL+"/routes", "application/json", strings.NewReader(
+				fmt.Sprintf(`{"kind":"otlp","segment":%q,"tenant":%q}`, r.Segment, tenant)))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.Body.Close()).To(Succeed())
+			Expect(resp.StatusCode).To(Equal(http.StatusNoContent))
+			return r.Segment
+		}
+		ownSegment, otherSegment = route(orgID, "mine"), route(other.ID, "theirs")
 		// The collector has registered (its first poll claims the cluster).
 		Eventually(func() string {
 			return psql(`SELECT count(*) FROM collectors c JOIN clusters cl ON cl.id = c.cluster_id WHERE cl.name = '` + strictCluster + `';`)
@@ -375,18 +439,30 @@ JOIN clusters cl ON cl.id = c.cluster_id WHERE cl.name = '` + strictCluster + `'
 
 	It("refuses every refused construct at save, an admin-allowed component's included", func() {
 		cases := refusedCases()
-		cases["r-admin-allowed"] = adminAllowedCase
 		for name, c := range cases {
 			Expect(validateDiags(c.contents)).To(ContainElement(ContainSubstring(c.want)), name)
 			Expect(create(name, c.contents)).To(Equal(http.StatusBadRequest), name)
 		}
-		Expect(validateDiags(adminAllowedCase.contents)).NotTo(ContainElement(ContainSubstring("accepts only classified components")),
+		// Allowed for the org, the component's own refusal is lifted and
+		// every other check still applies; taken off again, it is refused.
+		var allowed struct {
+			ID string `json:"id"`
+		}
+		admin.mustRPC("AdminService", "AddOrgStrictComponent", map[string]any{"org_id": orgID, "component": adminAllowed}, &allowed)
+		diags := validateDiags(adminAllowedCase.contents)
+		Expect(diags).To(ContainElement(ContainSubstring(adminAllowedCase.want)))
+		Expect(diags).NotTo(ContainElement(ContainSubstring("accepts only classified components")),
 			"an admin-allowed component lifts its own refusal")
+		Expect(create("r-admin-allowed", adminAllowedCase.contents)).To(Equal(http.StatusBadRequest))
+		admin.mustRPC("AdminService", "RemoveOrgStrictComponent", map[string]any{"org_id": orgID, "id": allowed.ID}, nil)
+		Expect(validateDiags(adminAllowedCase.contents)).To(ContainElement(ContainSubstring("accepts only classified components")))
+		// Only a component a shipped schema has can be allowed.
+		Expect(admin.rpc("AdminService", "AddOrgStrictComponent", map[string]any{"org_id": orgID, "component": "otelcol.exporter.future"}, nil)).
+			To(Equal(http.StatusBadRequest))
 	})
 
 	It("excludes each refused construct stored directly from the served config", func() {
 		cases := refusedCases()
-		cases["r-admin-allowed"] = adminAllowedCase
 		var sql strings.Builder
 		for name, c := range cases {
 			fmt.Fprintf(&sql, `INSERT INTO pipelines (org_id, name, contents, matchers, enabled, source, wizard_state, created_by, updated_by)
@@ -431,10 +507,11 @@ VALUES ('%s', '%s', %s, '["cluster=\"%s\""]'::jsonb, true, 'ui', '{}'::jsonb, 'e
 
 	// The control: the sink and the Alloy under test do show another tenant
 	// when nothing excludes the stored pipelines. With strict mode off they
-	// are served as stored (the four a real Alloy cannot run disabled
-	// first), and their entries arrive under the tenants they set.
+	// are served as stored (the three a real Alloy cannot run disabled
+	// first), and their entries arrive under the tenants they set — the
+	// gateway route's under the second org's tenant.
 	It("a control: with strict mode off, the same stored pipelines reach the sink under other tenants", func() {
-		for _, name := range []string{"r-refused-component", "r-shadowed-component", "r-unclassified-component", "r-admin-allowed"} {
+		for _, name := range []string{"r-refused-component", "r-shadowed-component", "r-unclassified-component"} {
 			id := psql(`SELECT id FROM pipelines WHERE org_id = '` + orgID + `' AND name = '` + name + `';`)
 			admin.mustRPC("PipelineService", "DisablePipeline", map[string]any{"org_id": orgID, "id": id}, nil)
 		}
@@ -449,6 +526,8 @@ VALUES ('%s', '%s', %s, '["cluster=\"%s\""]'::jsonb, true, 'ui', '{}'::jsonb, 'e
 				HaveKeyWithValue("r-relabel", []string{tailFile}),
 				HaveKeyWithValue("r-groups-regex", ContainElement("remotecfg")),
 				HaveKeyWithValue("r-truncate", []string{"mix"}),
+				HaveKeyWithValue("r-gateway-route", []string{"theirs"}),
+				HaveKeyWithValue("r-gateway-unlisted-host", []string{"theirs"}),
 			))
 	})
 })

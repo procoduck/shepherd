@@ -19,6 +19,8 @@ import (
 	"shepherd/internal/config"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
+	"shepherd/internal/tenancy"
+	"shepherd/internal/validate"
 )
 
 // Connect-path coverage for TenantRouteService (W4,
@@ -188,6 +190,122 @@ var _ = Describe("shepherd.mgmt.v1.TenantRouteService RPC", Label("integration")
 		}
 		rows.Close()
 		Expect(actions).To(Equal([]string{"tenant_route.create", "tenant_route.rotate", "tenant_route.revoke"}))
+	})
+
+	// Strict tenant mode checks gateway route endpoints: a route the org
+	// rotates or revokes changes which of its pipelines may send to the
+	// gateway, so each route write marks the org's served configs dirty and
+	// recomputes them. Checked where it is consumed: the collector's served
+	// config.
+	It("recomputes a strict org's served configs when a route is rotated or revoked", func() {
+		restore, err := tenancy.SetGatewayHosts([]string{"telemetry.example.com"})
+		Expect(err).NotTo(HaveOccurred())
+		DeferCleanup(restore)
+		_, err = st.Queries.SetOrgStrictTenants(ctx, sqlc.SetOrgStrictTenantsParams{ID: orgID, StrictTenants: true})
+		Expect(err).NotTo(HaveOccurred())
+		cluster, err := st.Queries.UpsertCluster(ctx, "route-strict-cluster")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(st.Queries.ClaimCluster(ctx, sqlc.ClaimClusterParams{ID: cluster.ID, OrgID: orgID})).To(Succeed())
+		collector, err := st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: cluster.ID, Role: "singleton"})
+		Expect(err).NotTo(HaveOccurred())
+
+		admin := createSession(false, []string{"tenant-route-admin-group"})
+		body := map[string]any{}
+		for k, v := range createBody {
+			body[k] = v
+		}
+		body["orgId"] = orgID.String()
+		created := decodeBody(postConnect("/shepherd.mgmt.v1.TenantRouteService/CreateTenantRoute", body, admin))
+		segment, _ := created["segment"].(string) //nolint:errcheck // checked below
+		routeID, _ := created["id"].(string)      //nolint:errcheck // checked below
+		Expect(segment).NotTo(BeEmpty())
+		// Stored directly, as a pipeline saved before the route existed.
+		_, err = st.Queries.CreatePipeline(ctx, sqlc.CreatePipelineParams{
+			OrgID: orgID, Name: "via-route", Matchers: json.RawMessage(`["cluster=\"route-strict-cluster\""]`), Source: "ui", Enabled: true,
+			Contents: "otelcol.exporter.otlphttp \"o\" {\n  client {\n    endpoint = \"https://telemetry.example.com/otlp/" + segment + "\"\n  }\n}\n",
+		})
+		Expect(err).NotTo(HaveOccurred())
+		served := func() string {
+			c, _ := st.Queries.GetServeCache(ctx, collector.ID) //nolint:errcheck // polled
+			if c.Dirty {
+				return ""
+			}
+			return c.Content
+		}
+
+		// Rotation keeps the old segment routing during the overlap: served.
+		Expect(postConnect("/shepherd.mgmt.v1.TenantRouteService/RotateTenantRoute",
+			map[string]any{"orgId": orgID.String(), "id": routeID}, admin).StatusCode).To(Equal(http.StatusOK))
+		Eventually(served).WithTimeout(10 * time.Second).Should(ContainSubstring(`declare "pipe_via_route"`))
+
+		// Revoked, the segment no longer routes for the org: excluded.
+		Expect(postConnect("/shepherd.mgmt.v1.TenantRouteService/RevokeTenantRoute",
+			map[string]any{"orgId": orgID.String(), "id": routeID}, admin).StatusCode).To(Equal(http.StatusOK))
+		Eventually(served).WithTimeout(10 * time.Second).Should(And(
+			ContainSubstring("// Excluded (1) - strict tenant check:"), Not(ContainSubstring(`declare "pipe_via_route"`))))
+
+		// The save path refuses the revoked segment and accepts the org's
+		// active route.
+		routes := decodeBody(postConnect("/shepherd.mgmt.v1.TenantRouteService/ListTenantRoutes", map[string]any{"orgId": orgID.String()}, admin))
+		var activeSegment string
+		items, ok := routes["items"].([]any)
+		Expect(ok).To(BeTrue())
+		for _, it := range items {
+			r, ok := it.(map[string]any)
+			Expect(ok).To(BeTrue())
+			if r["status"] == "TENANT_ROUTE_STATUS_ACTIVE" {
+				activeSegment, _ = r["segment"].(string) //nolint:errcheck // checked below
+			}
+		}
+		Expect(activeSegment).NotTo(BeEmpty())
+		save := func(name, segment string) (int, string) {
+			resp := postConnect("/shepherd.mgmt.v1.PipelineService/CreatePipeline", map[string]any{
+				"orgId": orgID.String(), "name": name, "matchers": []string{`cluster="route-strict-cluster"`},
+				"contents": "otelcol.exporter.otlphttp \"o\" {\n  client {\n    endpoint = \"https://telemetry.example.com/otlp/" + segment + "\"\n  }\n}\n",
+			}, admin)
+			b, _ := io.ReadAll(resp.Body) //nolint:errcheck // checked by the caller
+			resp.Body.Close()             //nolint:errcheck // test cleanup
+			return resp.StatusCode, string(b)
+		}
+		code, msg := save("revoked-route", segment)
+		Expect(code).To(Equal(http.StatusBadRequest), msg)
+		validated := decodeBody(postConnect("/shepherd.mgmt.v1.PipelineService/ValidatePipeline", map[string]any{
+			"orgId": orgID.String(), "name": "probe",
+			"contents": "otelcol.exporter.otlphttp \"o\" {\n  client {\n    endpoint = \"https://telemetry.example.com/otlp/" + segment + "\"\n  }\n}\n",
+		}, admin))
+		Expect(fmt.Sprint(validated["diagnostics"])).To(ContainSubstring(validate.GatewayEndpointRefusal))
+		code, msg = save("active-route", activeSegment)
+		Expect(code).To(Equal(http.StatusOK), msg)
+	})
+
+	// Whether the installation has a live route decides, in every strict
+	// org, whether an endpoint the lint cannot read is refused: the first
+	// route and the last revoke mark every org's served configs dirty.
+	It("marks every org's served configs dirty when the installation's first route is created or its last revoked", func() {
+		other, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{Name: "route-other-org", DisplayName: "O", AdminGroupID: "o-admins"})
+		Expect(err).NotTo(HaveOccurred())
+		cluster, err := st.Queries.UpsertCluster(ctx, "route-other-cluster")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(st.Queries.ClaimCluster(ctx, sqlc.ClaimClusterParams{ID: cluster.ID, OrgID: other.ID})).To(Succeed())
+		collector, err := st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: cluster.ID, Role: "singleton"})
+		Expect(err).NotTo(HaveOccurred())
+		seq := func() int64 {
+			c, _ := st.Queries.GetServeCache(ctx, collector.ID) //nolint:errcheck // no row reads as 0
+			return c.DirtySeq
+		}
+		before := seq()
+		admin := createSession(false, []string{"tenant-route-admin-group"})
+		body := map[string]any{}
+		for k, v := range createBody {
+			body[k] = v
+		}
+		body["orgId"] = orgID.String()
+		created := decodeBody(postConnect("/shepherd.mgmt.v1.TenantRouteService/CreateTenantRoute", body, admin))
+		Expect(seq()).To(BeNumerically(">", before), "the first route marks another org dirty")
+		before = seq()
+		Expect(postConnect("/shepherd.mgmt.v1.TenantRouteService/RevokeTenantRoute",
+			map[string]any{"orgId": orgID.String(), "id": created["id"]}, admin).StatusCode).To(Equal(http.StatusOK))
+		Expect(seq()).To(BeNumerically(">", before), "revoking the last route marks another org dirty")
 	})
 
 	It("returns the apply outcome the reconciler recorded on the row", func() {

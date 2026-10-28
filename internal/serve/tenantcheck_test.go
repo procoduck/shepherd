@@ -155,6 +155,97 @@ func TestStrictTenantCheckComponentsAndTheCacheKey(t *testing.T) {
 	}
 }
 
+// Strict tenant mode checks gateway route endpoints: a stored pipeline
+// sending to another org's route on the gateway is excluded at serve time,
+// and the verdict cache is keyed by the gateway's hosts and the org's routes,
+// so a route the org gains or loses, or a gateway host configured, changes
+// the verdict on the same text. A non-strict org is served the same bytes
+// with or without a gateway configured, and so is a strict org whose
+// pipelines use only its own routes.
+func TestStrictTenantCheckGatewayRoutesAndTheCacheKey(t *testing.T) {
+	ctx := context.Background()
+	exporter := func(segment string) string {
+		return "otelcol.exporter.otlphttp \"o\" {\n  client {\n    endpoint = \"https://gw.example.com/otlp/" + segment + "\"\n  }\n}\n"
+	}
+	owned := []gateway.OrgTenant{{Tenant: "acme", Kind: gateway.TenantExact}}
+	own := tenancy.Route{Kind: "otlp", Segment: "acme-1a2b3c4d", Tenant: "acme", Status: "active"}
+	gw := tenancy.Policy{Strict: true, Owned: owned, GatewayHosts: []string{"gw.example.com"}, Routes: []tenancy.Route{own}}
+	verdict := func(p tenancy.Policy, contents string) string {
+		t.Helper()
+		got, err := serve.NewServing(nil, p).Form(ctx, []merge.Pipeline{{ID: "1", Name: "otlp", Contents: contents, Matchers: []string{`cluster="c1"`}, Source: "ui"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got[0].TenantProblem
+	}
+	foreign := exporter("globex-9z8y7x6w")
+	if v := verdict(gw, foreign); !strings.Contains(v, validate.GatewayEndpointRefusal) {
+		t.Fatalf("another org's route must exclude the pipeline, got %q", v)
+	}
+	noHost := gw
+	noHost.GatewayHosts = nil
+	if v := verdict(noHost, foreign); !strings.Contains(v, validate.GatewayEndpointRefusal) {
+		t.Errorf("another org's segment is refused on any host, with no gateway host configured, got %q", v)
+	}
+	computed := "otelcol.exporter.otlphttp \"o\" {\n  client {\n    endpoint = sys.env(\"EP\")\n  }\n}\n"
+	if v := verdict(noHost, computed); v != "" {
+		t.Errorf("no live route and no host: an unread endpoint passes, got %q", v)
+	}
+	inUse := noHost
+	inUse.RoutesInUse = true
+	if v := verdict(inUse, computed); !strings.Contains(v, validate.GatewayEndpointRefusal) {
+		t.Errorf("a live route in the installation must refuse an unread endpoint (cached verdict reused?), got %q", v)
+	}
+	if v := verdict(gw, exporter(own.Segment)); v != "" {
+		t.Errorf("an own route must pass, got %q", v)
+	}
+	revoked := gw
+	revoked.Routes = []tenancy.Route{{Kind: own.Kind, Segment: own.Segment, Tenant: own.Tenant, Status: "revoked"}}
+	if v := verdict(revoked, exporter(own.Segment)); !strings.Contains(v, validate.GatewayEndpointRefusal) {
+		t.Errorf("a revoked route must exclude the pipeline (cached verdict reused?), got %q", v)
+	}
+	gained := gw
+	gained.Routes = append([]tenancy.Route{{Kind: "otlp", Segment: "globex-9z8y7x6w", Tenant: "acme", Status: "active"}}, gw.Routes...)
+	if v := verdict(gained, foreign); v != "" {
+		t.Errorf("a route the org gains must include the pipeline (cached verdict reused?), got %q", v)
+	}
+
+	deps := serve.Deps{Schema: mustSchema(t)}
+	coll := serve.Collector{ID: "00000000-0000-0000-0000-000000000006", Cluster: "c1", Role: "singleton"}
+	for name, c := range map[string]struct {
+		p       []merge.Pipeline
+		serving *serve.Serving
+	}{
+		"non-strict, sending to another org's route": {
+			[]merge.Pipeline{{ID: "1", Name: "f", Contents: foreign, Matchers: []string{`cluster="c1"`}, Source: "ui"}}, nil,
+		},
+		"strict with a gateway, sending to an own route": {
+			[]merge.Pipeline{{ID: "1", Name: "o", Contents: exporter(own.Segment), Matchers: []string{`cluster="c1"`}, Source: "ui"}},
+			serve.NewServing(nil, gw),
+		},
+	} {
+		want, err := serve.ServedForm(ctx, servedInline(c.serving), c.p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		wantRes, err := serve.ComputeServed(ctx, deps, coll, want)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := c.serving.Form(ctx, c.p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		gotRes, err := serve.ComputeServed(ctx, deps, coll, got)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if gotRes.Hash != wantRes.Hash || gotRes.Content != wantRes.Content || len(gotRes.Exclusions) != 0 {
+			t.Errorf("%s: served bytes changed:\n%s\n---\n%s", name, wantRes.Content, gotRes.Content)
+		}
+	}
+}
+
 // A verdict that read pinned modules is not cached: the module cache can
 // change (a module fetched later) without the text or the policy changing.
 func TestStrictTenantCheckDoesNotCacheModuleVerdicts(t *testing.T) {

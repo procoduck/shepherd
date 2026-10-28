@@ -180,6 +180,11 @@ func runDevSeed(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
+	// Pipelines written here (the seed's, dev_modules.go's included) are
+	// checked as the server checks them, gateway hosts included.
+	if err := tenancy.ConfigureGateway(cfg.Gateway.Routes); err != nil {
+		return err
+	}
 	st, err := store.New(cmd.Context(), &cfg.Database)
 	if err != nil {
 		return fmt.Errorf("connecting: %w", err)
@@ -851,6 +856,11 @@ func runDevEnsureOrg(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
+	// Pipelines written here (the seed's, dev_modules.go's included) are
+	// checked as the server checks them, gateway hosts included.
+	if err := tenancy.ConfigureGateway(cfg.Gateway.Routes); err != nil {
+		return err
+	}
 	st, err := store.New(cmd.Context(), &cfg.Database)
 	if err != nil {
 		return fmt.Errorf("connecting: %w", err)
@@ -895,6 +905,11 @@ func runDevCreateSession(cmd *cobra.Command, _ []string) error {
 	}
 	cfg, err := config.Load(cfgFile)
 	if err != nil {
+		return err
+	}
+	// Pipelines written here (the seed's, dev_modules.go's included) are
+	// checked as the server checks them, gateway hosts included.
+	if err := tenancy.ConfigureGateway(cfg.Gateway.Routes); err != nil {
 		return err
 	}
 	st, err := store.New(cmd.Context(), &cfg.Database)

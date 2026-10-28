@@ -3,9 +3,11 @@ package validate_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -93,6 +95,14 @@ func TestEveryShippedComponentIsClassified(t *testing.T) {
 				t.Errorf("%s is %s but names checks %v; only a checked entry names checks", name, c.Class, c.Checks)
 			}
 		}
+		// A component with an endpoint attribute can send to the
+		// tenant-route gateway, whose routes set the tenant: it is checked
+		// by gateway_endpoints, and an accepted classification says so.
+		if _, covers := validate.StrictCheckCovers("gateway_endpoints", name); covers && c.Class != validate.ComponentRefused &&
+			!slices.Contains(c.Checks, "gateway_endpoints") {
+			t.Errorf("%s has an endpoint attribute but its %s classification does not name gateway_endpoints; "+
+				"classify it checked with gateway_endpoints among its checks", name, c.Class)
+		}
 	}
 }
 
@@ -144,9 +154,10 @@ var _ = Describe("strict tenant mode accepts only classified components (#421)",
 		)))
 	})
 
-	It("refuses a component no shipped schema classifies", func() {
+	It("refuses a component no shipped schema classifies, without offering an allow no one can give", func() {
 		Expect(refused(unknown, strictFor())).To(ConsistOf(SatisfyAll(
-			ContainSubstring(`loki.source.future "f"`), ContainSubstring("has none"),
+			ContainSubstring(`loki.source.future "f"`), ContainSubstring("no shipped Alloy schema has it"),
+			Not(ContainSubstring("application administrator can allow")),
 		)))
 	})
 
@@ -206,11 +217,13 @@ var _ = Describe("strict tenant mode accepts only classified components (#421)",
 			Expect(errorsOf(d)).To(ConsistOf(ContainSubstring("classified refused")))
 		})
 		It("refuses a name the module does not declare, or longer than <label>.<declare>", func() {
+			notFound := SatisfyAll(ContainSubstring("the module or declare it names was not found"),
+				Not(ContainSubstring("application administrator can allow")))
 			for _, inst := range []string{"otelcol.y \"i\" { }\n", "otelcol.x.y \"i\" { }\n"} {
-				Expect(refused(shadow+inst, strictFor())).To(ConsistOf(ContainSubstring("has none")), inst)
+				Expect(refused(shadow+inst, strictFor())).To(ConsistOf(notFound), inst)
 			}
 			Expect(refused("import.file \"m\" {\n  filename = \"/m.alloy\"\n}\nm.x \"i\" { }\n", strictFor())).
-				To(ConsistOf(ContainSubstring("has none")), "a module the lint cannot read declares nothing it knows")
+				To(ConsistOf(notFound), "a module the lint cannot read declares nothing it knows")
 		})
 		It("accepts <label>.<declare> of a declare the module has, wherever the instance is written", func() {
 			Expect(validate.TenantLint(shadow+"otelcol.x \"i\" { }\n", strictFor())).To(BeEmpty())
@@ -280,6 +293,39 @@ var _ = Describe("strict tenant mode accepts only classified components (#421)",
 			}
 		})
 
+		// Strict tenant mode checks gateway route endpoints: with a gateway
+		// configured, what Shepherd itself writes (a wizard's OAuth2 token URL
+		// read from a Kubernetes secret included) still passes.
+		It("pass the gateway route endpoint check with a gateway configured and routes in use", func() {
+			p := validate.TenantPolicy{
+				Strict: true, Owns: func(string) bool { return true },
+				Gateway: validate.GatewayRoutes{Hosts: []string{"gw.example.com"}, RoutesInUse: true},
+			}
+			texts := map[string]string{}
+			for _, f := range files() {
+				b, err := os.ReadFile(f)
+				Expect(err).NotTo(HaveOccurred())
+				texts[f] = string(b)
+			}
+			for i, cfg := range []beacon.BaselineConfig{
+				beacon.NewBaselineConfig("https://shepherd.example.com/beacon/v1/write"),
+				beacon.NewBaselineConfigOAuth2("https://shepherd.example.com/beacon/v1/write", "https://idp.example.com/token", []string{"s"}),
+			} {
+				text, err := beacon.RenderBaselinePipeline(cfg)
+				Expect(err).NotTo(HaveOccurred())
+				texts[fmt.Sprintf("baseline %d", i)] = text
+			}
+			for name, text := range texts {
+				var refused []string
+				for _, m := range errorsOf(validate.TenantLint(text, p)) {
+					if strings.Contains(m, validate.GatewayEndpointRefusal) {
+						refused = append(refused, m)
+					}
+				}
+				Expect(refused).To(BeEmpty(), name)
+			}
+		})
+
 		It("include the D6 baseline Shepherd appends to every served config", func() {
 			for _, cfg := range []beacon.BaselineConfig{
 				beacon.NewBaselineConfig("https://shepherd.example.com/beacon/v1/write"),
@@ -300,12 +346,13 @@ var _ = Describe("strict tenant mode accepts only classified components (#421)",
 	})
 
 	Describe("CheckAllowableComponent", func() {
-		It("accepts a refused or unclassified component name", func() {
+		It("accepts a component a shipped schema has whose classification is refused", func() {
 			Expect(validate.CheckAllowableComponent("otelcol.auth.google")).To(Succeed())
-			Expect(validate.CheckAllowableComponent("loki.source.future")).To(Succeed())
 		})
-		It("refuses a component strict mode already accepts, and anything not a component name", func() {
+		It("refuses a component strict mode already accepts, a name no shipped schema has, and anything not a "+
+			"component name", func() {
 			for _, s := range []string{
+				"loki.source.future", "otelcol.exporter.future", "mod.out", "prometheus.exporter.catchpoint",
 				"loki.write", "prometheus.exporter.self", "", "loki", "Loki.write", "loki..write",
 				"loki.write ", "1oki.write", "declare", strings.Repeat("a.", 70) + "b",
 			} {
