@@ -17,10 +17,10 @@ after the rollout is enough.
 ### Rolling back
 
 Run `shepherd migrate down` once **with the new image** (back to `0051`) before `helm rollback`.
-The down migration also deletes every session, since an older server cannot match a digest, so
-everyone signs in again after the rollback too. Rolling back without it leaves the new sessions
-in place, where the older server never finds them: users are asked to sign in, and the unused
-rows stay until they expire and the sweeper removes them.
+This step is required. The down migration deletes every session, so everyone signs in again
+after the rollback too. Skipping it leaves the digest-keyed rows in place, and an older server
+looks a cookie up by its value, so it would accept a value copied out of the session table as a
+session cookie until those rows expire.
 
 ## 0.24.x → 0.25.0
 
