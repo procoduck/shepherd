@@ -11,7 +11,16 @@ Categories used here:
 - **RPC only** — the API exists and is callable; there is no UI.
 - **Built, not wired** — the code and tests exist, nothing calls them in production yet.
 
-## Unreleased
+## v0.21.0-rc.1 (prerelease)
+
+Chart 0.25.0-rc.1, a **release candidate** for v0.21.0. It is published as a GitHub prerelease:
+`:latest` does not move, and `helm install` without `--version 0.25.0-rc.1` (or `--devel`) keeps
+resolving chart 0.24.0. The public docs keep quoting v0.20.0 / chart 0.24.0 until v0.21.0. It
+carries the 0.21 queue's first items — the strict component allowlist with a real-Alloy suite,
+gateway route endpoints in strict mode, the post-0.20 follow-ups, the collector page's
+contributing and excluded pipelines, and the sandbox run window — plus the fixes from its
+pre-tag kind walkthrough. See `deploy/helm/shepherd/UPGRADING.md` (0.24.x → 0.25.0) before
+upgrading.
 
 **Strict tenant mode accepts only classified components.** Run `shepherd admin tenant-preflight`
 before upgrading if any org uses strict tenant mode: a stored pipeline that uses a component the
