@@ -261,17 +261,29 @@ var ErrComponentNotAllowable = errors.New("not a component strict tenant mode re
 // name is no component Alloy runs, so allowing it would mean nothing.
 func CheckAllowableComponent(component string) error {
 	if !isComponentName(component) {
-		return fmt.Errorf("%w: %q is not a component name (such as otelcol.auth.google)", ErrComponentNotAllowable, component)
+		return notAllowable(fmt.Sprintf("%q is not a component name (such as otelcol.auth.google).", component))
 	}
 	c, ok := ClassifyComponent(component)
 	if !ok {
-		return fmt.Errorf("%w: no shipped Alloy schema has a component %s", ErrComponentNotAllowable, component)
+		return notAllowable(fmt.Sprintf("No shipped Alloy schema has a component named %s.", component))
 	}
 	if c.Class != ComponentRefused {
-		return fmt.Errorf("%w: %s is classified %s, so strict tenant mode already accepts it", ErrComponentNotAllowable, component, c.Class)
+		return notAllowable(fmt.Sprintf("The component %s is already accepted in strict tenant mode (classified %s); "+
+			"there is nothing to allow.", component, c.Class))
 	}
 	return nil
 }
+
+// componentNotAllowable is a CheckAllowableComponent refusal: its message is
+// a sentence of its own (the sentinel's text is not prefixed), and it is
+// ErrComponentNotAllowable.
+type componentNotAllowable string
+
+func notAllowable(msg string) error { return componentNotAllowable(msg) }
+
+func (e componentNotAllowable) Error() string { return string(e) }
+
+func (e componentNotAllowable) Is(target error) bool { return target == ErrComponentNotAllowable }
 
 // isComponentName reports whether s is a built-in component's name: two or
 // more dot-separated parts of lower-case letters, digits and underscores,
@@ -355,7 +367,7 @@ func (l *tenantLinter) resolveModuleInstances() {
 		// Not a built-in (no shipped schema has the name) and not a declare
 		// of the module the import loads: nothing an application
 		// administrator could allow.
-		l.refuse(p.block, fmt.Sprintf("%s %q: %s, and %s is not a built-in component; the module or declare it names "+
+		l.refuseAs(p.block, FindingUnknownComponent, fmt.Sprintf("%s %q: %s, and %s is not a built-in component; the module or declare it names "+
 			"was not found (import %q has no declare %q the tenant check could read) — strict tenant mode refuses it",
 			p.name, p.block.Label, StrictComponentRefusal, p.name, label, decl))
 	}
@@ -374,10 +386,10 @@ func (l *tenantLinter) judgeComponent(b *ast.BlockStmt, name string, c Component
 		// Every component a shipped schema has is classified (the repo test),
 		// so this name is no component Alloy ships, and none an application
 		// administrator can allow (CheckAllowableComponent).
-		l.refuse(b, fmt.Sprintf("%s %q: %s, and %s has none: no shipped Alloy schema has it — strict tenant mode "+
+		l.refuseAs(b, FindingUnknownComponent, fmt.Sprintf("%s %q: %s, and %s has none: no shipped Alloy schema has it — strict tenant mode "+
 			"refuses it", name, b.Label, StrictComponentRefusal, name))
 	case c.Class == ComponentRefused:
-		l.refuse(b, fmt.Sprintf("%s %q: %s, and %s is classified refused (%s) — strict tenant mode refuses it; an "+
+		l.refuseAs(b, FindingComponent, fmt.Sprintf("%s %q: %s, and %s is classified refused (%s) — strict tenant mode refuses it; an "+
 			"application administrator can allow %s for this organisation", name, b.Label, StrictComponentRefusal,
 			name, c.Reason, name))
 	}

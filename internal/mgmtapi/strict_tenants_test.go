@@ -1046,6 +1046,9 @@ var _ = Describe("Strict tenant mode", Label("integration"), func() {
 			Expect(code).To(Equal(http.StatusBadRequest), "%v", out)
 			Expect(out["code"]).To(Equal("failed_precondition"))
 			Expect(out["message"]).To(ContainSubstring(`pipeline "google"`))
+			// The name does not start the sentence: the UI capitalises a
+			// message's first letter ("Otelcol.auth.google is used by…").
+			Expect(out["message"]).To(HavePrefix("the component otelcol.auth.google is used by"))
 			ok(call(adminA, "PipelineService/DisablePipeline", map[string]any{"orgId": orgA.String(), "id": p["id"]}))
 			ok(call(appAdmin, "AdminService/RemoveOrgStrictComponent", map[string]any{"orgId": orgA.String(), "id": id}))
 		})

@@ -5,6 +5,7 @@ import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { clients } from '@/api/transport';
+import { EditorProblemsPanel } from '@/components/EditorProblemsPanel';
 import { EditorValidationStatus } from '@/components/EditorValidationStatus';
 import { Input } from '@/components/ui/Field';
 import { FormError } from '@/components/ui/FormError';
@@ -159,6 +160,20 @@ export function WizardRunnerPage() {
     retry: (failureCount, err) => !isRenderRefusal(err) && failureCount < 2,
   });
 
+  // The preview's verdict is the pipeline editor's for the same text: the
+  // editor's own ValidatePipeline call on the rendered contents. The render
+  // runs the gate too, but not the org-wide Stage-3 checks the editor
+  // reports (a collector's Alloy version), so a preview the editor would
+  // warn about read "No problems" (0.21.0-rc.1 walkthrough).
+  const renderedContents = renderQuery.data?.contents;
+  const validateQuery = useQuery({
+    queryKey: ['wizard-validate', orgId, name, renderedContents],
+    queryFn: () =>
+      clients.pipeline.validatePipeline({ orgId, name, contents: renderedContents ?? '' }),
+    enabled: !!orgId && isReview && !!name && !!renderedContents?.trim(),
+    retry: false,
+  });
+
   // B5: the org's collectors, to mark a matched collector that has no
   // connected instance. The match preview counts it — it is served the
   // pipeline once it connects — but nothing said it was not there yet. Same
@@ -229,10 +244,18 @@ export function WizardRunnerPage() {
   // Why Continue is disabled (2026-10-12 walkthrough: it said nothing).
   const missing = isReview ? [] : missingRequiredFields(currentFields, form);
   const canContinue = missing.length === 0;
-  const diagnostics = renderQuery.data?.diagnostics ?? [];
-  // A warning (strict tenant mode's "cannot be verified") never blocks.
+  // The editor's verdict when it has answered; the render's own gate result
+  // until then (or if that call failed).
+  const diagnostics = validateQuery.data?.diagnostics ?? renderQuery.data?.diagnostics ?? [];
+  // A warning (strict tenant mode's "cannot be verified", a collector's
+  // Alloy version) never blocks.
   const problems = diagnostics.filter((d) => !d.warning);
   const hasErrors = problems.length > 0;
+  // The wizard's own notes count as warnings beside the diagnostics': each
+  // is shown above the verdict, and "No problems" under one read as a
+  // clean bill.
+  const wizardWarnings = renderQuery.data?.warnings ?? [];
+  const verdictPending = renderQuery.isFetching || validateQuery.isFetching;
   const nameTaken = !!name && isNameTaken(name, takenNames);
   // The pipeline it collides with, as that one is named: "Pod Logs" takes
   // "pod-logs" too, and the message should say which pipeline that is.
@@ -378,13 +401,13 @@ export function WizardRunnerPage() {
                       )}
                     </div>
 
-                    {(renderQuery.data.warnings ?? []).length > 0 && (
+                    {wizardWarnings.length > 0 && (
                       <div
                         className='rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-300'
                         data-testid='wizard-warnings'
                       >
                         <ul className='space-y-1'>
-                          {(renderQuery.data.warnings ?? []).map((w) => (
+                          {wizardWarnings.map((w) => (
                             <li key={w}>{w}</li>
                           ))}
                         </ul>
@@ -395,20 +418,25 @@ export function WizardRunnerPage() {
                         "No problems" next to a warning read as a clean bill. */}
                     <EditorValidationStatus
                       show
-                      validating={renderQuery.isFetching}
+                      validating={verdictPending}
                       problems={problems.length}
-                      warnings={diagnostics.length - problems.length}
-                      alloyValidateSkipped={false}
+                      warnings={diagnostics.length - problems.length + wizardWarnings.length}
+                      alloyValidateSkipped={(validateQuery.data?.skippedStages ?? []).includes(2)}
                     />
 
-                    <div className='h-64 overflow-hidden rounded-md border border-border'>
-                      <AlloyEditor
-                        value={renderQuery.data.contents}
-                        ariaLabel='Generated Alloy configuration'
-                        readOnly
-                        diagnostics={diagnostics}
-                        height='100%'
-                      />
+                    <div className='overflow-hidden rounded-md border border-border'>
+                      <div className='h-64'>
+                        <AlloyEditor
+                          value={renderQuery.data.contents}
+                          ariaLabel='Generated Alloy configuration'
+                          readOnly
+                          diagnostics={diagnostics}
+                          height='100%'
+                        />
+                      </div>
+                      {/* Each diagnostic's text, as the editor's problems panel
+                          lists it — a whole-config warning has no line to mark. */}
+                      {!verdictPending && <EditorProblemsPanel diagnostics={diagnostics} />}
                     </div>
                   </>
                 )}
@@ -470,7 +498,7 @@ export function WizardRunnerPage() {
                   hasErrors ||
                   !!renderQuery.error ||
                   commitMut.isPending ||
-                  renderQuery.isFetching
+                  verdictPending
                 }
                 className='rounded-md bg-indigo-600 px-4 py-1.5 text-sm text-white hover:bg-indigo-500 disabled:opacity-50'
               >

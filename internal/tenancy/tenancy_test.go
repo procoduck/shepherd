@@ -216,6 +216,9 @@ var _ = Describe("CheckRequireOwned", Label("integration"), func() {
 		vs, err := tenancy.Preflight(ctx, st.Queries, org, false, pinnedimport.Cached)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(vs).To(HaveLen(2))
+		// A tenant finding's hint is to assign the tenant.
+		Expect(vs).To(ContainElement(SatisfyAll(HaveField("Name", "w"),
+			HaveField("Message", ContainSubstring("or assign the tenant to the organisation")))))
 	})
 
 	It("needs a tenant for per-org strict mode only (requireTenant)", func() {
@@ -276,6 +279,19 @@ var _ = Describe("CheckRequireOwned", Label("integration"), func() {
 		Expect(err).To(HaveOccurred())
 	})
 
+	It("offers no allow hint for a component no shipped schema has", func() {
+		_, err := st.Queries.CreatePipeline(ctx, sqlc.CreatePipelineParams{
+			OrgID: org.ID, Name: "future", Contents: "loki.source.future \"f\" { }\n", Matchers: json.RawMessage(`[]`),
+			Source: "ui", Enabled: true,
+		})
+		Expect(err).NotTo(HaveOccurred())
+		vs, err := tenancy.Preflight(ctx, st.Queries, org, false, pinnedimport.Cached)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(vs).To(HaveLen(1))
+		Expect(vs[0].Message).To(And(ContainSubstring("edit or disable the pipeline"),
+			Not(ContainSubstring("assign the tenant")), Not(ContainSubstring("ask an application administrator"))))
+	})
+
 	// #421: the admin-allowed components are part of the policy every check
 	// loads — the save, the preflight, the in-transaction lint and the
 	// removal guard.
@@ -295,6 +311,11 @@ var _ = Describe("CheckRequireOwned", Label("integration"), func() {
 		vs, err := tenancy.Preflight(ctx, st.Queries, org, false, pinnedimport.Cached)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(names(vs)).To(ConsistOf("google"))
+		// The fix hint follows the finding (0.21.0-rc.1 walkthrough): a refused
+		// shipped component can be allowed; assigning a tenant fixes nothing.
+		Expect(vs[0].Message).To(And(
+			ContainSubstring("or ask an application administrator to allow the component for this organisation"),
+			Not(ContainSubstring("assign the tenant"))))
 		Expect(tenancy.LintLocked(ctx, st.Queries, org.ID, true, tenancy.Pipeline{Name: "google", Contents: google})).
 			To(MatchError(tenancy.ErrPipelineNotOwned))
 
@@ -413,6 +434,8 @@ var _ = Describe("gateway route endpoints in the policy", Label("integration"), 
 		Expect(err).NotTo(HaveOccurred())
 		Expect(vs).To(ConsistOf(SatisfyAll(
 			HaveField("Name", "foreign"), HaveField("Message", ContainSubstring(validate.GatewayEndpointRefusal)))))
+		Expect(vs[0].Message).To(And(ContainSubstring("or use one of this organisation's tenant routes"),
+			Not(ContainSubstring("assign the tenant"))))
 		Expect(tenancy.LintLocked(ctx, st.Queries, org.ID, true, tenancy.Pipeline{Name: "foreign", Contents: exporter(foreign.Segment)})).
 			To(MatchError(ContainSubstring(foreign.Segment)))
 		Expect(tenancy.LintLocked(ctx, st.Queries, org.ID, true, tenancy.Pipeline{Name: "own", Contents: exporter(own.Segment)})).To(Succeed())

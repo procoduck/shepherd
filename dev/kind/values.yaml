@@ -83,6 +83,17 @@ route:
 service:
   appProtocol: ""
 
+# extraEnv: SHEPHERD_GATEWAY_ROUTES_HOSTS (gateway.routes.hosts, which the
+# chart's closed `config` schema has no section for) names the tenant-route
+# gateway's host, telemetry.localtest.me, a *.localtest.me name like the rest
+# of this stack. Without a gateway host strict tenant mode checks only other
+# organisations' route segments, so the gateway-host rules (#431) never ran
+# here (0.21.0-rc.1 walkthrough). Nothing needs to route the name: the check
+# compares pipelines' endpoints against it.
+extraEnv:
+  - name: SHEPHERD_GATEWAY_ROUTES_HOSTS
+    value: telemetry.localtest.me
+
 config:
   server:
     # base_url: the browser-reachable address every redirect and callback

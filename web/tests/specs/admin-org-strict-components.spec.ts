@@ -67,6 +67,10 @@ test('an app admin allows a component; one strict mode accepts and a duplicate a
   await page.getByRole('button', { name: 'Edit prod-org' }).click();
   const editor = page.getByTestId('org-strict-components');
   await expect(editor.getByTestId('org-strict-components-empty')).toBeVisible();
+  // Allowing is not running: the collector's stability level still applies.
+  await expect(editor.getByTestId('org-strict-components-stability')).toContainText(
+    '--stability.level',
+  );
 
   // Caught before a round trip: not a component name at all.
   await editor.getByTestId('org-strict-component-new').pressSequentially('Otelcol Auth');
@@ -93,8 +97,8 @@ test('an app admin allows a component; one strict mode accepts and a duplicate a
   // Already accepted in strict mode: the server refuses it.
   await editor.getByTestId('org-strict-component-new').pressSequentially('loki.write');
   await editor.getByTestId('org-strict-component-add').click();
-  await expect(editor.getByTestId('org-strict-component-error')).toContainText(
-    'already accepts it',
+  await expect(editor.getByTestId('org-strict-component-error')).toHaveText(
+    'The component loki.write is already accepted in strict tenant mode (classified checked); there is nothing to allow.',
   );
 
   // A second entry for the same component.
@@ -126,6 +130,10 @@ test('a removal the server refuses names the pipelines; an unused one goes', asy
   const editor = page.getByTestId('org-strict-components');
 
   await editor.getByTestId('org-strict-component-remove-otelcol.auth.google').click();
+  // The component name keeps its case: it does not start the sentence.
+  await expect(editor.getByTestId('org-strict-component-error')).toContainText(
+    'The component otelcol.auth.google is used by',
+  );
   await expect(editor.getByTestId('org-strict-component-error')).toContainText(
     'pipeline "google-otlp"',
   );

@@ -1252,7 +1252,7 @@ func (l *tenantLinter) lintModule(at ast.Node, where, text string, args map[stri
 		if d.Warning {
 			l.warn(at, msg)
 		} else {
-			l.refuse(at, msg)
+			l.refuseAs(at, d.Finding, msg)
 		}
 	}
 }
@@ -1850,13 +1850,18 @@ func unparen(v ast.Expr) ast.Expr {
 }
 
 func (l *tenantLinter) refuse(at ast.Node, msg string) {
+	l.refuseAs(at, FindingTenant, msg)
+}
+
+// refuseAs is refuse for a refusal about finding f.
+func (l *tenantLinter) refuseAs(at ast.Node, f Finding, msg string) {
 	l.budget.take()
 	if len(l.diags) >= maxDiagnostics {
 		l.tooMany = true
 		return
 	}
 	pos := ast.StartPos(at).Position()
-	l.diags = append(l.diags, Diagnostic{Line: pos.Line, Col: pos.Column, Message: msg, Stage: 1})
+	l.diags = append(l.diags, Diagnostic{Line: pos.Line, Col: pos.Column, Message: msg, Stage: 1, Finding: f})
 }
 
 // warn records a warning at at: reported, but the pipeline is not refused.

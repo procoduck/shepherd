@@ -203,6 +203,19 @@ var _ = Describe("dev/kind/values.yaml", func() {
 		Expect(oidc["redirect_url"]).To(Equal("http://shepherd.localtest.me/auth/callback"))
 	})
 
+	// 0.21.0-rc.1 walkthrough: with no gateway host configured, strict
+	// tenant mode's gateway-route check (#431) never ran in make dev-kind.
+	It("configures a gateway host, so strict tenant mode checks gateway route endpoints", func() {
+		c := firstContainer(objects["Deployment/shepherd"])
+		var hosts any
+		for _, e := range asSlice(c["env"]) {
+			if entry := asMap(e); entry["name"] == "SHEPHERD_GATEWAY_ROUTES_HOSTS" {
+				hosts = entry["value"]
+			}
+		}
+		Expect(hosts).To(Equal("telemetry.localtest.me"))
+	})
+
 	It("passes helm lint --strict", func() {
 		root := repoRoot()
 		cmd := exec.Command("helm", "lint", "--strict",

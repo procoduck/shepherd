@@ -369,19 +369,22 @@ func Preflight(ctx context.Context, q *sqlc.Queries, org sqlc.Org, requireTenant
 		return nil, fmt.Errorf("listing org %q's enabled pipelines: %w", org.Name, err)
 	}
 	for i := range pipelines {
-		msgs, err := LintPipeline(ctx, q, p, src, pipelines[i].Contents)
+		refusals, err := lintRefusals(ctx, pipelines[i].Contents, p.Validation(q, src))
 		if err != nil {
 			return nil, err
 		}
-		if len(msgs) == 0 {
+		if len(refusals) == 0 {
 			continue
+		}
+		msgs := make([]string, len(refusals))
+		for j, d := range refusals {
+			msgs[j] = refusalText(d)
 		}
 		v := base
 		v.Kind, v.Name = KindPipeline, pipelines[i].Name
 		v.Message = fmt.Sprintf("enabled pipeline %q fails the strict tenant check (%s); in strict tenant mode it "+
-			"is left out of every collector's served config until it is fixed — edit or disable the pipeline, "+
-			"or assign the tenant to the organisation",
-			pipelines[i].Name, strings.Join(msgs, "; "))
+			"is left out of every collector's served config until it is fixed — %s",
+			pipelines[i].Name, strings.Join(msgs, "; "), fixHint(refusals))
 		out = append(out, v)
 	}
 	return out, nil
@@ -499,18 +502,69 @@ func LintPipeline(ctx context.Context, q *sqlc.Queries, p Policy, src pinnedimpo
 // validate.ErrLintBusy (wrapped) when the lint hit its wall-clock guard —
 // no verdict, so callers answer "busy, try again" rather than refuse.
 func lintErrors(ctx context.Context, contents string, policy validate.TenantPolicy) ([]string, error) {
+	refusals, err := lintRefusals(ctx, contents, policy)
+	if err != nil {
+		return nil, err
+	}
+	var msgs []string
+	for _, d := range refusals {
+		msgs = append(msgs, refusalText(d))
+	}
+	return msgs, nil
+}
+
+// lintRefusals is TenantLint's refusals (not its warnings) in contents.
+func lintRefusals(ctx context.Context, contents string, policy validate.TenantPolicy) ([]validate.Diagnostic, error) {
 	// WithTenantLint lints the served form too (policy.Inline).
 	r := validate.WithTenantLint(ctx, validate.Result{Valid: true}, contents, policy)
 	if r.Busy {
 		return nil, fmt.Errorf("tenant check: %w", validate.ErrLintBusy)
 	}
-	var msgs []string
+	var out []validate.Diagnostic
 	for _, d := range r.Diagnostics {
 		if !d.Warning {
-			msgs = append(msgs, fmt.Sprintf("%d:%d %s", d.Line, d.Col, d.Message))
+			out = append(out, d)
 		}
 	}
-	return msgs, nil
+	return out, nil
+}
+
+func refusalText(d validate.Diagnostic) string {
+	return fmt.Sprintf("%d:%d %s", d.Line, d.Col, d.Message)
+}
+
+// fixHint is how a pipeline refused for refusals is fixed: edit or disable
+// it, or whatever lifts each kind of finding it has — assigning a tenant
+// fixes a tenant finding only, allowing a component only a refused shipped
+// one.
+func fixHint(refusals []validate.Diagnostic) string {
+	var tenant, component, route bool
+	for _, d := range refusals {
+		switch d.Finding {
+		case validate.FindingTenant:
+			tenant = true
+		case validate.FindingComponent:
+			component = true
+		case validate.FindingRoute:
+			route = true
+		case validate.FindingUnknownComponent:
+			// Nothing to allow: only an edit fixes it.
+		}
+	}
+	options := []string{"edit or disable the pipeline"}
+	if tenant {
+		options = append(options, "assign the tenant to the organisation")
+	}
+	if route {
+		options = append(options, "use one of this organisation's tenant routes")
+	}
+	if component {
+		options = append(options, "ask an application administrator to allow the component for this organisation")
+	}
+	if len(options) == 1 {
+		return options[0]
+	}
+	return strings.Join(options[:len(options)-1], ", ") + ", or " + options[len(options)-1]
 }
 
 // OrphanedPipelines names org's enabled pipelines that would fail the tenant

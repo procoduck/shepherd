@@ -162,7 +162,7 @@ func (s *AdminService) RemoveOrgStrictComponent(ctx context.Context, req *connec
 			}
 			if len(users) > 0 {
 				return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf(
-					"%s is used by enabled pipeline(s) of org %q, which strict tenant mode would then refuse: %s; "+
+					"the component %s is used by enabled pipeline(s) of org %q, which strict tenant mode would then refuse: %s; "+
 						"edit or disable them first (only enabled pipelines are checked)", row.Component, org.Name, strings.Join(users, "; ")))
 			}
 		}

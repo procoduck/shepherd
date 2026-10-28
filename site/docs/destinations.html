@@ -267,7 +267,10 @@
         refusal: every other check above still applies to
         the component, and the page marks it <em>admin-allowed, unreviewed</em>. Both changes are
         recorded in the audit log, and an entry cannot be removed while an enabled pipeline uses
-        the component.</p>
+        the component. An allowed component may also need the collector&rsquo;s
+        <code>--stability.level</code>: Alloy refuses a public-preview or experimental component
+        below its stability level and keeps the previous config, and Shepherd records a
+        <code>collector.version_warning</code> naming the flag.</p>
       <p><strong>Pipelines saved before a check was added are checked when they are
         served.</strong> Every time a strict organisation&rsquo;s collectors are given new config,
         each enabled pipeline is checked as a save would check it. One that fails is left out of

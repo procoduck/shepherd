@@ -241,6 +241,22 @@ test('a tenant-lint warning in the wizard preview does not block Create', async 
       }),
     });
   });
+  // The preview's verdict is the pipeline editor's: ValidatePipeline on the
+  // rendered text, which reports the same tenant-lint warning.
+  api.seed({
+    validateResult: {
+      valid: true,
+      diagnostics: [
+        {
+          line: 1,
+          col: 1,
+          message: 'tenant set from a non-literal expression — cannot be verified in strict mode',
+          stage: 1,
+          warning: true,
+        },
+      ],
+    },
+  });
 
   await page.goto('/wizards');
   await page.getByRole('link', { name: /app observability|start|begin/i }).click();
@@ -257,6 +273,62 @@ test('a tenant-lint warning in the wizard preview does not block Create', async 
   // follow-up): "No problems" beside a warning read as a clean bill.
   await expect(page.getByTestId('editor-warning-count')).toHaveText('1 warning');
   await expect(page.getByText('No problems')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /create pipeline/i })).toBeEnabled();
+});
+
+// 0.21.0-rc.1 walkthrough: on a strict org the self-monitoring preview said
+// "No problems" although the render returned a wizard note and
+// ValidatePipeline on the same text returned a Stage-3 version warning. The
+// render's own diagnostics were empty, and they were all the count read.
+test("the wizard preview counts its own notes and the editor's Stage-3 warnings", async ({
+  page,
+  api,
+}) => {
+  await api.loginAs(orgAdmin);
+  const s = basicScenario();
+  const note =
+    'Log collection was requested but no logs destination was set, so it was left out — name a logs destination to include it.';
+  const version =
+    'a collector in this org runs Alloy "not-a-version", which is not a release version; checked against v1.21.2 only';
+  api.seed({
+    orgs: [s.org],
+    destinations: [destination({ id: 'dst-prom', name: 'prom-prod', type: 'prometheus' })],
+    validateResult: {
+      valid: true,
+      diagnostics: [{ line: 0, col: 0, message: version, stage: 3, warning: true }],
+    },
+  });
+  api.override('POST', '/shepherd.mgmt.v1.WizardService/RenderWizard', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        contents: 'prometheus.scrape "app" {}\n',
+        matchers: ['cluster="fake-eu-1"', 'role="metrics"'],
+        valid: true,
+        diagnostics: [],
+        matchedCollectors: [],
+        warnings: [note],
+      }),
+    });
+  });
+
+  await page.goto('/wizards');
+  await page.getByRole('link', { name: /app observability|start|begin/i }).click();
+  await page.getByLabel('Metrics endpoint URL').fill('http://myapp:9090/metrics');
+  await page.getByLabel('Job label').fill('my-app');
+  await page.getByRole('button', { name: /next|continue/i }).click();
+  await page.getByRole('button', { name: /next|continue/i }).click();
+  await page.getByLabel('Metrics destination').selectOption('prom-prod');
+  await page.getByRole('button', { name: /next|continue/i }).click();
+  await page.getByRole('button', { name: /next|continue/i }).click();
+  await page.getByLabel('Pipeline name').fill('strict-wizard');
+
+  await expect(page.getByTestId('editor-warning-count')).toHaveText('2 warnings');
+  await expect(page.getByText('No problems')).toHaveCount(0);
+  // Each warning's text, not just the count.
+  await expect(page.getByTestId('wizard-warnings')).toContainText(note);
+  await expect(page.getByTestId('editor-warning')).toHaveText(`warning: ${version}`);
   await expect(page.getByRole('button', { name: /create pipeline/i })).toBeEnabled();
 });
 
