@@ -33,7 +33,16 @@ export interface MockState {
   // skipped_stages mirrors ValidatePipelineResponse.skipped_stages (#209):
   // [2] models a server with no Alloy binary configured.
   validateResult: { valid: boolean; diagnostics: unknown[]; skipped_stages?: number[] };
-  servedConfig: { content: string; hash: string };
+  // provenance_recorded / contributing / excluded / baseline_lines mirror
+  // GetServedConfigResponse's F-CONTRIB fields (#423), snake_case.
+  servedConfig: {
+    content: string;
+    hash: string;
+    provenance_recorded?: boolean;
+    contributing?: unknown[];
+    excluded?: unknown[];
+    baseline_lines?: { first: number; last: number };
+  };
   unmatched: string[];
   authMethods?: {
     oidc: boolean;

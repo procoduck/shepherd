@@ -175,7 +175,7 @@ func (s *PipelineService) recomputeCollector(ctx context.Context, in *orgServeIn
 		return
 	}
 	for _, ex := range served.Exclusions {
-		if ex.TenantCheck {
+		if ex.Kind == merge.ExclusionTenantCheck {
 			// Strict tenant mode's serve-time check; recorded and audited
 			// once per change by serve.LoadPipelines.
 			s.logger.Debug("eager recompute: pipeline excluded (strict tenant check)",

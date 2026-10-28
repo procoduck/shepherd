@@ -9,13 +9,18 @@ import (
 )
 
 // Exclusion records one pipeline that matched a collector's labels but was
-// left out of the assembled config because its derived signals are not
-// allowed for the collector's role. This is the visible record gate G6
+// left out of the assembled config — Kind says why: its derived signals are
+// not allowed for the collector's role, strict tenant mode refused it, or a
+// matcher does not parse. This is the visible record gate G6
 // (docs/gateway-tier-plan.md §8 rule 2) requires: excluding the offending
 // pipeline is correct (fail-safe), but the exclusion must never be silent.
 type Exclusion struct {
+	// PipelineID is the excluded pipeline's ID.
+	PipelineID string
 	// PipelineName is the excluded pipeline's Name.
 	PipelineName string
+	// Kind is why the pipeline was excluded.
+	Kind ExclusionKind
 	// Reason is a human-readable explanation, safe to embed verbatim in a
 	// "// " header comment line (never contains a raw newline — see
 	// buildHeader).
@@ -41,10 +46,6 @@ type Exclusion struct {
 	// parentheses; it is carried separately so operator-facing prose built
 	// from Disallowed never drops it.
 	Unproven string
-	// TenantCheck is set for a pipeline strict tenant mode's serve-time
-	// check excludes (Pipeline.TenantProblem): Reason is what it found, Role
-	// and Disallowed are empty, and the header lists it in its own section.
-	TenantCheck bool
 }
 
 // AssembleOption configures optional Assemble behavior. The zero value (no
@@ -151,7 +152,9 @@ func RoleCheck(p Pipeline, role string, reg *schema.Registry) (signals.Signals, 
 	sig, err := signals.Derive(p.Contents, reg)
 	if err != nil {
 		return signals.Signals{}, Exclusion{
+			PipelineID:   p.ID,
 			PipelineName: p.Name,
+			Kind:         ExclusionRole,
 			Role:         role,
 			Reason:       commentSafe(fmt.Sprintf("signal derivation failed, excluded fail-safe: %v", err)),
 		}, true
@@ -174,7 +177,9 @@ func RoleCheck(p Pipeline, role string, reg *schema.Registry) (signals.Signals, 
 		reason += " (" + unproven + ")"
 	}
 	return sig, Exclusion{
+		PipelineID:   p.ID,
 		PipelineName: p.Name,
+		Kind:         ExclusionRole,
 		Role:         role,
 		Reason:       commentSafe(reason),
 		Disallowed:   signals.Disallowed(role, checkSet),

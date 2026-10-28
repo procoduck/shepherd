@@ -27,8 +27,11 @@ package serve
 // discovery.relabel (the exporter's own remotecfg component path answers 400,
 // so the beacon had never carried a sample). Every beacon-enabled collector's
 // bytes and hash change, so each reloads once; beacon-disabled rows recompute
-// to the same bytes.
-const Format int16 = 4
+// to the same bytes; 5 — F-CONTRIB (#423), a row records how its content was
+// built (serve_cache.provenance, migration 0049). The served bytes and hash
+// are unchanged, so every row recomputes once to the same content and no
+// collector reloads; the bump only fills in the new column.
+const Format int16 = 5
 
 // Current reports whether a cached row's format is the one this binary
 // computes. A row in an older format is stale however clean its dirty flag.

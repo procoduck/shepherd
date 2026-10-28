@@ -7,12 +7,13 @@ package sqlc
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const getServeCache = `-- name: GetServeCache :one
-SELECT collector_id, content, hash, computed_at, dirty, dirty_seq, format, last_failed_seq FROM serve_cache WHERE collector_id = $1
+SELECT collector_id, content, hash, computed_at, dirty, dirty_seq, format, last_failed_seq, provenance FROM serve_cache WHERE collector_id = $1
 `
 
 func (q *Queries) GetServeCache(ctx context.Context, collectorID pgtype.UUID) (ServeCache, error) {
@@ -27,6 +28,7 @@ func (q *Queries) GetServeCache(ctx context.Context, collectorID pgtype.UUID) (S
 		&i.DirtySeq,
 		&i.Format,
 		&i.LastFailedSeq,
+		&i.Provenance,
 	)
 	return i, err
 }
@@ -164,25 +166,28 @@ func (q *Queries) MarkServeCacheFailed(ctx context.Context, arg MarkServeCacheFa
 }
 
 const upsertServeCacheConditional = `-- name: UpsertServeCacheConditional :one
-INSERT INTO serve_cache (collector_id, content, hash, computed_at, dirty, dirty_seq, format)
-VALUES ($1, $2, $3, now(), false, 0, $5)
+INSERT INTO serve_cache (collector_id, content, hash, computed_at, dirty, dirty_seq, format, provenance)
+VALUES ($1, $2, $3, now(), false, 0, $4,
+        jsonb_set($5::jsonb, '{computed_at}', to_jsonb(now())))
 ON CONFLICT (collector_id) DO UPDATE SET
     content     = EXCLUDED.content,
     hash        = EXCLUDED.hash,
     computed_at = now(),
     dirty       = false,
-    format      = EXCLUDED.format
+    format      = EXCLUDED.format,
+    provenance  = EXCLUDED.provenance
 WHERE (serve_cache.dirty = true OR serve_cache.format < EXCLUDED.format)
-  AND serve_cache.dirty_seq = $4
-RETURNING collector_id, content, hash, computed_at, dirty, dirty_seq, format, last_failed_seq
+  AND serve_cache.dirty_seq = $6
+RETURNING collector_id, content, hash, computed_at, dirty, dirty_seq, format, last_failed_seq, provenance
 `
 
 type UpsertServeCacheConditionalParams struct {
-	CollectorID pgtype.UUID `json:"collector_id"`
-	Content     string      `json:"content"`
-	Hash        string      `json:"hash"`
-	DirtySeq    int64       `json:"dirty_seq"`
-	Format      int16       `json:"format"`
+	CollectorID pgtype.UUID     `json:"collector_id"`
+	Content     string          `json:"content"`
+	Hash        string          `json:"hash"`
+	Format      int16           `json:"format"`
+	Provenance  json.RawMessage `json:"provenance"`
+	DirtySeq    int64           `json:"dirty_seq"`
 }
 
 // Compare-and-swap on the dirty generation. The caller passes the dirty_seq it
@@ -196,13 +201,21 @@ type UpsertServeCacheConditionalParams struct {
 // format is the caller's serve format (internal/serve.Format). A clean row in
 // an older format is as stale as a dirty one (0033), so the write also lands
 // on it — under the same generation check.
+//
+// provenance (0049) is how content was built, written in the same row write so
+// the two never disagree. It is stamped with the computed_at this write sets
+// (now() is the same value throughout the statement): a pre-0049 binary's
+// upsert rewrites content and computed_at but leaves provenance alone, so
+// internal/serve.DecodeProvenance shows a record only while its stamp is the
+// row's computed_at (and its hash the row's hash).
 func (q *Queries) UpsertServeCacheConditional(ctx context.Context, arg UpsertServeCacheConditionalParams) (ServeCache, error) {
 	row := q.db.QueryRow(ctx, upsertServeCacheConditional,
 		arg.CollectorID,
 		arg.Content,
 		arg.Hash,
-		arg.DirtySeq,
 		arg.Format,
+		arg.Provenance,
+		arg.DirtySeq,
 	)
 	var i ServeCache
 	err := row.Scan(
@@ -214,6 +227,7 @@ func (q *Queries) UpsertServeCacheConditional(ctx context.Context, arg UpsertSer
 		&i.DirtySeq,
 		&i.Format,
 		&i.LastFailedSeq,
+		&i.Provenance,
 	)
 	return i, err
 }

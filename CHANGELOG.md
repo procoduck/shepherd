@@ -97,6 +97,19 @@ additive; non-strict orgs are served the same bytes.
   uses it, as for the import allowlist (only enabled pipelines are checked; a disabled one that
   uses the component is refused when it is enabled). Both changes recompute the org's served configs.
   Migration `0047` adds `org_strict_components`. (#421)
+- **The collector page shows the pipelines its served config is built from.** Shipped. A new
+  **Pipelines** tab lists each contributing pipeline (a link to it, the revision served, each
+  matcher with the collector's value for its label — or "git repo link" — and the lines of its
+  declare block in the served config, which open the Served Config tab with the block
+  highlighted), the self-monitoring baseline's lines, and each pipeline that matched but was
+  excluded, with the reason (`role`, `strict_tenant` with the check's finding, or
+  `unparsable_matcher`). It is recorded by the same assembly that writes the served bytes
+  (`merge.Assemble` → `serve.ComputeServed`) and stored with them (`serve_cache.provenance`,
+  migration `0049`), so the tab never re-evaluates matchers and cannot disagree with what is
+  served; a view reads the cached row. `GetServedConfigResponse` gains `provenance_recorded`,
+  `contributing`, `excluded` and `baseline_lines` (additive). Served bytes and hashes are
+  unchanged; `serve.Format` 5 makes each row recompute once, to the same bytes, on its
+  collector's next poll so the column fills in without a reload. (#423)
 
 ### Fixed
 

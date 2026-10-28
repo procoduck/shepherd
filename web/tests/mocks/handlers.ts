@@ -1645,6 +1645,25 @@ export function installDefaultHandlers(router: Router) {
       content: s(sc, 'content'),
       hash: s(sc, 'hash'),
       computedAt: sc['computed_at'],
+      provenanceRecorded: sc['provenance_recorded'] === true,
+      contributing: arr<Obj>(sc, 'contributing').map((c) => ({
+        pipelineId: s(c, 'pipeline_id'),
+        name: s(c, 'name'),
+        revision: c['revision'] ?? 0,
+        source: s(c, 'source'),
+        repoLink: c['repo_link'] === true,
+        matchers: arr<Obj>(c, 'matchers'),
+        lines: c['lines'],
+        blockName: s(c, 'block_name'),
+      })),
+      excluded: arr<Obj>(sc, 'excluded').map((e) => ({
+        pipelineId: s(e, 'pipeline_id'),
+        name: s(e, 'name'),
+        reason: s(e, 'reason'),
+        message: s(e, 'message'),
+        disallowedSignals: arr<string>(e, 'disallowed_signals'),
+      })),
+      baselineLines: sc['baseline_lines'],
     });
   });
   router.register('POST', '/shepherd.mgmt.v1.FleetService/GetReconciliation', (r) => {

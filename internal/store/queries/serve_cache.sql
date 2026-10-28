@@ -46,16 +46,25 @@ ON CONFLICT (collector_id) DO UPDATE SET
 -- format is the caller's serve format (internal/serve.Format). A clean row in
 -- an older format is as stale as a dirty one (0033), so the write also lands
 -- on it — under the same generation check.
-INSERT INTO serve_cache (collector_id, content, hash, computed_at, dirty, dirty_seq, format)
-VALUES ($1, $2, $3, now(), false, 0, $5)
+--
+-- provenance (0049) is how content was built, written in the same row write so
+-- the two never disagree. It is stamped with the computed_at this write sets
+-- (now() is the same value throughout the statement): a pre-0049 binary's
+-- upsert rewrites content and computed_at but leaves provenance alone, so
+-- internal/serve.DecodeProvenance shows a record only while its stamp is the
+-- row's computed_at (and its hash the row's hash).
+INSERT INTO serve_cache (collector_id, content, hash, computed_at, dirty, dirty_seq, format, provenance)
+VALUES (sqlc.arg(collector_id), sqlc.arg(content), sqlc.arg(hash), now(), false, 0, sqlc.arg(format),
+        jsonb_set(sqlc.narg(provenance)::jsonb, '{computed_at}', to_jsonb(now())))
 ON CONFLICT (collector_id) DO UPDATE SET
     content     = EXCLUDED.content,
     hash        = EXCLUDED.hash,
     computed_at = now(),
     dirty       = false,
-    format      = EXCLUDED.format
+    format      = EXCLUDED.format,
+    provenance  = EXCLUDED.provenance
 WHERE (serve_cache.dirty = true OR serve_cache.format < EXCLUDED.format)
-  AND serve_cache.dirty_seq = $4
+  AND serve_cache.dirty_seq = sqlc.arg(dirty_seq)
 RETURNING *;
 
 -- name: ListServeCacheSeqByOrg :many

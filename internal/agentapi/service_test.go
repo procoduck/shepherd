@@ -648,6 +648,17 @@ WHERE serve_cache.dirty = true AND serve_cache.dirty_seq = $4`
 			Expect(cache.Content).To(Equal(resp.Msg.GetContent()), "the recompute must be written back")
 			Expect(cache.Format).To(Equal(serve.Format))
 			Expect(cache.Dirty).To(BeFalse())
+			// F-CONTRIB (#423): the lazy path writes the provenance of the
+			// bytes it served in the same row write, spans into those bytes.
+			prov, ok := serve.DecodeProvenance(cache.Provenance, cache.Hash, cache.ComputedAt.Time)
+			Expect(ok).To(BeTrue(), "the agent path must record provenance with the content")
+			Expect(prov.Contributors).To(HaveLen(1))
+			Expect(prov.Contributors[0].PipelineID).To(Equal(pipeline.ID.String()))
+			Expect(prov.Contributors[0].Revision).To(Equal(3))
+			lines := strings.Split(cache.Content, "\n")
+			span := prov.Contributors[0].Lines
+			Expect(lines[span.First-1]).To(Equal(`declare "` + prov.Contributors[0].Block + `" {`))
+			Expect(lines[span.Last-1]).To(Equal(prov.Contributors[0].Block + ` "default" { }`))
 		})
 
 		// The residual race: a new pod already wrote the row in the current
