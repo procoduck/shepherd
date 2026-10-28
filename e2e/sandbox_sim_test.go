@@ -128,6 +128,9 @@ var _ = Describe("Scenario sandbox-sim: S3 sandbox run against the real simulato
 
 	It("captured series include the synthetic exporter's counter carrying a relabel-produced label", func() {
 		run := getRun(simOrgID, runID)
+		// A 5s scrape is covered twice by the 18s asked for: no extension (#424).
+		Expect(run.EffectiveDurationSeconds).To(BeEquivalentTo(18))
+		Expect(run.DurationNote).To(BeEmpty())
 		Expect(run.CapturedSeries).NotTo(BeEmpty(),
 			"nothing captured — component health is NOT evidence of delivery (VB-1 §6.4); "+
 				"this is the assertion that must key on captured series, never on health")
@@ -210,7 +213,10 @@ var _ = Describe("Scenario sandbox-sim: S3 sandbox run against the real simulato
 			"nodes": []map[string]any{
 				{
 					"id": "n1", "component": "prometheus.scrape", "label": "empty",
-					"props": map[string]any{"job_name": "empty", "targets": []map[string]any{}},
+					// scrape_interval is 15s so the run, asked for 18s, is
+					// extended to 30s to cover two scrapes (#424): the deployed
+					// server computes the window and the simulator runs it.
+					"props": map[string]any{"job_name": "empty", "targets": []map[string]any{}, "scrape_interval": "15s"},
 				},
 				{
 					"id": "n2", "component": "prometheus.remote_write", "label": "sink",
@@ -243,6 +249,14 @@ var _ = Describe("Scenario sandbox-sim: S3 sandbox run against the real simulato
 
 		run := getRun(simOrgID, failRunID)
 		Expect(run.ComponentHealth).NotTo(BeEmpty(), "the health tab must show a state for every component, healthy or not")
+
+		// #424: the run was extended to two of its scrape intervals, and the
+		// sandbox really ran that long, not the 18s asked for.
+		Expect(run.RequestedDurationSeconds).To(BeEquivalentTo(18))
+		Expect(run.EffectiveDurationSeconds).To(BeEquivalentTo(30))
+		Expect(run.DurationNote).To(Equal(`Extended to 30s so the 15s scrape interval of prometheus.scrape "empty" runs twice.`))
+		Expect(run.FinishedAt.Sub(run.StartedAt)).To(BeNumerically(">=", 30*time.Second),
+			"the simulator must run for the effective duration")
 	})
 })
 
@@ -269,13 +283,18 @@ type rewrite struct {
 }
 
 type simulateRunView struct {
-	Status          string            `json:"status"`
-	ErrorCode       string            `json:"errorCode"`
-	ErrorMessage    string            `json:"errorMessage"`
-	StderrTail      string            `json:"stderrTail"`
-	CapturedSeries  []capturedSeries  `json:"capturedSeries"`
-	ComponentHealth []componentHealth `json:"componentHealth"`
-	Rewrites        []rewrite         `json:"rewrites"`
+	Status                   string            `json:"status"`
+	RequestedDurationSeconds int32             `json:"requestedDurationSeconds"`
+	EffectiveDurationSeconds int32             `json:"effectiveDurationSeconds"`
+	DurationNote             string            `json:"durationNote"`
+	StartedAt                time.Time         `json:"startedAt"`
+	FinishedAt               time.Time         `json:"finishedAt"`
+	ErrorCode                string            `json:"errorCode"`
+	ErrorMessage             string            `json:"errorMessage"`
+	StderrTail               string            `json:"stderrTail"`
+	CapturedSeries           []capturedSeries  `json:"capturedSeries"`
+	ComponentHealth          []componentHealth `json:"componentHealth"`
+	Rewrites                 []rewrite         `json:"rewrites"`
 }
 
 func getRun(orgID, runID string) simulateRunView {

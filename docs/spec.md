@@ -301,6 +301,10 @@ orgs(id, name text UNIQUE, display_name text,
 --   0047 org_strict_components (org_id, component, created_by, created_at) — the
 --        components an app admin allowed for an org that strict tenant mode would
 --        refuse (§8 "Classified components")
+--   0050 simulate_runs.effective_duration_seconds (1..120) + duration_note — the
+--        sandbox run window (#424, VB-1 §6.4 step 2): how long the run captures
+--        once extended to two of the pipeline's longest scrape or poll intervals,
+--        and why
 
 org_tenants(org_id uuid REFERENCES orgs ON DELETE CASCADE,       -- 0039; app admin writes only
            tenant text, kind text CHECK (kind IN ('exact','prefix')),

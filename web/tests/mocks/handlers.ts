@@ -439,6 +439,8 @@ function simulateRunToWire(run: Obj) {
     startedAt: run['started_at'],
     finishedAt: run['finished_at'],
     requestedDurationSeconds: n(run, 'requested_duration_seconds'),
+    effectiveDurationSeconds: n(run, 'effective_duration_seconds'),
+    durationNote: s(run, 'duration_note'),
     queuePosition: n(run, 'queue_position'),
     rewrites: arr<Obj>(run, 'rewrites').map((rw) => ({
       nodeId: s(rw, 'node_id'),
@@ -2657,6 +2659,8 @@ export function installDefaultHandlers(router: Router) {
     const seeded = (st.simulateRunResult as Obj) ?? { status: 'completed' };
     const terminalStatus = s(seeded, 'status') || 'completed';
     const durationSeconds = n(seeded, 'requested_duration_seconds') || 30;
+    // Mirrors CreateRun (#424): never below what was requested.
+    const effectiveSeconds = Math.max(n(seeded, 'effective_duration_seconds'), durationSeconds);
 
     let status: string;
     if (count <= 1) {
@@ -2680,6 +2684,8 @@ export function installDefaultHandlers(router: Router) {
         started_at: status === 'queued' ? undefined : st.simulateRunStartedAt,
         finished_at: isTerminal ? new Date().toISOString() : undefined,
         requested_duration_seconds: durationSeconds,
+        effective_duration_seconds: effectiveSeconds,
+        duration_note: s(seeded, 'duration_note'),
         queue_position: status === 'queued' ? 1 : 0,
         rewrites: isTerminal ? arr(seeded, 'rewrites') : [],
         captured_series: isTerminal ? arr(seeded, 'captured_series') : [],

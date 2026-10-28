@@ -133,7 +133,8 @@
         <strong>More actions</strong> menu. The relabel and log-preview traces land in the
         <strong>Simulation</strong> tab of the bottom drawer, beside <strong>Problems</strong> and
         <strong>Generated config</strong>; a sandbox run (<strong>Simulate &rsaquo; Sandbox
-        run</strong>: a 30-second capture, about 45 seconds in all while Alloy flushes) opens in its
+        run</strong>: a 30-second capture, about 45 seconds in all while Alloy flushes, longer when
+        the pipeline's own intervals need it) opens in its
         own dialog, so you can keep editing while it goes. A run reports what was captured, the
         health of each component &mdash; a discovery or log source the sandbox replaced reads
         <em>stubbed</em>, not healthy &mdash; and a <em>fidelity note</em> naming
@@ -142,11 +143,17 @@
         assume otherwise.
       </p>
       <p>
-        <strong>Match the window to the pipeline.</strong> A run observes for 30 seconds. A
-        <code>prometheus.scrape</code> with a 30-second <code>scrape_interval</code> may scrape once
-        or not at all in that time, so an empty result there says more about timing than about your
-        pipeline &mdash; shorten the interval for the simulation, or read the result with that in
-        mind.
+        <strong>The window follows the pipeline.</strong> A run asks for 30 seconds, but a
+        <code>prometheus.scrape</code> with a 60-second <code>scrape_interval</code> (the default)
+        could end before it scrapes at all. So a run is extended to cover two of the longest scrape
+        or poll intervals in the pipeline &mdash; scrape intervals, <code>remote.*</code> poll
+        frequencies, receivers' collection intervals, connectors' flush intervals; not a discovery
+        or log source the sandbox replaces with a stub &mdash; up to the maximum run length of 2 minutes, and the run dialog says why
+        (&ldquo;Extended to 2m so the 60s scrape interval of prometheus.scrape &quot;x&quot; runs
+        twice.&rdquo;). An unset interval counts at its default, and one set to an expression counts
+        at the default too, which the note mentions. A component slower than a minute is capped:
+        the note says it may not run twice, so read an empty result there with that in mind, or
+        shorten its interval for the simulation.
       </p>
       <p>
         <strong>What can be simulated, and by whom.</strong> A sandbox run takes a

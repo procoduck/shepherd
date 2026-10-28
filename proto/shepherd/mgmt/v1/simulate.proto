@@ -130,6 +130,8 @@ message CreateRunRequest {
   string org_id = 1;
   GraphDocument graph = 2;
   // duration_seconds: 0 selects the server default (30s), clamped to [1,120].
+  // The server may run longer to cover the pipeline's scrape or poll
+  // intervals (SimulateRun.effective_duration_seconds).
   int32 duration_seconds = 3;
 }
 
@@ -213,4 +215,13 @@ message SimulateRun {
   string error_message = 16;
   // fidelity_note is the fixed §6.5 tier-S3 one-liner; always populated.
   string fidelity_note = 17;
+  // effective_duration_seconds is how long the run captures: the requested
+  // duration, extended to two of the longest scrape or poll intervals in the
+  // pipeline and capped at the maximum run length (#424). Never less than
+  // requested_duration_seconds.
+  int32 effective_duration_seconds = 18;
+  // duration_note says why effective_duration_seconds differs from the
+  // request, or that the slowest component may not run twice within the
+  // maximum run length; empty otherwise.
+  string duration_note = 19;
 }

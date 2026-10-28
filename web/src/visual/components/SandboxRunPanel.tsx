@@ -29,9 +29,10 @@ import {
 import { useVisualStore } from '../store';
 
 // The design doc's own label ("Sandbox run (30s)…") names the requested
-// duration; the server clamps to [1,120] and is free to return a different
-// `requested_duration_seconds` on the run itself, which is what the
-// countdown actually reads (see `remainingSeconds` below).
+// duration; the server clamps to [1,120] and may extend the run to cover the
+// pipeline's scrape or poll intervals (#424). `effective_duration_seconds` on
+// the run itself is what the countdown actually reads (see
+// `remainingSeconds` below), and `duration_note` says why it differs.
 const REQUESTED_DURATION_SECONDS = 30;
 const POLL_INTERVAL_MS = 500;
 // #253: the menu used to say "Sandbox run (30s)" and a run took ~45s. The 30s
@@ -57,7 +58,7 @@ export const SANDBOX_RUN_LABEL = `Sandbox run (${REQUESTED_DURATION_SECONDS}s ca
 //                 run before the worker flips a run to 'running', and the
 //                 server has no separate status for that window).
 //   running:      status === 'running', counting down from
-//                 requested_duration_seconds.
+//                 effective_duration_seconds.
 //   collecting:   status === 'running' but the countdown has already reached
 //                 zero — the harness is still assembling results.
 //   results/error: terminal.
@@ -98,6 +99,17 @@ function ProgressSteps({ phase, collecting }: { phase: Phase; collecting: boolea
   );
 }
 
+// #424: a run extended past what was asked for (or still too short for its
+// slowest component) says why, in the server's own words.
+function RunWindowNote({ run }: { run: SimulateRunResult }) {
+  if (!run.duration_note) return null;
+  return (
+    <p data-testid='sandbox-run-window-note' className='my-3 text-muted'>
+      {run.duration_note}
+    </p>
+  );
+}
+
 function ResultsView({
   run,
   tab,
@@ -133,6 +145,7 @@ function ResultsView({
           {run.error_message && <div className='mt-1'>{run.error_message}</div>}
         </div>
       )}
+      <RunWindowNote run={run} />
       {/* §6.5: every results view carries a one-line fidelity note naming its tier's limits. */}
       <div data-testid='sandbox-run-fidelity-note' className='mb-3 text-muted italic'>
         {run.fidelity_note}
@@ -502,7 +515,10 @@ export function SandboxRunPanel({
     return () => window.clearInterval(id);
   }, [phase]);
 
-  const requestedSeconds = run?.requested_duration_seconds || REQUESTED_DURATION_SECONDS;
+  const requestedSeconds =
+    run?.effective_duration_seconds ||
+    run?.requested_duration_seconds ||
+    REQUESTED_DURATION_SECONDS;
   const remainingSeconds = run?.started_at
     ? Math.max(
         0,
@@ -589,6 +605,7 @@ export function SandboxRunPanel({
               ) : (
                 <div data-testid='sandbox-run-progress'>
                   <ProgressSteps phase={phase} collecting={collecting} />
+                  {run && <RunWindowNote run={run} />}
                   {phase === 'running' && (
                     <div
                       data-testid='sandbox-run-countdown'
