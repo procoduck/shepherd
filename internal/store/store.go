@@ -38,7 +38,9 @@ func New(ctx context.Context, cfg *config.DatabaseConfig, loggers ...*slog.Logge
 		args := make([]any, 0, len(data)*2)
 		for key, value := range data {
 			// pgx puts a statement's bound parameters under "args", raw:
-			// session ids, emails, password hashes. Never forward them.
+			// session ids, emails, password hashes. Never forward them. (An
+			// "err" can still quote one value, e.g. Postgres's invalid-input
+			// messages.)
 			if key == tracelogArgsKey {
 				continue
 			}
