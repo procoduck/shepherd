@@ -297,6 +297,9 @@ remediation with its D1–D14 decisions, and the v0.5.0 dependency and toolchain
   for strict orgs, k8s-monitoring pipelines under restricted roles and strict mode, the
   serve-time strict re-check, Reconciliation fixes), chart 0.24.0; release run recorded after the
   tag.
+- 2026-10-28 — v0.21.0-rc.1, prerelease (strict component allowlist and real-Alloy suite, gateway
+  route endpoints in strict mode, post-0.20 follow-ups, collector contributing/excluded pipelines,
+  sandbox run window, walkthrough fixes), chart 0.25.0-rc.1; release run recorded after the tag.
 
 ---
 
