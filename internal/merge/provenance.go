@@ -4,6 +4,8 @@ import (
 	"fmt"
 
 	"github.com/prometheus/alertmanager/pkg/labels"
+
+	"shepherd/internal/pipelinesource"
 )
 
 // Contributor is one pipeline Assemble put into a collector's served config,
@@ -15,7 +17,7 @@ import (
 type Contributor struct {
 	PipelineID   string
 	PipelineName string
-	Source       string
+	Source       pipelinesource.Source
 	Revision     int
 	// RepoLink is set for a git pipeline, which matches the one collector its
 	// repo link names instead of by matchers (Matchers is then empty).
@@ -61,10 +63,13 @@ const (
 // matchEvidence evaluates p's matchers against cl — the one evaluation
 // MatchesPipeline and Assemble both use — and returns whether all match and,
 // when they do, the evidence for each. Git pipelines are matched by collector
-// id; a ui/wizard pipeline with no matchers matches nothing.
+// id; a pipeline of any other source with no matchers matches nothing.
 func matchEvidence(p Pipeline, cl CollectorLabels) (bool, []MatcherEvidence, error) {
-	if p.Source == "git" {
+	switch p.Source {
+	case pipelinesource.Git:
 		return p.RepoLinkCollectorID == cl.CollectorID, nil, nil
+	case pipelinesource.UI, pipelinesource.Wizard, pipelinesource.Visual:
+		// Matched by its matchers, below.
 	}
 	if len(p.Matchers) == 0 {
 		return false, nil, nil

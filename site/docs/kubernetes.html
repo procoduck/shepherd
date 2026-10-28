@@ -237,6 +237,14 @@ kubectl -n shepherd port-forward svc/shepherd 8080:8080</code></pre>
     - secretName: shepherd-tls
       hosts: [shepherd.example.internal]</code></pre>
       </div>
+      <p>
+        The notes <code>helm install</code> prints list each host with the scheme it is served on:
+        an Ingress host is <code>https</code> only when a <code>tls</code> entry covers it. The chart
+        cannot see a Gateway&rsquo;s listeners, so for an <code>HTTPRoute</code> it reads the first
+        <code>parentRefs</code> port (80 is <code>http</code>, 443 is <code>https</code>) and
+        otherwise assumes <code>https</code>; set <code>route.scheme: http</code> when the listener
+        is plain HTTP.
+      </p>
       <p class="note">
         <strong>Set <code>config.server.base_url</code> to the URL collectors can reach.</strong> It
         is the address every claimed collector's beacon pipeline writes its self-monitoring

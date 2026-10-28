@@ -7,6 +7,7 @@ import (
 	. "github.com/onsi/gomega"
 
 	"shepherd/internal/merge"
+	"shepherd/internal/pipelinesource"
 )
 
 // F-CONTRIB (#423): Assemble reports, beside the bytes it writes, which
@@ -63,7 +64,7 @@ var _ = Describe("assembly provenance (F-CONTRIB)", func() {
 		Expect(res.Contributors[0].PipelineID).To(Equal("id-git"))
 		Expect(res.Contributors[0].PipelineName).To(Equal("from git"))
 		Expect(res.Contributors[0].Revision).To(Equal(2))
-		Expect(res.Contributors[0].Source).To(Equal("git"))
+		Expect(res.Contributors[0].Source).To(Equal(pipelinesource.Git))
 		Expect(res.Contributors[1].PipelineID).To(Equal("id-ui"))
 
 		for _, c := range res.Contributors {

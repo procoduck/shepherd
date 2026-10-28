@@ -8,6 +8,7 @@ import (
 	. "github.com/onsi/gomega"
 
 	"shepherd/internal/merge"
+	"shepherd/internal/pipelinesource"
 	"shepherd/internal/schema"
 	"shepherd/internal/signals"
 	"shepherd/internal/validate"
@@ -87,7 +88,7 @@ var _ = Describe("MatchesPipeline", func() {
 	}
 
 	DescribeTable("matcher evaluation",
-		func(matchers []string, source, repoCollID string, expectedMatch bool) {
+		func(matchers []string, source pipelinesource.Source, repoCollID string, expectedMatch bool) {
 			p := merge.Pipeline{
 				Name:                "test",
 				Matchers:            matchers,
@@ -98,19 +99,19 @@ var _ = Describe("MatchesPipeline", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(matched).To(Equal(expectedMatch))
 		},
-		Entry("equal match hits", []string{`cluster="prod-eu-1"`}, "ui", "", true),
-		Entry("equal match misses", []string{`cluster="prod-eu-2"`}, "ui", "", false),
-		Entry("not-equal match hits (value differs)", []string{`role!="logs"`}, "ui", "", true),
-		Entry("not-equal match misses (value equals)", []string{`role!="metrics"`}, "ui", "", false),
-		Entry("regex match hits", []string{`cluster=~"prod-.*"`}, "ui", "", true),
-		Entry("regex match misses", []string{`cluster=~"staging-.*"`}, "ui", "", false),
-		Entry("negative regex hits (not staging)", []string{`env!~"staging.*"`}, "ui", "", true),
-		Entry("negative regex misses (is prod, matches regex)", []string{`env!~"prod.*"`}, "ui", "", false),
-		Entry("multiple matchers all match (AND)", []string{`cluster="prod-eu-1"`, `role="metrics"`}, "ui", "", true),
-		Entry("multiple matchers one fails (AND)", []string{`cluster="prod-eu-1"`, `role="logs"`}, "ui", "", false),
-		Entry("zero matchers match nothing (safety default)", []string{}, "ui", "", false),
-		Entry("git pipeline matches by collector ID", nil, "git", "coll-uuid-1", true),
-		Entry("git pipeline misses wrong collector ID", nil, "git", "coll-uuid-2", false),
+		Entry("equal match hits", []string{`cluster="prod-eu-1"`}, pipelinesource.UI, "", true),
+		Entry("equal match misses", []string{`cluster="prod-eu-2"`}, pipelinesource.UI, "", false),
+		Entry("not-equal match hits (value differs)", []string{`role!="logs"`}, pipelinesource.UI, "", true),
+		Entry("not-equal match misses (value equals)", []string{`role!="metrics"`}, pipelinesource.UI, "", false),
+		Entry("regex match hits", []string{`cluster=~"prod-.*"`}, pipelinesource.UI, "", true),
+		Entry("regex match misses", []string{`cluster=~"staging-.*"`}, pipelinesource.UI, "", false),
+		Entry("negative regex hits (not staging)", []string{`env!~"staging.*"`}, pipelinesource.UI, "", true),
+		Entry("negative regex misses (is prod, matches regex)", []string{`env!~"prod.*"`}, pipelinesource.UI, "", false),
+		Entry("multiple matchers all match (AND)", []string{`cluster="prod-eu-1"`, `role="metrics"`}, pipelinesource.UI, "", true),
+		Entry("multiple matchers one fails (AND)", []string{`cluster="prod-eu-1"`, `role="logs"`}, pipelinesource.UI, "", false),
+		Entry("zero matchers match nothing (safety default)", []string{}, pipelinesource.UI, "", false),
+		Entry("git pipeline matches by collector ID", nil, pipelinesource.Git, "coll-uuid-1", true),
+		Entry("git pipeline misses wrong collector ID", nil, pipelinesource.Git, "coll-uuid-2", false),
 	)
 })
 

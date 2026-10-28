@@ -253,6 +253,7 @@
           <tr><td><code>route.enabled</code></td><td><code>false</code></td><td>enabled: turn on to render the HTTPRoute below. See the comment above for why it defaults off.</td></tr>
           <tr><td><code>route.hostnames</code></td><td><code>[]</code></td><td>hostnames: hostnames this HTTPRoute matches, e.g. [&quot;shepherd.example.com&quot;]. Required alongside parentRefs -- an HTTPRoute with neither routes nothing.</td></tr>
           <tr><td><code>route.parentRefs</code></td><td><code>[]</code></td><td>parentRefs: the Gateway(s) this HTTPRoute attaches to, e.g. [{name: my-gateway, namespace: gateway-system}]. Required alongside hostnames.</td></tr>
+          <tr><td><code>route.scheme</code></td><td><code>&quot;&quot;</code></td><td>scheme: &quot;http&quot; or &quot;https&quot; -- how the Gateway listener this route attaches to serves the hostnames. Used only for the URLs the install notes print; the chart cannot read the Gateway itself. Empty infers it from the first parentRef&#x27;s port: 80 is http, 443 is https, and with no port https is assumed (the notes say so).</td></tr>
         </tbody>
       </table>
       <h2 id="ingress"><code>ingress</code></h2>

@@ -73,6 +73,9 @@ route:
     - shepherd.localtest.me
   parentRefs:
     - name: dev
+  # The dev Gateway's listener is plain HTTP on port 80, so the install notes
+  # print http://shepherd.localtest.me rather than assume https.
+  scheme: http
 
 # NGINX Gateway Fabric refuses to proxy an HTTP route to a Service port whose
 # appProtocol is kubernetes.io/h2c (the chart's default hint for gateways that

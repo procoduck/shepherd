@@ -19,6 +19,7 @@ import (
 	"shepherd/gen/shepherd/mgmt/v1/mgmtv1connect"
 	"shepherd/internal/merge"
 	"shepherd/internal/pinnedimport"
+	"shepherd/internal/pipelinesource"
 	"shepherd/internal/schema"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
@@ -154,7 +155,7 @@ func (s *WizardService) RenderWizard(ctx context.Context, req *connect.Request[m
 		Name:     name,
 		Contents: result.Contents,
 		Matchers: result.Matchers,
-		Source:   "wizard",
+		Source:   pipelinesource.Wizard,
 	}
 	matched, orgCollectors, matchErr := s.previewMatchedCollectors(ctx, candidate, orgID)
 	if matchErr != nil {
@@ -354,7 +355,7 @@ func (s *WizardService) CommitWizard(ctx context.Context, req *connect.Request[m
 		Contents:    result.Contents,
 		Matchers:    matchersJSON,
 		Enabled:     false,
-		Source:      "wizard",
+		Source:      pipelinesource.Wizard,
 		WizardKind:  pgtype.Text{String: req.Msg.GetKind(), Valid: true},
 		WizardState: stateJSON,
 		// The render fingerprint (0030): what this wizard wrote, so a later
@@ -442,7 +443,7 @@ func wizardPipelineToProto(p sqlc.Pipeline) *mgmtv1.Pipeline {
 		Contents:  p.Contents,
 		Matchers:  matchers,
 		Enabled:   p.Enabled,
-		Source:    p.Source,
+		Source:    p.Source.String(),
 		CreatedBy: p.CreatedBy,
 		UpdatedBy: p.UpdatedBy,
 		CreatedAt: timestamppb.New(createdAt),

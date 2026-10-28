@@ -42,3 +42,9 @@ sql:
             go_type:
               import: "encoding/json"
               type: "RawMessage"
+          # pipelines.source is a text column with a CHECK constraint; the
+          # named type lets the exhaustive linter check every switch on it.
+          - column: "pipelines.source"
+            go_type:
+              import: "shepherd/internal/pipelinesource"
+              type: "Source"

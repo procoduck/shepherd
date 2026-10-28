@@ -552,6 +552,12 @@ route:
   # [{name: my-gateway, namespace: gateway-system}]. Required alongside
   # hostnames.
   parentRefs: []
+  # scheme: "http" or "https" -- how the Gateway listener this route attaches
+  # to serves the hostnames. Used only for the URLs the install notes print;
+  # the chart cannot read the Gateway itself. Empty infers it from the first
+  # parentRef's port: 80 is http, 443 is https, and with no port https is
+  # assumed (the notes say so).
+  scheme: ""
 
 ingress:
   # enabled: turn on to render the Ingress below. Off by default: like
