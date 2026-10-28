@@ -147,7 +147,7 @@ var _ = Describe("cross-org isolation of by-id handlers", Label("integration"), 
 		appAdmin := func() *http.Cookie {
 			id := fmt.Sprintf("cross-org-app-admin-%d", time.Now().UnixNano())
 			_, err := st.Queries.CreateSession(ctx, sqlc.CreateSessionParams{
-				ID: id, UserOid: "app-admin", Email: "root@example.com", DisplayName: "Root",
+				ID: auth.HashSessionToken(id), UserOid: "app-admin", Email: "root@example.com", DisplayName: "Root",
 				GroupIds: []byte(`[]`), IsAppAdmin: true,
 				ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true},
 				Source:    "test",
