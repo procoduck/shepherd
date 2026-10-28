@@ -610,7 +610,12 @@ func (s *FleetService) ListAssignments(ctx context.Context, req *connect.Request
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.store.Queries.ListGroupAssignmentsByCollector(ctx, id)
+	// loadOwnedCollector has already parsed and matched org_id.
+	orgID, _ := parseUUID(req.Msg.GetOrgId())
+	rows, err := s.store.Queries.ListGroupAssignmentsByCollector(ctx, sqlc.ListGroupAssignmentsByCollectorParams{
+		CollectorID: id,
+		OrgID:       orgID,
+	})
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to list assignments"))
 	}
@@ -627,26 +632,41 @@ func (s *FleetService) ListAssignments(ctx context.Context, req *connect.Request
 	return connect.NewResponse(&mgmtv1.ListAssignmentsResponse{Items: items, Total: int32(len(items))}), nil //nolint:gosec // assignment counts per collector never approach int32 overflow
 }
 
-// CreateAssignment assigns a group to a collector.
+// CreateAssignment assigns a group to a collector. The grant is bound to the
+// org the request is scoped to (group_assignments.org_id, 0053): it grants
+// access only while the collector stays in that org, and a change of the
+// cluster's org removes it.
 func (s *FleetService) CreateAssignment(ctx context.Context, req *connect.Request[mgmtv1.CreateAssignmentRequest]) (*connect.Response[mgmtv1.CreateAssignmentResponse], error) {
 	if err := requireWriteAuthorized(ctx); err != nil {
 		return nil, err
+	}
+	// An empty group id matches no session's groups, so the row could only
+	// ever be dead weight on the Access tab; hasGroup in internal/auth treats
+	// "" as "no group configured" for the same reason.
+	if strings.TrimSpace(req.Msg.GetGroupId()) == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("group_id is required"))
 	}
 	id, err := s.loadOwnedCollector(ctx, req.Msg.GetOrgId(), req.Msg.GetCollectorId())
 	if err != nil {
 		return nil, err
 	}
+	// loadOwnedCollector has already parsed and matched org_id.
+	orgID, _ := parseUUID(req.Msg.GetOrgId())
 	a, err := s.store.Queries.CreateGroupAssignment(ctx, sqlc.CreateGroupAssignmentParams{
 		CollectorID:      id,
 		GroupID:          req.Msg.GetGroupId(),
 		GroupDisplayName: req.Msg.GetGroupDisplayName(),
+		OrgID:            orgID,
 	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		// The cluster left this org between the ownership check and the
+		// insert, which only writes while the collector is in orgID.
+		return nil, connect.NewError(connect.CodeNotFound, errors.New("collector not found"))
+	}
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to create assignment"))
 	}
-	if orgID, err := scanUUID(req.Msg.GetOrgId()); err == nil {
-		auditLogDetail(ctx, s.store, actorFromCtx(ctx), "user", orgID, "assignment.create", "collector", id.String(), map[string]string{"group_id": a.GroupID})
-	}
+	auditLogDetail(ctx, s.store, actorFromCtx(ctx), "user", orgID, "assignment.create", "collector", id.String(), map[string]string{"group_id": a.GroupID})
 	return connect.NewResponse(&mgmtv1.CreateAssignmentResponse{Id: a.ID.String(), GroupId: a.GroupID}), nil
 }
 
@@ -659,15 +679,16 @@ func (s *FleetService) DeleteAssignment(ctx context.Context, req *connect.Reques
 	if err != nil {
 		return nil, err
 	}
+	// loadOwnedCollector has already parsed and matched org_id.
+	orgID, _ := parseUUID(req.Msg.GetOrgId())
 	if err := s.store.Queries.DeleteGroupAssignment(ctx, sqlc.DeleteGroupAssignmentParams{
 		CollectorID: collID,
 		GroupID:     req.Msg.GetGroupId(),
+		OrgID:       orgID,
 	}); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to delete assignment"))
 	}
-	if orgID, err := scanUUID(req.Msg.GetOrgId()); err == nil {
-		auditLogDetail(ctx, s.store, actorFromCtx(ctx), "user", orgID, "assignment.delete", "collector", collID.String(), map[string]string{"group_id": req.Msg.GetGroupId()})
-	}
+	auditLogDetail(ctx, s.store, actorFromCtx(ctx), "user", orgID, "assignment.delete", "collector", collID.String(), map[string]string{"group_id": req.Msg.GetGroupId()})
 	return connect.NewResponse(&mgmtv1.DeleteAssignmentResponse{}), nil
 }
 

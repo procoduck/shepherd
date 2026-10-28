@@ -415,7 +415,7 @@ var _ = Describe("Org role ladder", Label("integration"), func() {
 		})
 		Expect(err).NotTo(HaveOccurred())
 		_, err = st.Queries.CreateGroupAssignment(ctx, sqlc.CreateGroupAssignmentParams{
-			CollectorID: collector.ID, GroupID: "grp-assigned", GroupDisplayName: "Assigned",
+			CollectorID: collector.ID, GroupID: "grp-assigned", GroupDisplayName: "Assigned", OrgID: oid,
 		})
 		Expect(err).NotTo(HaveOccurred())
 

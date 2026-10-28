@@ -139,6 +139,89 @@ var _ = Describe("cross-org isolation of by-id handlers", Label("integration"), 
 		Expect(code).NotTo(Equal(http.StatusOK), "org A assigned a group to org B's collector: %s", body)
 	})
 
+	// A group assignment is bound to the org that granted it. Before 0053 the
+	// viewer-floor check read only the collector's current org, so when a
+	// cluster moved, the previous owner's grants moved with it and gave that
+	// org's group members viewer access inside the new owner.
+	Describe("group assignments when a cluster changes org", func() {
+		appAdmin := func() *http.Cookie {
+			id := fmt.Sprintf("cross-org-app-admin-%d", time.Now().UnixNano())
+			_, err := st.Queries.CreateSession(ctx, sqlc.CreateSessionParams{
+				ID: id, UserOid: "app-admin", Email: "root@example.com", DisplayName: "Root",
+				GroupIds: []byte(`[]`), IsAppAdmin: true,
+				ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true},
+				Source:    "test",
+			})
+			Expect(err).NotTo(HaveOccurred())
+			return &http.Cookie{Name: "shepherd_session", Value: id}
+		}
+
+		// grantInA claims a fresh cluster into org A and has A's admin grant
+		// group "a-readers" access to its collector over the RPC.
+		grantInA := func(name string) {
+			cluster, err := st.Queries.UpsertCluster(ctx, name)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(st.Queries.ClaimCluster(ctx, sqlc.ClaimClusterParams{ID: cluster.ID, OrgID: orgA})).To(Succeed())
+			coll, err := st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: cluster.ID, Role: "metrics"})
+			Expect(err).NotTo(HaveOccurred())
+			code, body := post("/shepherd.mgmt.v1.FleetService/CreateAssignment",
+				map[string]any{"orgId": orgA.String(), "collectorId": coll.ID.String(), "groupId": "a-readers"},
+				sessionIn("a-admin"))
+			Expect(code).To(Equal(http.StatusOK), body)
+		}
+
+		viewerCode := func(org pgtype.UUID) int {
+			code, _ := post("/shepherd.mgmt.v1.FleetService/ListCollectors",
+				map[string]any{"orgId": org.String()}, sessionIn("a-readers"))
+			return code
+		}
+
+		It("keeps working within the org that granted it", func() {
+			grantInA("ga-same-org")
+			Expect(viewerCode(orgA)).To(Equal(http.StatusOK))
+			Expect(viewerCode(orgB)).To(Equal(http.StatusForbidden))
+		})
+
+		It("gives the previous org's group no access after the cluster is claimed by another org", func() {
+			grantInA("ga-moved")
+			Expect(viewerCode(orgA)).To(Equal(http.StatusOK))
+
+			code, body := post("/shepherd.mgmt.v1.AdminService/ClaimCluster",
+				map[string]any{"cluster": "ga-moved", "orgId": orgB.String()}, appAdmin())
+			Expect(code).To(Equal(http.StatusOK), body)
+
+			Expect(viewerCode(orgB)).To(Equal(http.StatusForbidden),
+				"org A's grant carried over into org B with the cluster")
+		})
+
+		It("gives the previous org's group no access after an unclaim and a claim by another org", func() {
+			grantInA("ga-reclaimed")
+			admin := appAdmin()
+			code, body := post("/shepherd.mgmt.v1.AdminService/UnclaimCluster",
+				map[string]any{"cluster": "ga-reclaimed"}, admin)
+			Expect(code).To(Equal(http.StatusOK), body)
+			code, body = post("/shepherd.mgmt.v1.AdminService/ClaimCluster",
+				map[string]any{"cluster": "ga-reclaimed", "orgId": orgB.String()}, admin)
+			Expect(code).To(Equal(http.StatusOK), body)
+
+			Expect(viewerCode(orgB)).To(Equal(http.StatusForbidden),
+				"org A's grant survived the unclaim and reached org B")
+		})
+
+		It("refuses an assignment with an empty group id", func() {
+			cluster, err := st.Queries.UpsertCluster(ctx, "ga-empty-group")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(st.Queries.ClaimCluster(ctx, sqlc.ClaimClusterParams{ID: cluster.ID, OrgID: orgA})).To(Succeed())
+			coll, err := st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: cluster.ID, Role: "metrics"})
+			Expect(err).NotTo(HaveOccurred())
+			code, body := post("/shepherd.mgmt.v1.FleetService/CreateAssignment",
+				map[string]any{"orgId": orgA.String(), "collectorId": coll.ID.String(), "groupId": ""},
+				sessionIn("a-admin"))
+			Expect(code).To(Equal(http.StatusBadRequest), body)
+			Expect(body).To(ContainSubstring("invalid_argument"))
+		})
+	})
+
 	It("refuses to delete another org's git credential", func() {
 		cred, err := st.Queries.CreateGitCredential(ctx, sqlc.CreateGitCredentialParams{
 			OrgID: orgB, Name: "b-cred", Kind: "pat",

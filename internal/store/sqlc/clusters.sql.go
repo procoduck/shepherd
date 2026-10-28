@@ -12,28 +12,52 @@ import (
 )
 
 const claimCluster = `-- name: ClaimCluster :exec
-UPDATE clusters SET org_id = $2, updated_at = now() WHERE id = $1
+WITH claimed AS (
+    UPDATE clusters SET org_id = $1, updated_at = now() WHERE clusters.id = $2
+    RETURNING clusters.id, clusters.org_id
+), revoked AS (
+    DELETE FROM group_assignments ga
+    USING collectors c, claimed
+    WHERE c.id = ga.collector_id
+      AND c.cluster_id = claimed.id
+      AND ga.org_id IS DISTINCT FROM claimed.org_id
+)
+SELECT count(*) FROM claimed
 `
 
 type ClaimClusterParams struct {
-	ID    pgtype.UUID `json:"id"`
 	OrgID pgtype.UUID `json:"org_id"`
+	ID    pgtype.UUID `json:"id"`
 }
 
+// Every statement that changes a cluster's org also removes, in the same
+// statement (so in the same transaction as the change), the group
+// assignments on the cluster's collectors that the new org did not make
+// (0053). A grant is bound to the org that made it; one left behind would
+// keep its group's members' viewer access inside the new org.
 func (q *Queries) ClaimCluster(ctx context.Context, arg ClaimClusterParams) error {
-	_, err := q.db.Exec(ctx, claimCluster, arg.ID, arg.OrgID)
+	_, err := q.db.Exec(ctx, claimCluster, arg.OrgID, arg.ID)
 	return err
 }
 
 const claimClusterForOrg = `-- name: ClaimClusterForOrg :one
-UPDATE clusters SET org_id = $2, updated_at = now()
-WHERE id = $1 AND (org_id IS NULL OR org_id = $2)
-RETURNING org_id
+WITH claimed AS (
+    UPDATE clusters SET org_id = $1, updated_at = now()
+    WHERE clusters.id = $2 AND (clusters.org_id IS NULL OR clusters.org_id = $1)
+    RETURNING clusters.id, clusters.org_id
+), revoked AS (
+    DELETE FROM group_assignments ga
+    USING collectors c, claimed
+    WHERE c.id = ga.collector_id
+      AND c.cluster_id = claimed.id
+      AND ga.org_id IS DISTINCT FROM claimed.org_id
+)
+SELECT claimed.org_id FROM claimed
 `
 
 type ClaimClusterForOrgParams struct {
-	ID    pgtype.UUID `json:"id"`
 	OrgID pgtype.UUID `json:"org_id"`
+	ID    pgtype.UUID `json:"id"`
 }
 
 // Auto-claim for an OIDC-authenticated collector (agent OIDC, resolution
@@ -42,8 +66,12 @@ type ClaimClusterForOrgParams struct {
 // matches no row and returns pgx.ErrNoRows, which the caller turns into a
 // cross-org PermissionDenied — the token can never silently reassign another
 // org's cluster.
+//
+// Like ClaimCluster, a successful claim removes the cluster's group
+// assignments the claiming org did not make; a refused claim (no row) removes
+// nothing, because the delete joins on the UPDATE's RETURNING.
 func (q *Queries) ClaimClusterForOrg(ctx context.Context, arg ClaimClusterForOrgParams) (pgtype.UUID, error) {
-	row := q.db.QueryRow(ctx, claimClusterForOrg, arg.ID, arg.OrgID)
+	row := q.db.QueryRow(ctx, claimClusterForOrg, arg.OrgID, arg.ID)
 	var org_id pgtype.UUID
 	err := row.Scan(&org_id)
 	return org_id, err
@@ -144,9 +172,20 @@ func (q *Queries) ListUnclaimedClusters(ctx context.Context) ([]Cluster, error) 
 }
 
 const unclaimCluster = `-- name: UnclaimCluster :exec
-UPDATE clusters SET org_id = NULL, updated_at = now() WHERE id = $1
+WITH unclaimed AS (
+    UPDATE clusters SET org_id = NULL, updated_at = now() WHERE clusters.id = $1
+    RETURNING clusters.id
+), revoked AS (
+    DELETE FROM group_assignments ga
+    USING collectors c, unclaimed
+    WHERE c.id = ga.collector_id
+      AND c.cluster_id = unclaimed.id
+)
+SELECT count(*) FROM unclaimed
 `
 
+// Unclaiming removes every group assignment on the cluster's collectors: an
+// unclaimed cluster belongs to no org, so no grant on it can be the owner's.
 func (q *Queries) UnclaimCluster(ctx context.Context, id pgtype.UUID) error {
 	_, err := q.db.Exec(ctx, unclaimCluster, id)
 	return err
