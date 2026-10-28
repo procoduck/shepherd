@@ -44,6 +44,11 @@
 > keyboard accessibility and nested-block bindings (#426, PR #438), and the fixes from the rc.1
 > and final kind walkthroughs (PRs #434, #435, #439). First published as the prerelease
 > **v0.21.0-rc.1** (chart 0.25.0-rc.1). Its baseline is `8d3355d` (§1). Known follow-ups are in §4.
+>
+> **v0.21.1** (chart 0.25.1, 2026-10-28) is a patch on top: dependency updates (go-jose 4.1.6,
+> grpc 1.85.0 lifting the 1.84.x hold, x/net 0.62.0, the web dev toolchain; PRs #430, #441) and
+> migration `0051`, so v0.20 pods can start sandbox runs on the v0.21 schema during a rollout or
+> after a rollback, with the install-docs corrections from the docs review (PR #442).
 > Completed rounds live in `docs/archive/` — the history this ledger used to carry inline is
 > `docs/archive/completed-2026-09-11.md`. Do not start a second ledger.
 
@@ -338,8 +343,10 @@ remediation with its D1–D14 decisions, and the v0.5.0 dependency and toolchain
   sandbox run window, walkthrough fixes), chart 0.25.0-rc.1; release run 40659974682.
 - 2026-10-28 — v0.21.0 (strict component allowlist and gateway route endpoints, collector
   contributing/excluded pipelines, sandbox run window, canvas keyboard accessibility and nested
-  bindings, chart notes schemes and upgrade spec), chart 0.25.0; release run recorded after the
-  tag.
+  bindings, chart notes schemes and upgrade spec), chart 0.25.0; release run 40706359755.
+- 2026-10-28 — v0.21.1 (dependency updates incl. go-jose 4.1.6 and grpc 1.85.0, migration 0051
+  for v0.20 sandbox runs during rollout and rollback, install-docs corrections), chart 0.25.1;
+  release run recorded after the tag.
 
 ---
 

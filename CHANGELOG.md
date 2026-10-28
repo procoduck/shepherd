@@ -13,6 +13,14 @@ Categories used here:
 
 ## Unreleased
 
+## v0.21.1
+
+Chart 0.25.1, released 2026-10-28. A patch on top of v0.21.0: dependency updates (one of them a
+high-severity advisory in the JWK parser behind sign-in and collector OIDC), and migration `0051`,
+which lets v0.20 pods start sandbox runs during a rolling upgrade and after a rollback. Upgrade
+from chart 0.24.x straight to 0.25.1. Upgrading from 0.25.0 needs no action: `0051` is additive
+and the served config is unchanged, so no collector reloads.
+
 ### Security
 
 Dependency updates for v0.21.1. These change no code, migration, chart value or served config format.
