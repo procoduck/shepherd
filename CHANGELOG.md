@@ -13,6 +13,25 @@ Categories used here:
 
 ## Unreleased
 
+### Security
+
+Dependency updates for v0.21.1. No code, migration, chart value or served config format changes.
+
+- **`github.com/go-jose/go-jose/v4` 4.1.6** (from 4.1.4): GHSA-mgcc-cww5-fp2q. Indirect
+  dependency. (#430)
+- **`google.golang.org/grpc` 1.85.0** (from 1.83.2), lifting the hold on 1.84.x. 1.84.x carries
+  GO-2026-6443 (a server panic on a request with neither `:authority` nor `Host`), which
+  govulncheck reports as reachable through `internal/simsvc`; 1.85.0 rejects such requests
+  (grpc-go #9365). `go.opentelemetry.io/proto/otlp` moves with it to 1.11.1 (it was held at
+  1.11.0 because 1.11.1 requires grpc 1.84 or later), and the `.github/dependabot.yml` ignore
+  entries for both are removed. `grpc-gateway/v2` moves to 2.31.0 as an indirect dependency.
+- **`golang.org/x/net` 0.62.0** (from 0.61.0): GO-2026-6860, GO-2026-6866. govulncheck reports
+  neither as reachable from Shepherd.
+- **Web dev toolchain:** `vite` 8.3.3 (from 8.3.1), `undici` 8.12.3 (from 8.11.2, through
+  `jsdom`), `source-map-js` 1.2.2 (from 1.2.1), with `rolldown` 1.2.15, `postcss` 8.5.32 and
+  `nanoid` 3.3.20 following vite. These are build and test dependencies; none of them is shipped
+  in the SPA bundle.
+
 ## v0.21.0
 
 Chart 0.25.0, released 2026-10-28. **Strict tenant mode accepts only classified components** and

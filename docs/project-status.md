@@ -681,11 +681,12 @@ In rough priority order; closed items stay in place, marked with the release tha
       the run dialog says why (`SimulateRun.effective_duration_seconds` / `duration_note`,
       migration 0050).
 - [x] **Graph diff for visual pipelines** — shipped in v0.10.0 (#137).
-- [ ] **grpc held at v1.83.2.** v1.84.0 carries GO-2026-6443, which Shepherd's RPC code calls, so
-      `make vulncheck` refuses it; the fix exists only in a `v1.85.0-dev` pseudo-version. Take the
-      bump once v1.85.0 stable is released: `.github/dependabot.yml` ignores `>= 1.84.0, < 1.85.0`
-      (#187), so the first stable 1.85 arrives as a normal Dependabot PR — drop the ignore then.
-      The rest of each group ships as usual (#153, #188).
+- [x] **grpc held at v1.83.2.** — hold lifted for v0.21.1: grpc v1.85.0 (2026-10-27) carries the
+      GO-2026-6443 fix ("server: Reject requests missing both :authority and Host", grpc-go #9365),
+      so grpc is at v1.85.0 and `go.opentelemetry.io/proto/otlp` (held with it because otlp 1.11.1
+      requires grpc >= 1.84, #267) at v1.11.1; `make vulncheck` passes. Both ignore entries are
+      gone from `.github/dependabot.yml`, so both modules take normal Dependabot PRs again (#187,
+      #153, #188).
 - [x] **`visual-drafts.spec.ts` flaked under load — it was a real bug.** The builder's draft
       autosave overwrote a pending draft on open (the schema-version stamp counted as an edit); the
       spec caught it whenever that save beat the restore check. Fixed on `main` (autosave now waits
