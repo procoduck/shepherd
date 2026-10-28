@@ -13,106 +13,227 @@ Categories used here:
 
 ## Unreleased
 
+## v0.21.0
+
+Chart 0.25.0, released 2026-10-28. **Strict tenant mode accepts only classified components** and
+**checks gateway route endpoints**, the collector page shows **which pipelines its served config
+is built from** (and which matched but were left out, and why), **sandbox runs last long enough to
+see a scrape**, and the visual builder's **canvas works from the keyboard** and binds secrets
+**into nested blocks**. Before upgrading, run `shepherd admin tenant-preflight` if any org uses
+strict tenant mode (or `tenants.require_owned` is on): the component allowlist and the gateway
+route endpoint check can exclude stored pipelines from served config until they are fixed, and
+the preflight lists them. If collectors reach the tenant-route gateway by names other than
+`gateway.routes.public_base_url`'s host, list those names in `gateway.routes.hosts`
+(`SHEPHERD_GATEWAY_ROUTES_HOSTS`) first, so the preflight and the server check what you expect.
+Migrations `0047`–`0050` are additive. The served config format moves from 4 to 5: every cached
+row recomputes once, to identical bytes, so no collector reloads. A strict org's served text
+changes in two documented cases besides newly excluded pipelines: a comment trailing an
+`otelcol.exporter.loki` block now stays with the exporter, and the header's exclusion reason for
+an endpoint under the org's own revoked route (or a route whose tenant it no longer owns) says so
+— those collectors reload once. Upgrade the simulator image together with the server. First
+published as the prerelease v0.21.0-rc.1 (entry below); this entry covers everything since
+v0.20.0.
+
+**Upgrade:** `helm upgrade` to chart 0.25.0 — read `deploy/helm/shepherd/UPGRADING.md`
+(0.24.x → 0.25.0) first and follow its steps in order:
+
+1. **Strict tenant mode only: set the gateway hosts, then run the preflight.** Set
+   `gateway.routes.hosts` (chart: `config.gateway.routes.hosts`) if collectors reach the gateway
+   by more names than `public_base_url`'s host, then run `shepherd admin tenant-preflight` with
+   the new image. Each pipeline it lists says how to fix it: a component finding — replace the
+   component, or have an app admin allow it for the org; a route finding — send to one of the
+   org's own routes; a tenant finding — assign the tenant to the org; text that does not parse —
+   fix the text. With `tenants.require_owned` on, the server does not start while it lists
+   anything. (#421, #431, #434, #439)
+2. **HTTPRoute installs:** set `route.scheme` (`http` or `https`) if the install notes should print
+   a scheme the first `parentRef`'s port does not imply. Chart notes only. (#425)
+3. **Upgrade the server and simulator images together** (both follow the chart's `appVersion`
+   unless you pin `image.tag` / `simulator.image.tag`): the simulator's results encoding changed
+   for non-finite samples. (#435)
+4. **Migrations `0047`–`0050`** run in the pre-upgrade Job, all additive; then every served-config
+   row recomputes once under format 5, to the same bytes. New proto fields are additive. (#421,
+   #428, #432, #433)
+
 ### Added
 
-- **The visual builder's canvas works from the keyboard (#426).** Shipped. Tab into the canvas and
-  the arrow keys move to the nearest node in that direction (Home/End: first/last, left to right);
-  Space selects the focused node, I opens it in the Properties panel, Shift+arrows move it 8px,
-  Delete removes it with its wires. Enter goes into the node's ports: the arrows move between
-  them, Enter on a port starts a wire, and the arrows then visit only the ports it can connect to
-  (an incompatible, duplicate or cycle-closing target is skipped); Enter connects, Escape
-  cancels. Delete on a port removes its wires, and a focused wire (wires are Tab stops) deletes
-  with Delete. Every keyboard edit is the same single undo step as the mouse edit, and a viewer
-  stays read-only. `?` or the canvas's keyboard button opens the shortcut sheet. Nodes, ports and
-  wires carry screen-reader names (`prometheus.scrape "app", 1 input, 1 output`; `forward_to,
-  output, prom.metrics, 1 wire`; `Wire from prometheus.scrape "app" forward_to to
-  prometheus.remote_write "sink" receiver`), and every keyboard action is announced in a polite
-  live region. Keyboard focus draws a ring in a new `--color-focus` token (3:1 on every canvas
-  surface in both themes, held by `theme.test.ts`).
-- **Bindings into nested blocks (#426).** Shipped. A `doc.bindings[]` entry's `prop` may now be a
-  path into the component's nested blocks — `endpoint[0].basic_auth.password`,
-  `client.tls.ca_pem`, `stage.tenant[0].value` (an index picks a repeated block's instance) — and
-  both renderers write the expression inside that block. The inspector's binding picker writes
-  these entries at the field's path, shows them on the field (and, for a non-secret attribute, in
-  place of its input), and lists every binding a node holds in a new Bindings section with Unbind.
-  The read-only graph view reports references at the same canonical path. Additive: a prop with
-  no `.` and no `[` keeps its old meaning and byte-identical rendering (the corpus goldens pin
-  it), and no proto field was added — the path travels in `GraphBinding.prop`. The sandbox
-  transform substitutes or drops a nested binding to a removed secret source in place. A path
-  is capped at 32 segments and 256 bytes (`binding_path_invalid` past either; the deepest shipped
-  attribute needs 8 and 114), resolution is linear in its segments, and the overlay copies each
-  container once per node however many bindings it carries.
-
-### Fixed
-
-- **The chart's install notes print each URL's real scheme.** Shipped. `NOTES.txt` printed
-  `https://` for every Ingress host and HTTPRoute hostname whether or not anything terminated TLS,
-  so a remotecfg block pasted from it failed its first poll. An Ingress host is now `https` only
-  when an `ingress.tls` entry covers it (its exact name, a `*.parent` wildcard one label above it,
-  or an entry with no `hosts`, which Kubernetes applies to every host) and `http` otherwise. An
-  HTTPRoute's scheme is the new `route.scheme` value (`http` or `https`); left empty it is `http`
-  when the first `parentRef` names port 80, `https` when it names 443, and otherwise `https` with
-  a line saying it was assumed. Every hostname is listed with its scheme, and the collector spoke
-  URL is the first TLS host that is not a wildcard, else the first non-wildcard host, else the
-  in-cluster URL. NodePort, LoadBalancer and port-forward instructions now spell out the `http://`
-  URL to open. Chart notes only: no rendered object changes. (#425)
-- **Undo straight after opening a visual pipeline no longer empties the canvas.** Shipped.
-  Loading a saved pipeline left the step from the empty canvas to the loaded graph in the undo
-  history, so Cmd/Ctrl+Z on a pipeline nobody had edited removed every node and wire and marked
-  the graph changed. Opening, importing, reloading or switching to a pipeline, and restoring a
-  draft, now start a fresh history: undo at load does nothing, and undoing back to the loaded
-  graph after an edit leaves it unchanged again.
-- **The sandbox run-window note no longer names a component the sandbox removes.** Shipped. A run
-  was extended "so the 60s poll frequency of remote.kubernetes.secret … runs twice", but the
-  sandbox transform removes every secret source (`remote.*`, `local.file`) before the run, so that
-  poll never happens there. The run window now skips every component the transform stubs or
-  removes, read from the same policy the transform uses.
-- **`shepherd admin tenant-preflight` names a pipeline whose text does not parse as that.**
-  Shipped. A stored pipeline that does not parse was reported as "pinned import.git cannot be
-  inlined: the text does not parse", with the hint to assign the tenant to the organisation. The
-  preflight (and the strict-mode switch that runs it) now says "the pipeline text does not parse:
-  <the parser's error>" with the hint "fix the pipeline text". Serving still leaves such a
-  pipeline out under strict tenant mode, and the reason in the served header is unchanged.
+- **Strict tenant mode accepts only classified components.** Shipped. Every component of every
+  shipped schema carries a strict classification in the schema overlay
+  (`internal/schema/artifacts/overlay.json`, `components.<name>.strict`, and `strict_retired`
+  for a component only an older shipped schema has): `allowed` (it cannot introduce or alter a
+  tenant label or header), `checked` (it can, only through attributes the tenant lint already
+  checks, each check named), or `refused` (it can produce tenant-affecting output the lint cannot
+  prove), each with a one-line reason. In a strict org a component classified refused (today only
+  `otelcol.auth.google`, whose `token_header` may name `X-Scope-OrgID`), or not classified at
+  all, is refused wherever the lint walks — the top level, a declare, a `foreach` template, a
+  literal or pinned module — with a message naming it; declare and module instances are judged by
+  their bodies, and Alloy's own blocks are left to Stage 2. A name a shipped schema has is always
+  judged as that built-in component, whatever import labels are in scope: an import label can no
+  longer stand in for a component name, and any other dotted name counts as a module instance
+  only when it is exactly `<label>.<declare>` for an import whose module the lint read. A repo
+  test fails when an Alloy bump brings a component nobody has classified, or a `checked` entry
+  names a check that does not exist or does not cover the component. Everything the
+  grafana/k8s-monitoring chart, Shepherd's wizards and the baseline emit is allowed or checked.
+  Refused at save (every write path, Stage 3 and the git-sync dry runs included); a stored
+  pipeline that fails is excluded at serve time, with the served header, a
+  `strict_tenant_excluded` reconciliation finding and one audit row per change. (#421, PR #429)
+- **Strict tenant mode checks gateway route endpoints.** Shipped. In a strict org every endpoint,
+  on any host, whose path starts with `otlp` or `faro` and a string shaped like a route segment
+  must be under one of the org's own live routes (active, or deprecated during its rotation
+  overlap) whose tenant the org owns; the path is read as a gateway may read it, and vendors' OTLP
+  paths are untouched. On the gateway's configured hosts (`gateway.routes.public_base_url`'s and
+  the new `gateway.routes.hosts`, `SHEPHERD_GATEWAY_ROUTES_HOSTS`, comma-separated) every
+  endpoint must be under an owned route, written plainly, and a `proxy_url`, a `Host`/`:authority`
+  header, Datadog's `site` or a blackbox module setting naming them is refused. An endpoint the
+  lint cannot read is refused once the installation has a live tenant route or a gateway host is
+  configured, unless its literal start completes the path. The new `gateway_endpoints` check is
+  named on the 71 components with an endpoint attribute (23 moved from `allowed` to `checked`).
+  Creating, rotating or revoking a route recomputes the org's served configs. A value in `hosts`
+  that is not a host name or IP address stops the server from starting. (PR #431)
+- **`prometheus.exporter.blackbox` and `stage.truncate` in strict tenant mode.** Shipped. A strict
+  org's blackbox exporter `config` must be a literal YAML config that names `X-Scope-OrgID`
+  nowhere and has no tcp `query_response` (`config_file` is refused); a `loki.process`
+  `stage.truncate` label rule needs a literal `sources` list without `__tenant_id__`. The blackbox
+  wizard's modules pass unchanged. (#421, PR #429)
+- **Admin-allowed components per org.** Shipped. An app admin may allow a component strict mode
+  refuses for one org (Admin → Organisations → Edit → Admin-allowed components;
+  `AdminService.List/Add/RemoveOrgStrictComponent`, audited as `org.strict_component.add` /
+  `.remove` with `reviewed: false`). It lifts only that refusal — every other strict check still
+  applies — and the UI marks each entry "admin-allowed, unreviewed". Only a shipped component
+  classified refused can be allowed; removing an entry is refused while the org is strict and an
+  enabled pipeline uses it. Both changes recompute the org's served configs. Migration `0047`.
+  (#421, PRs #429, #431, #434)
+- **The collector page shows the pipelines its served config is built from.** Shipped. A new
+  **Pipelines** tab lists each contributing pipeline (a link, the revision served, each matcher
+  with the collector's value for its label, and the lines of its declare block in the served
+  config, which open the Served Config tab highlighted — a link that can be shared,
+  `?tab=config&lines=31-36`), the self-monitoring baseline's lines, and each pipeline that matched
+  but was excluded, with the reason (`role`, `strict_tenant` with the check's finding, or
+  `unparsable_matcher`). It is recorded by the same assembly that writes the served bytes and
+  stored with them (`serve_cache.provenance`, migration `0049`), so it cannot disagree with what
+  is served. `serve.Format` 5 makes each row recompute once, to the same bytes, so the column
+  fills in without a reload. (#423, PRs #432, #434)
+- **Sandbox runs cover the pipeline's scrape interval.** Shipped. `CreateRun` extends a run to two
+  of the longest scrape or poll intervals in the pipeline, capped at the maximum run length (120s,
+  or `simulator.max_duration` when lower), and never shortens what was asked for; components the
+  sandbox stubs or removes (secret sources such as `remote.kubernetes.secret` among them) do not
+  count. The run dialog says why the run is longer and counts down from the effective duration.
+  Migration `0050`. (#424, PRs #433, #439)
+- **The visual builder's canvas works from the keyboard.** Shipped. Tab into the canvas and the
+  arrow keys move between nodes (Home/End: first/last); Space selects, I opens the Properties
+  panel, Shift+arrows move a node 8px, Delete removes it with its wires. Enter goes into a node's
+  ports, Enter on a port starts a wire and the arrows then visit only the ports it can connect to;
+  Enter connects, Escape cancels. Wires are Tab stops and delete with Delete. Every keyboard edit
+  is one undo step, and a viewer stays read-only. `?` opens the shortcut sheet. Nodes, ports and
+  wires carry screen-reader names, every keyboard action is announced in a polite live region,
+  and keyboard focus draws a ring in a new `--color-focus` token (3:1 on every canvas surface in
+  both themes). (#426, PR #438)
+- **Bindings into nested blocks.** Shipped. A `doc.bindings[]` entry's `prop` may be a path into
+  the component's nested blocks — `endpoint[0].basic_auth.password`, `client.tls.ca_pem`,
+  `stage.tenant[0].value` — and both renderers write the expression inside that block. The
+  inspector's binding picker writes these entries, shows them on the field and lists every binding
+  a node holds in a new Bindings section with Unbind; the read-only graph view reports references
+  at the same path. A prop with no `.` and no `[` keeps its old meaning and byte-identical
+  rendering; the path travels in `GraphBinding.prop`, so no proto field was added. A path is
+  capped at 32 segments and 256 bytes (`binding_path_invalid`). (#426, PR #438)
 
 ### Changed
 
-- **Builder contrast (#426, axe).** The dark `--color-muted-2` caption tone moved from `#71717a`
-  (3.98:1 on the panel) to `#80808a`, the darkest grey that clears AA on background, panel and
-  card (4.53:1 on card), keeping a 1.53:1 step below `--color-muted`; the palette's
-  "Compatible with" chip uses a new AA `--color-accent-text` token; the toolbar validity chip and
-  the Problems tab use the `ok`/`danger` status tones; the binding picker's source select and key
-  input are labelled; the palette's "Show all components" button meets the 24px target size.
+- **Builder contrast.** The dark `--color-muted-2` caption tone moved to `#80808a` (AA on
+  background, panel and card); the palette's "Compatible with" chip uses a new AA
+  `--color-accent-text` token; the toolbar validity chip and the Problems tab use the `ok`/`danger`
+  status tones; the binding picker's inputs are labelled; "Show all components" meets the 24px
+  target size. (#426, PR #438)
 - **`pipelines.source` is a Go type.** `pipelinesource.Source` (`ui`, `wizard`, `git`, `visual`)
-  replaces the plain string in the sqlc models (a `sqlc.yaml` column override), the merge engine,
-  served-config provenance, git sync, the wizard and pipeline services and the dev seed, so the
-  `exhaustive` linter checks every switch over it; a test fails when the constants and the
-  column's CHECK constraint disagree. The one behaviour change: `CreatePipeline` and
-  `UpdatePipeline` refuse a `source` outside those four as `invalid_argument` instead of a
-  constraint violation answered as `internal`. No migration, no proto change, and served configs
-  are byte-identical. (#425)
+  replaces the plain string from the sqlc models up, so the `exhaustive` linter checks every switch
+  over it. `CreatePipeline` and `UpdatePipeline` refuse a `source` outside those four as
+  `invalid_argument` instead of `internal`. No migration, and served configs are byte-identical.
+  (#425, PR #437)
+
+### Fixed
+
+- **The wizard preview's verdict is the pipeline editor's.** Shipped. It validates the rendered
+  text with `ValidatePipeline` and counts the wizard's notes and that call's warnings ("N
+  warning(s)", each shown below the preview). Warnings still do not block Create. (#422, PRs #428,
+  #434)
+- **`shepherd admin tenant-preflight` says how to fix each kind of finding.** Shipped. The hint
+  follows the findings: assign the tenant (a tenant finding), use one of the organisation's tenant
+  routes (a route finding), ask an application administrator to allow the component (a shipped
+  component classified refused), or "fix the pipeline text" for a stored pipeline whose text does
+  not parse, which is now reported as "the pipeline text does not parse: <the parser's error>".
+  A failing check no longer prints the command's usage block; it still exits non-zero. (PRs #434,
+  #439)
+- **The chart's install notes print each URL's real scheme.** Shipped. An Ingress host is `https`
+  only when an `ingress.tls` entry covers it; an HTTPRoute's scheme is the new `route.scheme` value
+  (`http` or `https`), inferred from the first `parentRef`'s port when empty (80 is `http`, 443 is
+  `https`, otherwise `https` with a line saying it was assumed). NodePort, LoadBalancer and
+  port-forward instructions spell out the `http://` URL. No rendered object changes. (#425, PR
+  #437)
+- **Undo straight after opening a visual pipeline no longer empties the canvas.** Shipped. Opening,
+  importing, reloading or switching to a pipeline, and restoring a draft, start a fresh undo
+  history. (PR #439)
+- **The Reconciliation tab reads "nothing running", not "unknown", after the sweep.** Shipped. Each
+  instance's last report is kept in its own record (migration `0048`, `beacon_instance_reports`),
+  swept with the instance lifecycle rather than with the beacon rows. (#422, PR #428)
+- **Junk and flapping `collector.version` strings.** Shipped. Versions in the version check's
+  audit row and fingerprint are trimmed and cut to 64 bytes, at most 256 of them; a flapping
+  unknown version no longer writes an audit row per re-check; a NUL byte in a local attribute or
+  the instance id answers `InvalidArgument` rather than `Internal`. (#422, PR #428)
+- **A comment trailing the `otelcol.exporter.loki` block stays with it.** Shipped. In a strict
+  org's served form the inserted `loki.process "shepherd_tenant_drop_<label>"` block goes after a
+  comment that ends the exporter's closing line. Only the served text of a strict org's pipeline
+  with such a comment changes (its collectors reload once). (#422, PR #428)
+- **A refusal for the organisation's own unusable route says why.** Shipped. "…which is this
+  organisation's route, but it is revoked" or "…but its tenant "x" is no longer one the
+  organisation owns"; another organisation's segment keeps the neutral wording. The reason is also
+  printed in the served header's strict tenant exclusions. (PR #434)
+- **Admin-allowed component messages** say which case a refusal is, and the editor notes that an
+  allowed public-preview or experimental component still needs the collector's
+  `--stability.level`. (PR #434)
+- **The sandbox run-window note no longer names a component the sandbox removes.** Shipped. (PR
+  #439)
+- **A sandbox run whose captured samples include NaN or ±Inf completes.** Shipped. Captured
+  first/last values travel as a JSON number when finite and as `"NaN"`, `"+Inf"`, `"-Inf"` or
+  `"StaleNaN"` otherwise, and the simulator's control API encodes a response in full before
+  sending it (a failure answers 500 `encode_failed`). Upgrade the simulator image with the server.
+  (PR #435)
+
+### API
+
+**Additive** (no breaking change):
+
+- `AdminService.ListOrgStrictComponents`, `AddOrgStrictComponent`, `RemoveOrgStrictComponent` and
+  the `OrgStrictComponent` message (app admin). (#421, PR #429)
+- `GetServedConfigResponse.provenance_recorded`, `contributing`, `excluded` and `baseline_lines`,
+  with `ContributingPipeline`, `ExcludedPipeline`, `MatcherEvidence` and `LineSpan`. (#423, PR
+  #432)
+- `SimulateRun.effective_duration_seconds` and `duration_note`; `requested_duration_seconds` keeps
+  its meaning. (#424, PR #433)
+- `GraphBinding.prop` may be a nested binding path (no wire change). (#426, PR #438)
+- `CreatePipeline` / `UpdatePipeline` answer `invalid_argument` for an unknown `source`. (#425)
+
+Collector API (`collector.v1`): no change.
 
 ### Tests
 
-- **An axe scan of the visual builder in the mocked UI suite** (`visual-a11y-axe.spec.ts`,
-  `@axe-core/playwright` 4.13.0, a new devDependency): an eight-node graph with fan-in, a disabled
-  node, a config node and a nested binding, in both themes, at rest, with a node selected and with
-  a port focused, plus the shortcut sheet. It fails on any serious or critical violation and
-  disables no rule. Keyboard specs (`visual-keyboard.spec.ts`) cover node navigation, creating,
-  cancelling and deleting a wire, moving and deleting a node, the focus ring and the shortcut
-  sheet. A `bindings-nested` corpus entry, validated by the real pinned `alloy validate`, and
-  render/parse round-trip specs pin nested bindings on both renderers.
-- **The kind suite upgrades from the previous published chart.** `e2e-k8s` gains a fifteenth
-  feature, `TestHelmChartUpgradesFromPreviousRelease` (`e2e/k8s/helm_upgrade_test.go`): it
-  installs the highest released chart below the tree's `Chart.yaml` version from
-  `oci://ghcr.io/procoduck/charts/shepherd` (an `-rc.N` tree upgrades from the last release, never
-  its own earlier rc; `E2E_K8S_PREVIOUS_CHART` overrides it) with that release's own images, seeds
-  an org, an agent token, a claimed collector and an enabled pipeline through it, then `helm
-  upgrade`s to the tree's chart and images and checks the release reports the tree's chart, the
-  schema is at the tree's latest migration and not dirty, `/readyz` is ok, the org and pipeline
-  are unchanged, and the collector, polling on its pre-upgrade token, is still served the
-  pipeline. It pulls from ghcr.io: offline it skips with the reason, in CI an unreachable
-  registry fails it. The version choice is unit-tested on every `go test ./...`. (#425)
+- **A real-Alloy regression suite for strict tenant mode** (`make e2e-strict`, `e2e-strict.yml`):
+  a strict org's collector against a recording sink that also plays the tenant-route gateway;
+  every refused construct is refused at save and excluded when stored directly, every accepted one
+  arrives under the org's tenant only. (#421, PRs #429, #431)
+- **The kind suite upgrades from the previous published chart**
+  (`TestHelmChartUpgradesFromPreviousRelease`, `e2e/k8s/helm_upgrade_test.go`): installs the
+  highest released chart below the tree's version with its own images, seeds an org, a token, a
+  collector and a pipeline, `helm upgrade`s to the tree and checks the schema, `/readyz`, the data
+  and that the collector is still served on its pre-upgrade token. (#425, PR #437)
+- **An axe scan of the visual builder** in the mocked UI suite (`visual-a11y-axe.spec.ts`,
+  `@axe-core/playwright` 4.13.0, a new devDependency), failing on any serious or critical
+  violation, plus keyboard specs (`visual-keyboard.spec.ts`), a `bindings-nested` corpus entry
+  validated by the pinned `alloy validate`, and an undo-at-load spec
+  (`visual-undo-at-load.spec.ts`). (#426, PRs #438, #439)
 
+### Build & CI
+
+- **Dev stacks:** `make dev-kind` sets `SHEPHERD_GATEWAY_ROUTES_HOSTS=telemetry.localtest.me`, so
+  the gateway route endpoint check runs there. (PR #434)
 
 ## v0.21.0-rc.1 (prerelease)
 
