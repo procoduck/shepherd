@@ -3,6 +3,7 @@ package visual
 import (
 	"errors"
 	"fmt"
+	"reflect"
 	"strconv"
 	"strings"
 )
@@ -54,10 +55,29 @@ func IsNestedBindingProp(prop string) bool {
 // renderer reason about absurd instance numbers.
 const maxBindingIndex = 9999
 
+// MaxBindingPathSegments and MaxBindingPathBytes bound a nested binding path
+// (#438 review). The path is client input on every Render path, and refusing
+// it before splitting or resolving keeps that work constant per binding. The
+// deepest attribute any shipped schema holds is 8 segments and 114 bytes
+// (otelcol.processor.resourcedetection's
+// gcp.resource_attributes.gcp.gce.instance.group_manager.name.enabled, with a
+// four-digit index on each repeatable block); bindingpath_test.go fails if a
+// schema ever needs more than half of either.
+const (
+	MaxBindingPathSegments = 32
+	MaxBindingPathBytes    = 256
+)
+
 // ParseBindingPath splits a binding path into its segments, without the schema.
 func ParseBindingPath(prop string) ([]BindingPathToken, error) {
 	if prop == "" {
 		return nil, errors.New("empty path")
+	}
+	if len(prop) > MaxBindingPathBytes {
+		return nil, fmt.Errorf("the path is %d bytes; the limit is %d bytes", len(prop), MaxBindingPathBytes)
+	}
+	if n := strings.Count(prop, ".") + 1; n > MaxBindingPathSegments {
+		return nil, fmt.Errorf("the path has %d segments; the limit is %d segments", n, MaxBindingPathSegments)
 	}
 	parts := strings.Split(prop, ".")
 	out := make([]BindingPathToken, 0, len(parts))
@@ -116,17 +136,36 @@ func validIdent(s string) bool {
 // ResolveBindingPath resolves prop against a component's schema into the blocks
 // it descends through and the attribute it names.
 func ResolveBindingPath(c ComponentSchema, prop string) ([]BindingBlockStep, AttributeSchema, error) {
+	steps, attr, _, err := ResolveBindingPathCounted(c, prop)
+	return steps, attr, err
+}
+
+// ResolveBindingPathCounted is ResolveBindingPath reporting how many
+// block-name candidates it tried — the work, which is linear in the path:
+// at each level only as many segments are joined as the longest block name
+// there has parts (one, for most components; six at most in any shipped
+// schema).
+func ResolveBindingPathCounted(c ComponentSchema, prop string) ([]BindingBlockStep, AttributeSchema, int, error) {
+	tried := 0
 	toks, err := ParseBindingPath(prop)
 	if err != nil {
-		return nil, AttributeSchema{}, err
+		return nil, AttributeSchema{}, tried, err
 	}
 	attrs, blocks := c.Attributes, c.Blocks
 	var steps []BindingBlockStep
 	i := 0
 	for i < len(toks)-1 {
+		byName := make(map[string]BlockSchema, len(blocks))
+		maxParts := 0
+		for _, b := range blocks {
+			byName[b.Name] = b
+			maxParts = max(maxParts, strings.Count(b.Name, ".")+1)
+		}
 		matched := false
-		// Longest block name first: `stage.tenant` before `stage`.
-		for j := len(toks) - 2; j >= i && !matched; j-- {
+		// Longest block name first (`stage.tenant` before `stage`), but never
+		// longer than the longest name this level declares.
+		for j := min(len(toks)-2, i+maxParts-1); j >= i && !matched; j-- {
+			tried++
 			names := make([]string, 0, j-i+1)
 			indexedEarly := false
 			for k := i; k <= j; k++ {
@@ -139,36 +178,34 @@ func ResolveBindingPath(c ComponentSchema, prop string) ([]BindingBlockStep, Att
 				continue
 			}
 			name := strings.Join(names, ".")
-			for _, b := range blocks {
-				if b.Name != name {
-					continue
-				}
-				if !b.Repeatable && toks[j].Index > 0 {
-					return nil, AttributeSchema{}, fmt.Errorf("block %q appears once; index %d does not exist", name, toks[j].Index)
-				}
-				steps = append(steps, BindingBlockStep{Name: name, Index: toks[j].Index, Repeatable: b.Repeatable})
-				attrs, blocks = b.Attributes, b.Blocks
-				i = j + 1
-				matched = true
-				break
+			b, ok := byName[name]
+			if !ok {
+				continue
 			}
+			if !b.Repeatable && toks[j].Index > 0 {
+				return nil, AttributeSchema{}, tried, fmt.Errorf("block %q appears once; index %d does not exist", name, toks[j].Index)
+			}
+			steps = append(steps, BindingBlockStep{Name: name, Index: toks[j].Index, Repeatable: b.Repeatable})
+			attrs, blocks = b.Attributes, b.Blocks
+			i = j + 1
+			matched = true
 		}
 		if !matched {
-			return nil, AttributeSchema{}, fmt.Errorf("no block at %q", strings.Join(tokenNames(toks[i:len(toks)-1]), "."))
+			return nil, AttributeSchema{}, tried, fmt.Errorf("no block at %q", strings.Join(tokenNames(toks[i:len(toks)-1]), "."))
 		}
 	}
 	leaf := toks[len(toks)-1].Name
 	for _, a := range attrs {
 		if a.Name == leaf {
-			return steps, a, nil
+			return steps, a, tried, nil
 		}
 	}
 	for _, b := range blocks {
 		if b.Name == leaf {
-			return nil, AttributeSchema{}, fmt.Errorf("%q is a block, not an attribute", leaf)
+			return nil, AttributeSchema{}, tried, fmt.Errorf("%q is a block, not an attribute", leaf)
 		}
 	}
-	return nil, AttributeSchema{}, fmt.Errorf("no attribute %q there", leaf)
+	return nil, AttributeSchema{}, tried, fmt.Errorf("no attribute %q there", leaf)
 }
 
 func tokenNames(toks []BindingPathToken) []string {
@@ -199,45 +236,117 @@ var (
 	errBindingIndex    = errors.New("no such block instance")
 )
 
-// setAtBindingPath returns a copy of props with value set at the resolved
-// path, copying every container on the way and creating a missing block only
-// for instance 0. prior reports whether a value was already there.
-func setAtBindingPath(props map[string]interface{}, steps []BindingBlockStep, attr string, value interface{}) (out map[string]interface{}, prior bool, err error) {
-	out = make(map[string]interface{}, len(props)+1)
-	for k, v := range props {
+// copyOnWrite tracks the containers one node's binding overlay has already
+// copied, so each is copied at most once however many bindings pass through
+// it (#438 review: copying the node's props per binding was bindings x props).
+// The document's own props are never written.
+type copyOnWrite struct{ owned map[uintptr]bool }
+
+func newCopyOnWrite() *copyOnWrite { return &copyOnWrite{owned: map[uintptr]bool{}} }
+
+func (c *copyOnWrite) ownMap(m map[string]interface{}) map[string]interface{} {
+	if m != nil && c.owned[reflect.ValueOf(m).Pointer()] {
+		return m
+	}
+	out := make(map[string]interface{}, len(m)+1)
+	for k, v := range m {
 		out[k] = v
 	}
-	if len(steps) == 0 {
-		_, prior = props[attr]
-		out[attr] = value
-		return out, prior, nil
+	c.owned[reflect.ValueOf(out).Pointer()] = true
+	return out
+}
+
+func (c *copyOnWrite) ownSlice(s []interface{}) []interface{} {
+	if len(s) > 0 && c.owned[reflect.ValueOf(s).Pointer()] {
+		return s
 	}
-	step := steps[0]
-	current, present := props[step.Name]
-	instances, ok := blockInstances(current)
-	if !ok {
-		return nil, false, fmt.Errorf("%q: %w", step.Name, errBindingNotBlock)
+	out := append([]interface{}{}, s...)
+	if len(out) > 0 {
+		c.owned[reflect.ValueOf(out).Pointer()] = true
 	}
-	var inst map[string]interface{}
-	switch {
-	case step.Index < len(instances):
-		inst = instances[step.Index]
-	case step.Index == 0 && len(instances) == 0:
-		inst = map[string]interface{}{}
-	default:
-		return nil, false, fmt.Errorf("%s[%d]: %w (the node has %d)", step.Name, step.Index, errBindingIndex, len(instances))
+	return out
+}
+
+// instanceAt is the index-th block instance a props value holds, and how many
+// it holds — the one instance only, in constant time (blockInstances walks
+// them all). ok is false when the value is not block-shaped there.
+func instanceAt(v interface{}, index int) (inst map[string]interface{}, count int, ok bool) {
+	switch x := v.(type) {
+	case nil:
+		return nil, 0, true
+	case map[string]interface{}:
+		if _, raw := rawExpr(x); raw {
+			return nil, 0, false
+		}
+		if index == 0 {
+			return x, 1, true
+		}
+		return nil, 1, true
+	case []interface{}:
+		if index >= len(x) {
+			return nil, len(x), true
+		}
+		m, isMap := x[index].(map[string]interface{})
+		return m, len(x), isMap
 	}
-	child, prior, err := setAtBindingPath(inst, steps[1:], attr, value)
-	if err != nil {
+	return nil, 0, false
+}
+
+// checkBindingPath reports, without writing anything, whether the resolved
+// path can be placed in props: every block on it is block-shaped and holds
+// the instance, or is missing and the index is 0.
+func checkBindingPath(props map[string]interface{}, steps []BindingBlockStep) error {
+	scope := props
+	for _, step := range steps {
+		var v interface{}
+		if scope != nil {
+			v = scope[step.Name]
+		}
+		inst, count, ok := instanceAt(v, step.Index)
+		if !ok {
+			return fmt.Errorf("%q: %w", step.Name, errBindingNotBlock)
+		}
+		if inst == nil && (count != 0 || step.Index != 0) {
+			return fmt.Errorf("%s[%d]: %w (the node has %d)", step.Name, step.Index, errBindingIndex, count)
+		}
+		scope = inst
+	}
+	return nil
+}
+
+// setAtBindingPath places value at the resolved path and returns the props to
+// use: containers on the path are copied once through cow, a missing block is
+// created for instance 0, and prior reports whether a value was already there.
+// Nothing is written when the path cannot be placed.
+func setAtBindingPath(cow *copyOnWrite, props map[string]interface{}, steps []BindingBlockStep, attr string, value interface{}) (out map[string]interface{}, prior bool, err error) {
+	if err := checkBindingPath(props, steps); err != nil {
 		return nil, false, err
 	}
-	if list, isList := current.([]interface{}); isList && present {
-		next := append([]interface{}{}, list...)
-		next[step.Index] = child
-		out[step.Name] = next
-	} else {
-		out[step.Name] = child
+	out = cow.ownMap(props)
+	scope := out
+	for _, step := range steps {
+		var child map[string]interface{}
+		switch v := scope[step.Name].(type) {
+		case []interface{}:
+			list := cow.ownSlice(v)
+			inst, isMap := list[step.Index].(map[string]interface{})
+			if !isMap { // checkBindingPath has refused this already
+				return nil, false, fmt.Errorf("%q: %w", step.Name, errBindingNotBlock)
+			}
+			child = cow.ownMap(inst)
+			list[step.Index] = child
+			scope[step.Name] = list
+		case map[string]interface{}:
+			child = cow.ownMap(v)
+			scope[step.Name] = child
+		default: // missing: checkBindingPath allowed it only for instance 0
+			child = cow.ownMap(nil)
+			scope[step.Name] = child
+		}
+		scope = child
 	}
+	_, prior = scope[attr]
+	scope[attr] = value
 	return out, prior, nil
 }
 
@@ -249,7 +358,7 @@ func ApplyBindingPath(c ComponentSchema, props map[string]interface{}, prop stri
 	if err != nil {
 		return nil, err
 	}
-	next, _, err := setAtBindingPath(props, steps, attr.Name, value)
+	next, _, err := setAtBindingPath(newCopyOnWrite(), props, steps, attr.Name, value)
 	return next, err
 }
 
@@ -259,6 +368,7 @@ func ApplyBindingPath(c ComponentSchema, props map[string]interface{}, prop stri
 // and emits nothing.
 func (rd *renderer) applyNestedBindings(id string, c ComponentSchema, known bool, props map[string]interface{}, binds []GraphBinding) (map[string]interface{}, []GraphBinding) {
 	var top []GraphBinding
+	cow := newCopyOnWrite()
 	for _, bind := range binds {
 		if !IsNestedBindingProp(bind.Prop) {
 			top = append(top, bind)
@@ -279,7 +389,7 @@ func (rd *renderer) applyNestedBindings(id string, c ComponentSchema, known bool
 			rd.diag("binding_path_invalid", sevError, id, fmt.Sprintf("binding path %q: %s", clip(bind.Prop), clip(err.Error())))
 			continue
 		}
-		next, prior, err := setAtBindingPath(props, steps, attr.Name, map[string]interface{}{exprKey: expr})
+		next, prior, err := setAtBindingPath(cow, props, steps, attr.Name, map[string]interface{}{exprKey: expr})
 		if err != nil {
 			rd.diag("binding_path_invalid", sevError, id, fmt.Sprintf("binding path %q: %s", clip(bind.Prop), clip(err.Error())))
 			continue

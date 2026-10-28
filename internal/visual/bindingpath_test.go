@@ -2,6 +2,11 @@ package visual_test
 
 import (
 	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -244,5 +249,122 @@ var _ = Describe("binding paths", func() {
 			draft.Bindings = nil
 			Expect(visual.Render(draft, schema).Content).To(Equal(text.Content))
 		})
+	})
+})
+
+// Review of #438: a binding path is client input on every Render path
+// (VisualService.Render/Validate/UpgradeCheck, CreateRun, UpdatePipeline), so
+// its cost must be bounded. ParseBindingPath caps it at MaxBindingPathSegments
+// and MaxBindingPathBytes, resolution is linear in its segments, and Render
+// refuses a document with more than MaxBindings bindings.
+var _ = Describe("binding path bounds", func() {
+	schema := corpusSchema()
+
+	It("refuses an over-long or over-deep path before doing any work on it", func() {
+		huge := strings.Repeat("a.", 500_000) + "b"
+		start := time.Now()
+		_, err := visual.ParseBindingPath(huge)
+		Expect(err).To(MatchError(ContainSubstring("limit")))
+		_, _, err = visual.ResolveBindingPath(schema.Components["prometheus.remote_write"], huge)
+		Expect(err).To(HaveOccurred())
+		Expect(time.Since(start)).To(BeNumerically("<", 50*time.Millisecond))
+
+		_, err = visual.ParseBindingPath(strings.Repeat("x", 300))
+		Expect(err).To(MatchError(ContainSubstring("bytes")))
+		_, err = visual.ParseBindingPath(strings.Repeat("a.", visual.MaxBindingPathSegments) + "b")
+		Expect(err).To(MatchError(ContainSubstring("segments")))
+	})
+
+	It("is refused by Render as binding_path_invalid, fast", func() {
+		d := withBindings(doc([]visual.GraphNode{
+			node("o1", "otelcol.exporter.otlp", "out", nil),
+		}, nil), bind("o1", strings.Repeat("client.", 100_000)+"endpoint", "x", "y", "local.file.f.content"))
+		start := time.Now()
+		r := visual.Render(d, schema)
+		Expect(time.Since(start)).To(BeNumerically("<", 200*time.Millisecond))
+		Expect(codes(r.Diagnostics)).To(ContainElement("binding_path_invalid"))
+	})
+
+	// The caps must not refuse anything a real component holds: every
+	// attribute in every block of every shipped schema, at its deepest and
+	// with a four-digit index on each repeatable block, fits with 2x headroom.
+	It("fits the deepest attribute path of every shipped schema, with headroom", func() {
+		files, err := filepath.Glob("../schema/artifacts/alloy-v*.json")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(files).NotTo(BeEmpty())
+		deepest, longest := 0, 0
+		for _, f := range files {
+			raw, err := os.ReadFile(f)
+			Expect(err).NotTo(HaveOccurred())
+			var payload visual.SchemaPayload
+			Expect(json.Unmarshal(raw, &payload)).To(Succeed())
+			for name, c := range payload.Components {
+				var walk func(blocks []visual.BlockSchema, at []visual.BindingBlockStep)
+				walk = func(blocks []visual.BlockSchema, at []visual.BindingBlockStep) {
+					for _, b := range blocks {
+						here := append(append([]visual.BindingBlockStep{}, at...),
+							visual.BindingBlockStep{Name: b.Name, Index: 9999, Repeatable: b.Repeatable})
+						for _, a := range b.Attributes {
+							prop := visual.FormatBindingPath(here, a.Name)
+							toks, err := visual.ParseBindingPath(prop)
+							Expect(err).NotTo(HaveOccurred(), "%s %s", name, prop)
+							deepest, longest = max(deepest, len(toks)), max(longest, len(prop))
+						}
+						walk(b.Blocks, here)
+					}
+				}
+				walk(c.Blocks, nil)
+			}
+		}
+		Expect(deepest).To(BeNumerically("<=", visual.MaxBindingPathSegments/2), "keep 2x headroom")
+		Expect(longest).To(BeNumerically("<=", visual.MaxBindingPathBytes/2), "keep 2x headroom")
+		// The deepest known one (six-part block names) resolves.
+		c := schema.Components["otelcol.processor.resourcedetection"]
+		_, leaf, err := visual.ResolveBindingPath(c, "gcp.resource_attributes.gcp.gce.instance.group_manager.name.enabled")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(leaf.Name).To(Equal("enabled"))
+	})
+
+	It("resolves in work linear in the path's segments", func() {
+		// Work, not wall time: block-name candidates tried per resolution,
+		// against a self-nesting block so any depth resolves.
+		inner := visual.BlockSchema{Name: "a", Repeatable: true, Attributes: []visual.AttributeSchema{{Name: "b"}}}
+		levels := make([]visual.BlockSchema, visual.MaxBindingPathSegments)
+		levels[len(levels)-1] = inner
+		for i := len(levels) - 2; i >= 0; i-- {
+			levels[i] = inner
+			levels[i].Blocks = []visual.BlockSchema{levels[i+1]}
+		}
+		c := visual.ComponentSchema{Blocks: []visual.BlockSchema{levels[0]}}
+		work := func(n int) int {
+			_, _, tried, err := visual.ResolveBindingPathCounted(c, strings.Repeat("a.", n)+"b")
+			Expect(err).NotTo(HaveOccurred())
+			return tried
+		}
+		w8, w16 := work(8), work(16)
+		Expect(w16).To(BeNumerically("<=", 2*w8+2), "8 segments: %d tries, 16: %d", w8, w16)
+	})
+
+	// No count cap: the graph's 1 MiB limit bounds how many bindings arrive
+	// (render_bounds_test.go renders 9,000 top-level ones), so the overlay
+	// must be linear in them — each container copied once, each instance
+	// reached in constant time.
+	It("overlays many nested bindings on one wide node in linear time", func() {
+		const n = 9_000
+		const pw = `remote.kubernetes.secret.creds.data["password"]`
+		secret := node("s1", "remote.kubernetes.secret", "creds", map[string]interface{}{"namespace": "mon", "name": "creds"})
+		endpoints := make([]interface{}, n)
+		bs := make([]visual.GraphBinding, n)
+		props := map[string]interface{}{"endpoint": endpoints}
+		for i := range n {
+			endpoints[i] = map[string]interface{}{"url": fmt.Sprintf("https://h%d/push", i)}
+			props[fmt.Sprintf("unknown_%d", i)] = "x" // a wide top-level map, copied once
+			bs[i] = bind("w1", fmt.Sprintf("endpoint[%d].basic_auth.password", i%visual.MaxBindingPathBytes), "s1", "data", pw)
+		}
+		d := withBindings(doc([]visual.GraphNode{secret, node("w1", "prometheus.remote_write", "sink", props)}, nil), bs...)
+		start := time.Now()
+		r := visual.Render(d, schema)
+		Expect(time.Since(start)).To(BeNumerically("<", 2*time.Second))
+		Expect(strings.Count(r.Content, "password = ")).To(Equal(visual.MaxBindingPathBytes))
 	})
 })

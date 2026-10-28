@@ -43,7 +43,7 @@ const EXPECTED_TOKENS_DARK: Record<string, string> = {
   '--color-border': '#27272a',
   '--color-border-strong': '#3f3f46',
   '--color-muted': '#a1a1aa',
-  '--color-muted-2': '#8b8b94',
+  '--color-muted-2': '#80808a',
   '--color-muted-3': '#52525b',
   '--color-accent': '#6366f1',
   // #426 canvas keyboard focus ring (see FOCUS_SURFACES below).
@@ -500,4 +500,12 @@ describe.each([
         expect(contrastRatio(t[fg], t[surface]), `${fg} on ${surface}`).toBeGreaterThanOrEqual(4.5);
     },
   );
+});
+
+// #438 review: lifting dark --color-muted-2 to AA must not flatten it into
+// --color-muted — the caption tier stays visibly a step below the muted one.
+it('dark --color-muted-2 stays a visible step below --color-muted', () => {
+  expect(
+    contrastRatio(EXPECTED_TOKENS_DARK['--color-muted'], EXPECTED_TOKENS_DARK['--color-muted-2']),
+  ).toBeGreaterThanOrEqual(1.5);
 });

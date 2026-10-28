@@ -32,6 +32,10 @@ const IDENT_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const INDEX_RE = /^(0|[1-9][0-9]*)$/;
 /** Mirrors maxBindingIndex in bindingpath.go. */
 const MAX_INDEX = 9999;
+/** Mirror bindingpath.go's MaxBindingPathSegments / MaxBindingPathBytes
+ *  (#438 review): a path is refused before any work is done on it. */
+export const MAX_BINDING_PATH_SEGMENTS = 32;
+export const MAX_BINDING_PATH_BYTES = 256;
 
 export interface BindingPathToken {
   name: string;
@@ -70,6 +74,18 @@ export function isNestedBindingProp(prop: string): boolean {
 /** Splits a binding path into its segments, without the schema. */
 export function parseBindingPath(prop: string): Result<BindingPathToken[]> {
   if (prop === '') return fail('empty path');
+  // UTF-16 length is a lower bound on the UTF-8 bytes Go counts; the encoded
+  // length is only taken when the cheap bound does not already refuse.
+  const bytes =
+    prop.length > MAX_BINDING_PATH_BYTES ? prop.length : new TextEncoder().encode(prop).length;
+  if (bytes > MAX_BINDING_PATH_BYTES)
+    return fail(`the path is ${bytes} bytes; the limit is ${MAX_BINDING_PATH_BYTES} bytes`);
+  let segments = 1;
+  for (const ch of prop) if (ch === '.') segments++;
+  if (segments > MAX_BINDING_PATH_SEGMENTS)
+    return fail(
+      `the path has ${segments} segments; the limit is ${MAX_BINDING_PATH_SEGMENTS} segments`,
+    );
   const parts = prop.split('.');
   const out: BindingPathToken[] = [];
   for (const [i, part] of parts.entries()) {
@@ -97,6 +113,10 @@ export function parseBindingPath(prop: string): Result<BindingPathToken[]> {
 export function resolveBindingPath(
   component: ComponentShape,
   prop: string,
+  /** Counts the block-name candidates tried: at each level only as many
+   *  segments are joined as the longest block name there has parts, so the
+   *  work is linear in the path (#438 review). */
+  work: { tried: number } = { tried: 0 },
 ): Result<{ steps: BindingBlockStep[]; attr: AttrShape }> {
   const parsed = parseBindingPath(prop);
   if (!parsed.ok) return parsed;
@@ -107,14 +127,18 @@ export function resolveBindingPath(
   let i = 0;
   while (i < toks.length - 1) {
     let matched = false;
-    // Longest block name first: `stage.tenant` before `stage`.
-    for (let j = toks.length - 2; j >= i && !matched; j--) {
+    const byName = new Map(blocks.map((b) => [b.name, b]));
+    const maxParts = Math.max(0, ...blocks.map((b) => b.name.split('.').length));
+    // Longest block name first (`stage.tenant` before `stage`), but never
+    // longer than the longest name this level declares.
+    for (let j = Math.min(toks.length - 2, i + maxParts - 1); j >= i && !matched; j--) {
+      work.tried++;
       if (toks.slice(i, j).some((t) => t.indexed)) continue;
       const name = toks
         .slice(i, j + 1)
         .map((t) => t.name)
         .join('.');
-      const block = blocks.find((b) => b.name === name);
+      const block = byName.get(name);
       if (!block) continue;
       if (!block.repeatable && toks[j].index > 0)
         return fail(`block "${name}" appears once; index ${toks[j].index} does not exist`);
@@ -181,54 +205,83 @@ function isRawExpr(v: Record<string, unknown>): boolean {
   );
 }
 
-/** The block-instance view of a props value (render.go's blockInstances). */
-function instancesOf(value: unknown): Record<string, unknown>[] | null {
-  if (value === null || value === undefined) return [];
+/** The index-th block instance a props value holds, and how many it holds —
+ *  in constant time (bindingpath.go's instanceAt). `ok` is false when the
+ *  value is not block-shaped there. */
+function instanceAt(
+  value: unknown,
+  index: number,
+): { inst: Record<string, unknown> | null; count: number; ok: boolean } {
+  if (value === null || value === undefined) return { inst: null, count: 0, ok: true };
   if (Array.isArray(value)) {
-    const out: Record<string, unknown>[] = [];
-    for (const el of value) {
-      if (!isPlainObject(el)) return null;
-      out.push(el);
-    }
-    return out;
+    if (index >= value.length) return { inst: null, count: value.length, ok: true };
+    const el = value[index];
+    return isPlainObject(el)
+      ? { inst: el, count: value.length, ok: true }
+      : { inst: null, count: value.length, ok: false };
   }
-  if (isPlainObject(value)) return isRawExpr(value) ? null : [value];
-  return null;
+  if (isPlainObject(value)) {
+    if (isRawExpr(value)) return { inst: null, count: 0, ok: false };
+    return { inst: index === 0 ? value : null, count: 1, ok: true };
+  }
+  return { inst: null, count: 0, ok: false };
 }
 
-/** A copy of `props` with `value` at the resolved path — every container on
- *  the way copied, a missing block created only for instance 0. */
+/** The containers one node's overlay has copied, so each is copied once
+ *  however many bindings pass through it (#438 review). */
+export type CopyOnWrite = WeakSet<object>;
+
+function ownObject(cow: CopyOnWrite, o: Record<string, unknown> | null): Record<string, unknown> {
+  if (o && cow.has(o)) return o;
+  const out = { ...(o ?? {}) };
+  cow.add(out);
+  return out;
+}
+
+function ownArray(cow: CopyOnWrite, a: unknown[]): unknown[] {
+  if (cow.has(a)) return a;
+  const out = [...a];
+  cow.add(out);
+  return out;
+}
+
+/** `props` with `value` at the resolved path, containers on the way copied
+ *  once through `cow`, a missing block created only for instance 0. Nothing is
+ *  written when the path cannot be placed; the input is never modified. */
 export function setAtBindingPath(
   props: Record<string, unknown>,
   steps: BindingBlockStep[],
   attr: string,
   value: unknown,
+  cow: CopyOnWrite = new WeakSet(),
 ): Result<{ props: Record<string, unknown>; prior: boolean }> {
-  const out: Record<string, unknown> = { ...props };
-  if (steps.length === 0) {
-    const prior = Object.hasOwn(props, attr);
-    out[attr] = value;
-    return { ok: true, value: { props: out, prior } };
+  let scope: Record<string, unknown> | null = props;
+  for (const step of steps) {
+    const at = instanceAt(scope?.[step.name], step.index);
+    if (!at.ok) return fail(`"${step.name}": the props there are not a block`);
+    if (at.inst === null && !(at.count === 0 && step.index === 0))
+      return fail(`${step.name}[${step.index}]: no such block instance (the node has ${at.count})`);
+    scope = at.inst;
   }
-  const [step, ...rest] = steps;
-  const current = props[step.name];
-  const instances = instancesOf(current);
-  if (instances === null) return fail(`"${step.name}": the props there are not a block`);
-  let inst: Record<string, unknown>;
-  if (step.index < instances.length) inst = instances[step.index];
-  else if (step.index === 0 && instances.length === 0) inst = {};
-  else
-    return fail(
-      `${step.name}[${step.index}]: no such block instance (the node has ${instances.length})`,
-    );
-  const child = setAtBindingPath(inst, rest, attr, value);
-  if (!child.ok) return child;
-  if (Array.isArray(current)) {
-    const next = [...current];
-    next[step.index] = child.value.props;
-    out[step.name] = next;
-  } else out[step.name] = child.value.props;
-  return { ok: true, value: { props: out, prior: child.value.prior } };
+  const out = ownObject(cow, props);
+  let here = out;
+  for (const step of steps) {
+    const current = here[step.name];
+    let child: Record<string, unknown>;
+    if (Array.isArray(current)) {
+      const list = ownArray(cow, current);
+      child = ownObject(cow, list[step.index] as Record<string, unknown>);
+      list[step.index] = child;
+      here[step.name] = list;
+    } else {
+      child = ownObject(cow, isPlainObject(current) ? current : null);
+      here[step.name] = child;
+    }
+    here = child;
+  }
+  const prior = Object.hasOwn(here, attr);
+  here[attr] = value;
+  return { ok: true, value: { props: out, prior } };
 }
 
 export interface OverlayIssue {
@@ -256,6 +309,7 @@ export function overlayBindings(
   const top: GraphBinding[] = [];
   const issues: OverlayIssue[] = [];
   let out = props;
+  const cow: CopyOnWrite = new WeakSet();
   for (const binding of bindings) {
     if (!isNestedBindingProp(binding.prop)) {
       top.push(binding);
@@ -281,9 +335,13 @@ export function overlayBindings(
     }
     const resolved = resolveBindingPath(component, binding.prop);
     const placed = resolved.ok
-      ? setAtBindingPath(out, resolved.value.steps, resolved.value.attr.name, {
-          [EXPR_KEY]: expr,
-        })
+      ? setAtBindingPath(
+          out,
+          resolved.value.steps,
+          resolved.value.attr.name,
+          { [EXPR_KEY]: expr },
+          cow,
+        )
       : resolved;
     if (!placed.ok) {
       issues.push({

@@ -20,10 +20,12 @@
   /*
    * #426 (axe color-contrast): #71717a gave 3.98:1 on --color-panel, under
    * AA for the 10-12px captions it sets (panel titles, attribute types, block
-   * headers); #8b8b94 clears 4.5:1 on background, panel and card and stays
-   * a step below --color-muted. theme.test.ts checks both.
+   * headers). #80808a is the darkest zinc grey that clears 4.5:1 on all
+   * three surfaces (4.53:1 on card), which keeps the most room below
+   * --color-muted: 1.53:1 between the two, where #8b8b94 left 1.32:1 and the
+   * tiers read alike in dense tables. theme.test.ts checks AA and the gap.
    */
-  --color-muted-2: #8b8b94;
+  --color-muted-2: #80808a;
   /*
    * Added during B4 (design-token adoption in web/src/pages + components):
    * a third, quieter de-emphasis tier for tertiary captions/meta text

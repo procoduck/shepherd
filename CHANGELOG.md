@@ -38,12 +38,16 @@ Categories used here:
   The read-only graph view reports references at the same canonical path. Additive: a prop with
   no `.` and no `[` keeps its old meaning and byte-identical rendering (the corpus goldens pin
   it), and no proto field was added — the path travels in `GraphBinding.prop`. The sandbox
-  transform substitutes or drops a nested binding to a removed secret source in place.
+  transform substitutes or drops a nested binding to a removed secret source in place. A path
+  is capped at 32 segments and 256 bytes (`binding_path_invalid` past either; the deepest shipped
+  attribute needs 8 and 114), resolution is linear in its segments, and the overlay copies each
+  container once per node however many bindings it carries.
 
 ### Changed
 
 - **Builder contrast (#426, axe).** The dark `--color-muted-2` caption tone moved from `#71717a`
-  (3.98:1 on the panel) to `#8b8b94` (AA on background, panel and card); the palette's
+  (3.98:1 on the panel) to `#80808a`, the darkest grey that clears AA on background, panel and
+  card (4.53:1 on card), keeping a 1.53:1 step below `--color-muted`; the palette's
   "Compatible with" chip uses a new AA `--color-accent-text` token; the toolbar validity chip and
   the Problems tab use the `ok`/`danger` status tones; the binding picker's source select and key
   input are labelled; the palette's "Show all components" button meets the 24px target size.

@@ -5,6 +5,8 @@ import {
   bindingPropOf,
   formatBindingPath,
   isNestedBindingProp,
+  MAX_BINDING_PATH_BYTES,
+  MAX_BINDING_PATH_SEGMENTS,
   overlayBindings,
   parseBindingPath,
   resolveBindingPath,
@@ -186,5 +188,62 @@ describe('a nested binding through L1 and renderTS', () => {
     expect(renderTS(doc, schema).content).toContain(
       '  client {\n    endpoint = local.file.ep.content\n  }\n',
     );
+  });
+});
+
+// #438 review: a binding path is client input, so its cost is bounded —
+// mirrors bindingpath_test.go's "binding path bounds" (which also proves the
+// caps hold every shipped schema's deepest attribute with 2x headroom).
+describe('binding path bounds', () => {
+  it('refuses an over-long or over-deep path before doing any work on it', () => {
+    const huge = `${'a.'.repeat(500_000)}b`;
+    const start = performance.now();
+    const r = parseBindingPath(huge);
+    const resolved = resolveBindingPath(comp('prometheus.remote_write'), huge);
+    expect(performance.now() - start).toBeLessThan(50);
+    expect(r.ok).toBe(false);
+    expect(resolved.ok).toBe(false);
+    const bytes = parseBindingPath('x'.repeat(300));
+    expect(!bytes.ok && bytes.error).toMatch(/bytes/);
+    const deep = parseBindingPath(`${'a.'.repeat(MAX_BINDING_PATH_SEGMENTS)}b`);
+    expect(!deep.ok && deep.error).toMatch(/segments/);
+    // The same caps as the server's.
+    expect([MAX_BINDING_PATH_SEGMENTS, MAX_BINDING_PATH_BYTES]).toEqual([32, 256]);
+  });
+
+  it('resolves in work linear in the segments', () => {
+    type B = { name: string; repeatable: boolean; attributes: { name: string }[]; blocks: B[] };
+    let level: B = { name: 'a', repeatable: true, attributes: [{ name: 'b' }], blocks: [] };
+    for (let i = 0; i < MAX_BINDING_PATH_SEGMENTS; i++)
+      level = { name: 'a', repeatable: true, attributes: [{ name: 'b' }], blocks: [level] };
+    const component = { blocks: [level] };
+    const work = (n: number) => {
+      const counter = { tried: 0 };
+      expect(resolveBindingPath(component, `${'a.'.repeat(n)}b`, counter).ok).toBe(true);
+      return counter.tried;
+    };
+    expect(work(16)).toBeLessThanOrEqual(2 * work(8) + 2);
+  });
+
+  it('overlays many nested bindings on one wide node without copying per binding', () => {
+    const n = 9_000;
+    const props: Record<string, unknown> = {
+      endpoint: Array.from({ length: n }, (_, i) => ({ url: `https://h${i}/push` })),
+    };
+    for (let i = 0; i < n; i++) props[`unknown_${i}`] = 'x';
+    const bindings = Array.from({ length: n }, (_, i) => ({
+      node: 'w',
+      prop: `endpoint[${i % 9999}].bearer_token`,
+      ref: { node: 's', export: 'data', expr: 'x.y' },
+    }));
+    const before = JSON.stringify(props);
+    const start = performance.now();
+    const r = overlayBindings(comp('prometheus.remote_write'), props, bindings);
+    expect(performance.now() - start).toBeLessThan(1000);
+    expect(r.issues).toEqual([]);
+    expect((r.props.endpoint as Record<string, unknown>[])[n - 1].bearer_token).toEqual({
+      $expr: 'x.y',
+    });
+    expect(JSON.stringify(props)).toBe(before); // the input is untouched
   });
 });
