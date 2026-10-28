@@ -12,7 +12,9 @@ collectors are not affected.
 Old and new pods do not recognise each other's sessions: an old pod looks a cookie up by its
 value, a new pod by its digest. While both run, a user whose requests reach the other kind of pod
 may be sent back to the sign-in page; this stops once the rollout completes. Signing in again
-after the rollout is enough.
+after the rollout is enough. Until the last old pod is gone, an old pod would also accept a value
+copied out of the session table as a cookie, and the rows old pods write are keyed by the cookie
+value until they expire (`auth.session_ttl`), so keep the rollout short.
 
 ### Rolling back
 
