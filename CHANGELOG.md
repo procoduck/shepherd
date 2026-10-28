@@ -56,6 +56,23 @@ Categories used here:
   URL is the first TLS host that is not a wildcard, else the first non-wildcard host, else the
   in-cluster URL. NodePort, LoadBalancer and port-forward instructions now spell out the `http://`
   URL to open. Chart notes only: no rendered object changes. (#425)
+- **Undo straight after opening a visual pipeline no longer empties the canvas.** Shipped.
+  Loading a saved pipeline left the step from the empty canvas to the loaded graph in the undo
+  history, so Cmd/Ctrl+Z on a pipeline nobody had edited removed every node and wire and marked
+  the graph changed. Opening, importing, reloading or switching to a pipeline, and restoring a
+  draft, now start a fresh history: undo at load does nothing, and undoing back to the loaded
+  graph after an edit leaves it unchanged again.
+- **The sandbox run-window note no longer names a component the sandbox removes.** Shipped. A run
+  was extended "so the 60s poll frequency of remote.kubernetes.secret … runs twice", but the
+  sandbox transform removes every secret source (`remote.*`, `local.file`) before the run, so that
+  poll never happens there. The run window now skips every component the transform stubs or
+  removes, read from the same policy the transform uses.
+- **`shepherd admin tenant-preflight` names a pipeline whose text does not parse as that.**
+  Shipped. A stored pipeline that does not parse was reported as "pinned import.git cannot be
+  inlined: the text does not parse", with the hint to assign the tenant to the organisation. The
+  preflight (and the strict-mode switch that runs it) now says "the pipeline text does not parse:
+  <the parser's error>" with the hint "fix the pipeline text". Serving still leaves such a
+  pipeline out under strict tenant mode, and the reason in the served header is unchanged.
 
 ### Changed
 

@@ -292,6 +292,35 @@ var _ = Describe("CheckRequireOwned", Label("integration"), func() {
 			Not(ContainSubstring("assign the tenant")), Not(ContainSubstring("ask an application administrator"))))
 	})
 
+	// v0.21.0 final walkthrough: a stored pipeline whose text does not parse
+	// was reported as "pinned import.git cannot be inlined: the text does not
+	// parse", with the hint to assign the tenant. It is its own finding: the
+	// parser's error, and the one fix that applies.
+	It("reports a pipeline whose text does not parse as that, with its own fix", func() {
+		const broken = "loki.write \"w\" {\n  endpoint {\n    url = \"https://loki.example.com\"\n"
+		_, err := st.Queries.CreatePipeline(ctx, sqlc.CreatePipelineParams{
+			OrgID: org.ID, Name: "broken", Contents: broken, Matchers: json.RawMessage(`[]`), Source: "ui", Enabled: true,
+		})
+		Expect(err).NotTo(HaveOccurred())
+		vs, err := tenancy.Preflight(ctx, st.Queries, org, false, pinnedimport.Cached)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(vs).To(HaveLen(1))
+		Expect(vs[0].Message).To(And(
+			MatchRegexp(`\(the pipeline text does not parse: \d+:\d+: [^;\n]+\)`),
+			HaveSuffix("— fix the pipeline text"),
+			Not(ContainSubstring("pinned import.git")), Not(ContainSubstring("assign the tenant"))))
+
+		// Serving still excludes it (fail closed), with the reason it has
+		// always carried in the served header.
+		p, err := tenancy.Load(ctx, st.Queries, org.ID, true)
+		Expect(err).NotTo(HaveOccurred())
+		msgs, err := tenancy.LintPipeline(ctx, st.Queries, p, pinnedimport.Cached, broken)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(msgs).To(ConsistOf(HavePrefix("1:1 the pipeline cannot be built in the form strict tenant mode serves " +
+			"(pinned modules inlined, __tenant_id__ dropped after labelmaps and otelcol.exporter.loki): " +
+			"pinned import.git cannot be inlined: the text does not parse: ")))
+	})
+
 	// #421: the admin-allowed components are part of the policy every check
 	// loads — the save, the preflight, the in-transaction lint and the
 	// removal guard.

@@ -579,18 +579,27 @@ export const useVisualStore = create<VisualStore>()(
           return { doc, diagnostics: revalidate({ ...state, doc }) };
         }),
 
-      importGraph: (doc) =>
+      // Loading a document replaces it wholesale, so it starts a fresh undo
+      // history (v0.21.0 final walkthrough): left in, the step from whatever
+      // was on the canvas before — the empty graph a saved pipeline loads
+      // over — was the first thing Cmd/Ctrl+Z undid, wiping the canvas and
+      // enabling Save on a pipeline nobody had edited.
+      importGraph: (doc) => {
         set((state) => ({
           doc,
           importSeq: state.importSeq + 1,
           diagnostics: revalidate({ ...state, doc }),
           savedFingerprint: docFingerprint(doc),
-        })),
+        }));
+        useVisualStore.temporal.getState().clear();
+      },
 
       markSaved: () => set({ savedFingerprint: docFingerprint(get().doc) }),
       isDirty: () => docFingerprint(get().doc) !== get().savedFingerprint,
 
-      resetDoc: () =>
+      // Same as importGraph: a reset (switching pipelines, reloading from the
+      // server) is a new document, with no history from the previous one.
+      resetDoc: () => {
         set({
           doc: makeDefaultDoc(currentSchemaVersion(get().schema) ?? ''),
           savedFingerprint: docFingerprint(
@@ -603,7 +612,9 @@ export const useVisualStore = create<VisualStore>()(
           pipelineRevision: 0,
           pipelineCanEdit: false,
           simHealthByNode: null,
-        }),
+        });
+        useVisualStore.temporal.getState().clear();
+      },
 
       removeEdge: (id) =>
         set((state) => {

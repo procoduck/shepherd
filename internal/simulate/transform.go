@@ -439,7 +439,7 @@ func applyStubs(doc *visual.GraphDocument, req TransformRequest) ([]Rewrite, Tra
 		if policy.Category != categorySources {
 			continue
 		}
-		if policy.Stub == nil {
+		if !policy.stubbed() {
 			// A discovery.*/loki.source.* node with no stub fails closed: its
 			// whole purpose is producing targets or log lines for a downstream
 			// pipeline, and §6.4 already gives its author a real answer — S2's
@@ -861,7 +861,7 @@ func substituteRemovedRefs(doc *visual.GraphDocument, req TransformRequest) ([]R
 
 	for _, n := range doc.Nodes {
 		policy := req.Policy.Components[n.Component]
-		if policy.SecretSource == nil {
+		if !policy.removedSecretSource() {
 			continue
 		}
 		removed = append(removed, removedSource{

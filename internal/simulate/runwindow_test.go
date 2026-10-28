@@ -165,7 +165,7 @@ otelcol.exporter.otlp "o" {
 			Expect(got).To(BeEmpty())
 		})
 
-		It("counts a connector's flush interval and a remote poll frequency", func() {
+		It("counts a connector's flush interval", func() {
 			got := pipelineIntervals(`
 otelcol.connector.spanmetrics "s" {
   histogram {
@@ -173,15 +173,46 @@ otelcol.connector.spanmetrics "s" {
   }
   output {}
 }
+`)
+			Expect(got).To(ConsistOf(
+				simulate.RunInterval{Component: "otelcol.connector.spanmetrics", Label: "s", Attribute: "metrics_flush_interval", Interval: time.Minute},
+			))
+		})
+
+		// v0.21.0 final walkthrough: a graph with remote.kubernetes.secret got
+		// "Extended to 2m so the 60s poll frequency of remote.kubernetes.secret
+		// ... runs twice", but the transform removes every secret source before
+		// the sandbox loads the config, so that poll never happens.
+		It("skips every secret source the sandbox transform removes", func() {
+			got := pipelineIntervals(`
+remote.kubernetes.secret "creds" {
+  namespace = "monitoring"
+  name = "creds"
+  poll_frequency = "5m"
+}
+remote.kubernetes.configmap "cm" {
+  namespace = "monitoring"
+  name = "cm"
+}
 remote.http "cfg" {
   url = "http://localhost:1/x"
   poll_frequency = "5m"
 }
+remote.s3 "s" {
+  path = "s3://bucket/key"
+}
+remote.vault "v" {
+  server = "https://vault.example:8200"
+  path = "secret/x"
+  reread_frequency = "10m"
+}
+local.file "token" {
+  filename = "/var/run/secrets/token"
+  is_secret = true
+  poll_frequency = "3m"
+}
 `)
-			Expect(got).To(ConsistOf(
-				simulate.RunInterval{Component: "otelcol.connector.spanmetrics", Label: "s", Attribute: "metrics_flush_interval", Interval: time.Minute},
-				simulate.RunInterval{Component: "remote.http", Label: "cfg", Attribute: "poll_frequency", Interval: 5 * time.Minute},
-			))
+			Expect(got).To(BeEmpty())
 		})
 
 		It("reads components inside a declare", func() {
@@ -209,6 +240,30 @@ declare "inner" {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(w.Duration).To(Equal(2 * time.Minute))
 		Expect(w.Note).To(Equal(`Extended to 2m so the 60s scrape interval of prometheus.scrape "x" runs twice.`))
+	})
+
+	It("RunWindowFor names nothing the sandbox removes: the walkthrough's secret-bound remote_write", func() {
+		doc := visual.GraphDocument{
+			Kind: "alloy-graph/v1", SchemaVersion: version.AlloySchemaVersion,
+			Nodes: []visual.GraphNode{
+				{ID: "n1", Component: "remote.kubernetes.secret", Label: "creds", Props: map[string]any{
+					"namespace": "monitoring", "name": "creds",
+				}},
+				{ID: "n2", Component: "prometheus.remote_write", Label: "sink", Props: map[string]any{
+					"endpoint": []any{map[string]any{
+						"url": "https://prometheus.example.com/api/v1/write",
+						"basic_auth": map[string]any{
+							"username": "u",
+							"password": map[string]any{"$expr": `remote.kubernetes.secret.creds.data["password"]`},
+						},
+					}},
+				}},
+			},
+		}
+		w, err := simulate.RunWindowFor(doc, mergedShippedSchema(), 30*time.Second, ceiling)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(w.Note).NotTo(ContainSubstring("remote.kubernetes.secret"))
+		Expect(w).To(Equal(simulate.RunWindow{Duration: 30 * time.Second}))
 	})
 })
 
