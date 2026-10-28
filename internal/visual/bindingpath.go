@@ -248,7 +248,7 @@ func (c *copyOnWrite) ownMap(m map[string]interface{}) map[string]interface{} {
 	if m != nil && c.owned[reflect.ValueOf(m).Pointer()] {
 		return m
 	}
-	out := make(map[string]interface{}, len(m)+1)
+	out := make(map[string]interface{}, len(m))
 	for k, v := range m {
 		out[k] = v
 	}
