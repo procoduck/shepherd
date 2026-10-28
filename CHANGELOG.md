@@ -13,6 +13,19 @@ Categories used here:
 
 ## Unreleased
 
+### Changed
+
+- **Shipped — database query logs omit bound parameters.** When a query fails, the server's log
+  line names the statement, the error and the timing, but no longer lists the values bound to
+  it. The error text itself is logged as before, and some database errors quote the offending
+  value.
+- **Shipped — read-only validation in a strict org reads pinned modules from the cache.**
+  `ValidatePipeline` fetches an uncached `import.git` module only for a caller who could save
+  the pipeline: an org editor or above, or a member of a team allowed to write one of the org's
+  pipelines. For anyone else, an org viewer for example, a cached module is linted as before (without
+  marking it recently used), and one not cached yet is reported as not fetched instead of being
+  fetched.
+
 ## v0.21.1
 
 Chart 0.25.1, released 2026-10-28. A patch on top of v0.21.0: dependency updates (one of them a

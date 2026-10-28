@@ -13,6 +13,10 @@ import (
 	"shepherd/internal/store/sqlc"
 )
 
+// tracelogArgsKey is the trace-data key under which pgx's tracelog reports a
+// statement's bound query arguments (Query and BatchQuery records).
+const tracelogArgsKey = "args"
+
 // Store wraps the sqlc Queries with a pgxpool connection pool.
 type Store struct {
 	pool    *pgxpool.Pool
@@ -33,6 +37,13 @@ func New(ctx context.Context, cfg *config.DatabaseConfig, loggers ...*slog.Logge
 	poolCfg.ConnConfig.Tracer = &tracelog.TraceLog{Logger: tracelog.LoggerFunc(func(ctx context.Context, level tracelog.LogLevel, msg string, data map[string]any) {
 		args := make([]any, 0, len(data)*2)
 		for key, value := range data {
+			// pgx puts a statement's bound parameters under "args", raw:
+			// session ids, emails, password hashes. Never forward them. (An
+			// "err" can still quote one value, e.g. Postgres's invalid-input
+			// messages.)
+			if key == tracelogArgsKey {
+				continue
+			}
 			args = append(args, key, value)
 		}
 		switch level {

@@ -291,8 +291,9 @@ func (p Policy) Check(tenant string) error {
 // Validation is the policy as the validation gate takes it
 // (validate.ValidatePipeline's tenant lint), reading pinned import.git
 // modules from src through q: pinnedimport.Resolver.Saving() for a save or
-// a validation, .Preflight() for a check of what is stored, and
-// pinnedimport.Cached inside a write transaction.
+// a validation by a caller who could save, .Preflight() for a check of what
+// is stored, and pinnedimport.Cached inside a write transaction or for a
+// read-only validation.
 func (p Policy) Validation(q *sqlc.Queries, src pinnedimport.Source) validate.TenantPolicy {
 	if !p.Strict {
 		return validate.TenantPolicy{}
