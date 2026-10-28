@@ -98,6 +98,9 @@ func NewServing(q *sqlc.Queries, p tenancy.Policy) *Serving {
 	for _, h := range p.GatewayHosts {
 		b.WriteString("h" + h + "\x00")
 	}
+	if p.RoutesInUse {
+		b.WriteString("u\x00")
+	}
 	for _, r := range p.Routes {
 		b.WriteString("g" + r.Kind + "\x00" + r.Segment + "\x00" + r.Tenant + "\x00" + r.Status + "\x00")
 	}

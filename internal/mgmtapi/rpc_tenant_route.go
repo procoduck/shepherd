@@ -67,11 +67,22 @@ func WithTenantRouteRecompute(recompute func(ctx context.Context, orgID pgtype.U
 }
 
 // markRoutesChanged marks orgID's served configs dirty in q's transaction:
-// strict tenant mode's verdict on an endpoint at the gateway depends on the
-// org's routes (validate.GatewayRoutes).
-func markRoutesChanged(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID) error {
+// strict tenant mode's verdict on an endpoint depends on the org's routes
+// (validate.GatewayRoutes). wasInUse is whether the installation had a live
+// route before the write: when that changes, every org's verdict on an
+// endpoint the lint cannot read changes, so every served config is marked.
+func markRoutesChanged(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, wasInUse bool) error {
 	if err := q.MarkServeCacheDirtyByOrg(ctx, orgID); err != nil {
 		return fmt.Errorf("marking the org's served configs for recompute: %w", err)
+	}
+	inUse, err := q.AnyLiveTenantRoute(ctx)
+	if err != nil {
+		return fmt.Errorf("checking for live tenant routes: %w", err)
+	}
+	if inUse != wasInUse {
+		if err := q.MarkServeCacheDirtyAll(ctx); err != nil {
+			return fmt.Errorf("marking every served config for recompute: %w", err)
+		}
 	}
 	return nil
 }
@@ -342,6 +353,10 @@ func (s *TenantRouteService) CreateTenantRoute(ctx context.Context, req *connect
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to mint a tenant route segment"))
 	}
 
+	wasInUse, err := txQ.AnyLiveTenantRoute(ctx)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to create tenant route"))
+	}
 	r, err := txQ.CreateTenantRoute(ctx, sqlc.CreateTenantRouteParams{
 		OrgID:            orgID,
 		TenantID:         tenantID,
@@ -365,7 +380,7 @@ func (s *TenantRouteService) CreateTenantRoute(ctx context.Context, req *connect
 		}
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to create tenant route"))
 	}
-	if err := markRoutesChanged(ctx, txQ, orgID); err != nil {
+	if err := markRoutesChanged(ctx, txQ, orgID, wasInUse); err != nil {
 		s.logger.Error("creating tenant route", "err", err)
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to create tenant route"))
 	}
@@ -488,7 +503,7 @@ func (s *TenantRouteService) RotateTenantRoute(ctx context.Context, req *connect
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to create rotated tenant route"))
 	}
-	if err := markRoutesChanged(ctx, txQueries, current.OrgID); err != nil {
+	if err := markRoutesChanged(ctx, txQueries, current.OrgID, true); err != nil {
 		s.logger.Error("rotating tenant route", "err", err)
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to commit rotation"))
 	}
@@ -524,11 +539,15 @@ func (s *TenantRouteService) RevokeTenantRoute(ctx context.Context, req *connect
 	}
 	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck // no-op once committed
 	txQ := s.store.Queries.WithTx(tx)
+	wasInUse, err := txQ.AnyLiveTenantRoute(ctx)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to revoke tenant route"))
+	}
 	r, err := txQ.RevokeTenantRoute(ctx, owned.ID)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to revoke tenant route"))
 	}
-	if err := markRoutesChanged(ctx, txQ, r.OrgID); err != nil {
+	if err := markRoutesChanged(ctx, txQ, r.OrgID, wasInUse); err != nil {
 		s.logger.Error("revoking tenant route", "err", err)
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to revoke tenant route"))
 	}

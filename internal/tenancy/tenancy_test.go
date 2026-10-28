@@ -370,11 +370,13 @@ var _ = Describe("gateway route endpoints in the policy", Label("integration"), 
 		p, err := tenancy.Load(ctx, st.Queries, org.ID, true)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(p.GatewayHosts).To(Equal([]string{"gw.example.com"}))
+		Expect(p.RoutesInUse).To(BeTrue(), "the installation has live routes")
 		Expect(p.OwnsRoute("otlp", own.Segment)).To(BeTrue())
 		Expect(p.OwnsRoute("faro", own.Segment)).To(BeFalse())
 		Expect(p.OwnsRoute("otlp", foreign.Segment)).To(BeFalse())
 		g := p.Validation(st.Queries, pinnedimport.Cached).Gateway
 		Expect(g.Hosts).To(Equal([]string{"gw.example.com"}))
+		Expect(g.RoutesInUse).To(BeTrue())
 		Expect(g.Owns("otlp", own.Segment)).To(BeTrue())
 
 		// A deprecated route still routes during its overlap; a revoked one does not.
@@ -420,13 +422,24 @@ var _ = Describe("gateway route endpoints in the policy", Label("integration"), 
 		Expect(err).NotTo(HaveOccurred())
 		Expect(orphans).To(ConsistOf(ContainSubstring(`pipeline "foreign"`)))
 
-		// No gateway host configured: nothing to check.
+		// No gateway host configured: another org's segment is still refused,
+		// on any host.
 		restore, err := tenancy.SetGatewayHosts(nil)
 		Expect(err).NotTo(HaveOccurred())
 		defer restore()
 		vs, err = tenancy.Preflight(ctx, st.Queries, org, false, pinnedimport.Cached)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(vs).To(BeEmpty())
+		Expect(vs).To(ConsistOf(HaveField("Name", "foreign")))
+		// An endpoint the lint cannot read is refused while the installation
+		// has a live route, and not once none is left.
+		computed := "otelcol.exporter.otlphttp \"o\" {\n  client {\n    endpoint = sys.env(\"EP\")\n  }\n}\n"
+		Expect(tenancy.LintLocked(ctx, st.Queries, org.ID, true, tenancy.Pipeline{Name: "computed", Contents: computed})).
+			To(MatchError(ContainSubstring(validate.GatewayEndpointRefusal)))
+		for _, r := range []sqlc.TenantRoute{own, foreign} {
+			_, err = st.Queries.RevokeTenantRoute(ctx, r.ID)
+			Expect(err).NotTo(HaveOccurred())
+		}
+		Expect(tenancy.LintLocked(ctx, st.Queries, org.ID, true, tenancy.Pipeline{Name: "computed", Contents: computed})).To(Succeed())
 	})
 
 	It("takes the gateway's hosts from the configuration, refusing one that is not a host", func() {

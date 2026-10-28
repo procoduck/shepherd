@@ -8,6 +8,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	"shepherd/internal/gateway"
 	"shepherd/internal/schema"
 	"shepherd/internal/validate"
 )
@@ -73,16 +74,66 @@ var _ = Describe("strict tenant mode checks gateway route endpoints", func() {
 		}
 	})
 
-	It("accepts endpoints on any other host, whatever their path", func() {
+	It("accepts endpoints on any other host whose path is under no tenant route, vendors' OTLP paths included", func() {
 		for _, src := range []string{
-			otlphttp(q("https://otlp.example.net/otlp/" + otherOTLP)),
 			gwLokiWrite(q("http://loki:3100/loki/api/v1/push")),
-			otlphttp(q("https://gw.example.com.evil.example/otlp/" + otherOTLP)),
-			otlphttp(q("https://xgw.example.com/otlp/" + otherOTLP)),
+			otlphttp(q("https://gw.example.com.example.net/v1/traces")),
+			otlphttp(q("https://otlp-gateway-prod-eu-west-2.grafana.net/otlp")),
+			otlphttp(q("https://otlp-gateway-prod-eu-west-2.grafana.net/otlp/")),
+			otlphttp(q("https://otlp-gateway-prod-eu-west-2.grafana.net/otlp/v1/traces")),
+			otlphttp(q("https://ingress.eu2.coralogix.com/otlp/v1/logs")),
+			otlphttp(q("https://api.honeycomb.io/v1/traces")),
+			otlphttp(q("https://otlp.nr-data.net:4318/v1/logs")),
+			otlphttp(q("https://otlp.eu01.nr-data.net")),
+			otlphttp(q("https://example.observe.example/v2/otel")),
+			otlphttp(q("http://collector:4318/faro")),
+			"otelcol.exporter.faro \"f\" {\n  client {\n    endpoint = \"https://faro-collector-prod-eu-west-2.grafana.net/collect/abc123\"\n  }\n}\n",
 			"otelcol.exporter.otlp \"g\" {\n  client {\n    endpoint = \"tempo:4317\"\n  }\n}\n",
 		} {
 			Expect(validate.TenantLint(src, gatewayPolicy())).To(BeEmpty(), src)
 		}
+	})
+
+	// Segments are unique across the installation, and the routes name no
+	// host: the rule holds however the gateway is reached.
+	It("refuses another org's route segment on any host, without a gateway host configured", func() {
+		noHosts := gatewayPolicy()
+		noHosts.Gateway.Hosts = nil
+		for _, ep := range []string{
+			"https://203.0.113.7/otlp/" + otherOTLP,
+			"https://cdn.example.net/otlp/" + otherOTLP + "/v1/logs",
+			"http://10.0.0.5:4318/faro/" + otherOTLP + "/collect",
+			"https://cdn.example.net/otlp/" + ownFaro,
+			"https://cdn.example.net/OTLP/GLOBEX-9Z8Y7X6W",
+			"https://cdn.example.net//otlp/" + otherOTLP,
+			"https://cdn.example.net/v1/../otlp/" + otherOTLP,
+			"https://cdn.example.net/otlp/%67lobex-9z8y7x6w",
+			"cdn.example.net:4318/otlp/" + otherOTLP,
+		} {
+			Expect(gatewayRefusals(otlphttp(q(ep)), noHosts)).To(HaveLen(1), ep)
+		}
+		for _, ep := range []string{
+			"https://203.0.113.7/otlp/" + ownOTLP + "/v1/logs",
+			"https://203.0.113.7/faro/" + ownFaro + "/collect",
+			"https://203.0.113.7/otlp/v1/logs",
+			"https://203.0.113.7/otlp/ab/v1/logs",
+		} {
+			Expect(validate.TenantLint(otlphttp(q(ep)), noHosts)).To(BeEmpty(), ep)
+		}
+	})
+
+	It("refuses a Host header naming the gateway, in any case, and one it cannot read", func() {
+		hdr := func(h string) string {
+			return "otelcol.exporter.otlphttp \"o\" {\n  client {\n    endpoint = \"https://203.0.113.7/v1/logs\"\n" +
+				"    headers  = { " + h + " }\n  }\n}\n"
+		}
+		for _, h := range []string{
+			`"Host" = "gw.example.com"`, `host = "GW.example.com:443"`, `":authority" = "gw.example.com"`,
+			`"HOST" = sys.env("H")`,
+		} {
+			Expect(gatewayRefusals(hdr(h), gatewayPolicy())).To(HaveLen(1), h)
+		}
+		Expect(validate.TenantLint(hdr(`"Host" = "otlp.example.net"`), gatewayPolicy())).To(BeEmpty())
 	})
 
 	It("refuses an endpoint under another org's route, a route of the other kind, or no route at all", func() {
@@ -150,20 +201,33 @@ var _ = Describe("strict tenant mode checks gateway route endpoints", func() {
 		}
 	})
 
-	It("refuses an endpoint it cannot read unless what it can read proves the host is not the gateway", func() {
+	// An unread path may add any element, ".." included, so only a literal
+	// start that completes the path proves it. Refused whenever the
+	// installation has a live route or a gateway host is configured.
+	It("refuses an endpoint it cannot read unless its literal start completes the path", func() {
+		routesOnly := gatewayPolicy()
+		routesOnly.Gateway.Hosts = nil
+		routesOnly.Gateway.RoutesInUse = true
 		for _, v := range []string{
 			`sys.env("OTLP_ENDPOINT")`,
 			`"https://" + sys.env("HOST") + "/otlp/` + ownOTLP + `"`,
 			`"https://gw.example.com/otlp/" + sys.env("SEGMENT")`,
 			`"https://gw.example.com" + sys.env("PATH")`,
+			`"https://otlp.example.net/" + sys.env("PATH")`,
+			`"https://gw.example.com/otlp/` + ownOTLP + `/" + sys.env("PATH")`,
 			`local.file.endpoint.content`,
 			`remote.http.ep.content`,
 		} {
 			Expect(gatewayRefusals(otlphttp(v), gatewayPolicy())).To(HaveLen(1), v)
+			Expect(gatewayRefusals(otlphttp(v), routesOnly)).To(HaveLen(1), v)
 		}
-		Expect(validate.TenantLint(otlphttp(`"https://otlp.example.net/" + sys.env("PATH")`), gatewayPolicy())).To(BeEmpty())
-		Expect(validate.TenantLint(otlphttp(`"https://gw.example.com/otlp/`+ownOTLP+`/" + sys.env("PATH")`), gatewayPolicy())).
-			To(BeEmpty(), "the route segment is fixed once the path has gone past it")
+		Expect(validate.TenantLint(otlphttp(`"https://otlp.example.net/v1/logs?key=" + sys.env("KEY")`), routesOnly)).To(BeEmpty())
+		Expect(gatewayRefusals(otlphttp(`"https://cdn.example.net/otlp/`+otherOTLP+`?key=" + sys.env("KEY")`), routesOnly)).
+			To(HaveLen(1), "a completed path is still checked")
+		// No live route and no gateway host: nothing can route by segment.
+		none := gatewayPolicy()
+		none.Gateway.Hosts = nil
+		Expect(validate.TenantLint(otlphttp(`sys.env("OTLP_ENDPOINT")`), none)).To(BeEmpty())
 	})
 
 	It("follows declare and module arguments to literals, as for tenants", func() {
@@ -236,15 +300,25 @@ var _ = Describe("strict tenant mode checks gateway route endpoints", func() {
 		}
 	})
 
-	It("checks nothing when no gateway host is configured, and nothing outside strict mode", func() {
+	It("checks only literal route segments with no gateway host and no live route, and nothing outside strict mode", func() {
+		Expect(gatewayRefusals(otlphttp(q("https://gw.example.com/otlp/"+otherOTLP)), strictFor())).To(HaveLen(1))
+		Expect(validate.TenantLint(otlphttp(`sys.env("OTLP_ENDPOINT")`), strictFor())).To(BeEmpty())
 		for _, src := range []string{
 			otlphttp(q("https://gw.example.com/otlp/" + otherOTLP)),
 			otlphttp(`sys.env("OTLP_ENDPOINT")`),
 		} {
-			Expect(validate.TenantLint(src, strictFor())).To(BeEmpty(), src)
 			p := gatewayPolicy()
 			p.Strict = false
 			Expect(validate.TenantLint(src, p)).To(BeEmpty(), src)
+		}
+	})
+
+	It("shares gateway.ValidateSegment's segment shape", func() {
+		for _, seg := range []string{
+			ownOTLP, otherOTLP, "abc", "v1", "ab", "a-b", "-ab", "ab-", "a--b", "ABC", "a_b",
+			strings.Repeat("a", 63), strings.Repeat("a", 64), "acme.x",
+		} {
+			Expect(validate.IsRouteSegmentShape(seg)).To(Equal(gateway.ValidateSegment(seg) == nil), seg)
 		}
 	})
 

@@ -33,11 +33,26 @@ type fakeStore struct {
 	writes  int
 	listErr error
 	// dirtied is every org whose served configs were marked dirty.
-	dirtied []pgtype.UUID
+	dirtied    []pgtype.UUID
+	dirtiedAll int
 }
 
 func (f *fakeStore) MarkServeCacheDirtyByOrg(_ context.Context, orgID pgtype.UUID) error {
 	f.dirtied = append(f.dirtied, orgID)
+	return nil
+}
+
+func (f *fakeStore) AnyLiveTenantRoute(context.Context) (bool, error) {
+	for i := range f.rows {
+		if f.rows[i].Status != "revoked" {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (f *fakeStore) MarkServeCacheDirtyAll(context.Context) error {
+	f.dirtiedAll++
 	return nil
 }
 
@@ -246,6 +261,7 @@ var _ = Describe("Reconciler", func() {
 		// Strict tenant mode checks gateway route endpoints against the
 		// org's routes: its served configs are recomputed on the next poll.
 		Expect(st.dirtied).To(ConsistOf(row.OrgID))
+		Expect(st.dirtiedAll).To(Equal(1), "the last live route: every served config")
 	})
 
 	It("removes a revoked route's HTTPRoute, and does not rewrite the row once removed", func() {

@@ -783,53 +783,70 @@ YAML decoding — and has no `query_response`; `config_file` is refused.
 **Gateway route endpoints (`gateway_endpoints`).** Shepherd's tenant routes set the tenant
 themselves: the gateway sends a request under `/{kind}/{segment}` on with the route tenant's
 `X-Scope-OrgID`, whatever the request carried (`gateway.RenderHTTPRoute`, its `PathPrefix` match).
-So in strict mode every endpoint whose host is one of the gateway's hosts must be under one of the
-org's own routes: `/otlp/<segment>` or `/faro/<segment>` (the first two path elements, matched
-element by element and case-sensitively, as the route's prefix match is: `/otlp/<segment>`,
-`/otlp/<segment>/` and `/otlp/<segment>/v1/logs` are under it, `/otlp/<segment>x` is not) of a
-route of that kind of the org (`tenant_routes.org_id`) that still routes — active, or deprecated
-(its rotation overlap, until it is revoked); revoked is not — and whose tenant the org owns
-(`tenancy.Policy.OwnsRoute`; a segment is unique per kind and never reused, 0009). Anything else
-on the gateway is refused: another org's route, a route of the other kind, no route, a gRPC
-target (no path), and a path not written plainly (percent-encoding, a backslash, an empty, `.` or
-`..` segment), since a gateway may normalise it to another route. The gateway's hosts are
-`gateway.routes.public_base_url`'s host and `gateway.routes.hosts`
-(`SHEPHERD_GATEWAY_ROUTES_HOSTS`, comma-separated: further names and addresses the gateway answers
-to, such as its in-cluster Service name), set once per process (`tenancy.ConfigureGateway`, at
-server start and in the CLI commands that check pipelines; a value that is not a host refuses to
-start). **With no host configured, no endpoint is checked**: the lint cannot know which host
-serves the routes. Hosts are compared by name as a client connects: lower case, trailing dots
-dropped, an IDN in its ASCII (lookup) form, percent-encoding decoded, IPv6 zones dropped,
-IPv4-mapped IPv6 and the numeric forms `inet_aton` reads (`10.0.0.05`, `167772165`, `0xa.0.0.5`)
-as the address, on every port, userinfo ignored. Names that resolve to the gateway but are not
-listed are not known to the lint; list every one.
-Which attributes are endpoints is read from every shipped schema
+The routes name no host, so the gateway routes such a request however it is reached — an address,
+another load balancer's name, a `Host` header. Segments are unique per kind across the installation
+and never reused (0009: `UNIQUE (kind, segment)` over every row), so the rule is on the path, on
+**every host**: in strict mode every endpoint whose path's first two elements are `otlp` or `faro`
+and a string with a route segment's shape (`validate.IsRouteSegmentShape`, pinned to
+`gateway.ValidateSegment`: 3–63 lower-case alphanumerics in single-hyphen runs) must be under one
+of the org's own routes — a route of that kind of the org (`tenant_routes.org_id`) that still
+routes (active, or deprecated during its rotation overlap until it is revoked; revoked is not) and
+whose tenant the org owns (`tenancy.Policy.OwnsRoute`). The path is read in every form a gateway
+may read it in (`foreignRoute`): percent-decoded, with backslashes as slashes, with empty, `.` and
+`..` segments resolved, and case-folded; matched element by element as the prefix match is
+(`/otlp/<segment>`, `/otlp/<segment>/` and `/otlp/<segment>/v1/logs` are under it,
+`/otlp/<segment>x` is not). Paths that cannot be a route pass on any host: Grafana Cloud's
+`/otlp` and `/otlp/v1/…` (`v1` is shorter than a segment), `/v1/traces` and other vendors' OTLP
+paths (a spec lists them).
+
+**The gateway's hosts** add a stricter rule there. They are `gateway.routes.public_base_url`'s
+host and `gateway.routes.hosts` (`SHEPHERD_GATEWAY_ROUTES_HOSTS`, comma-separated: further names
+and addresses, such as the gateway's in-cluster Service name), set once per process
+(`tenancy.ConfigureGateway`: at server start, in `admin tenant-preflight`,
+`admin rerender-destinations` and the `dev` commands; a value that is not a host refuses to
+start). They are an extra, not the basis of the check. On a configured host every endpoint must be
+under one of the org's routes, written plainly (no percent-encoding, backslash, empty, `.` or `..`
+segment); a gRPC target (no path) and anything else is refused. A `proxy_url` on it is refused (its
+routes are not a proxy), a `site`/`universe_domain` when a gateway host is it or under it, a `Host`
+or `:authority` request header (any case) naming it, or one the lint cannot read, and a blackbox
+`config` naming it in any key or string. Hosts are compared by name as a client connects: lower
+case, trailing dots dropped, an IDN in its ASCII (lookup) form, percent-encoding decoded, IPv6
+zones dropped, IPv4-mapped IPv6 and the numeric forms `inet_aton` reads (`10.0.0.05`,
+`167772165`, `0xa.0.0.5`) as the address, on every port, userinfo ignored.
+
+**Values the lint cannot read.** A function call (`sys.env`), a component export (`local.file`,
+`remote.*`), a value a declare is given in a `foreach` template: the lint cannot read the path, so
+it cannot prove no foreign segment. Such an endpoint is refused **when the installation has a live
+tenant route or a gateway host is configured** (`GatewayRoutes.RoutesInUse`, `tenancy.Policy`
+from `AnyLiveTenantRoute`), unless it is a concatenation whose literal start completes the whole
+path — an `http(s)` URL whose path is followed by `?` or `#` in the literal part — and that URL
+passes. A literal start that stops inside the path proves nothing: what follows may add any
+element, `..` included. With no live route and no gateway host nothing can route by segment, and
+only literal paths are checked. The installation's first live route, and its last revoke (by the
+API or by `internal/routeapply` when a rotation overlap ends), therefore mark every served config
+dirty. Declare and module arguments are followed to their literals exactly as tenants are
+(`resolve`). Blackbox `targets` must then be a literal list of object literals; each `address`
+is checked, as is every string of a blackbox `config`.
+
+**Which attributes are endpoints** is read from every shipped schema
 (`validate.SchemaEndpointAttributes`): every string, list or secret attribute named like a URL,
 URI, endpoint, address, host, server or broker (`api_server`, Datadog's `site`,
 `universe_domain`, `connection_string` too), at any block depth, unless an exclusion with a
 reason says it is not one the component sends data to (`validate.ClassifyEndpointAttribute`:
 listen addresses, receiver paths, TLS server names, `no_proxy`, OAuth2 `token_url` (the client
 sends it only a form-encoded token request, which no OTLP or Faro route accepts; Shepherd's wizards
-read it from a Kubernetes secret), names that are identities or selectors, every
-`otelcol.receiver.*`, and protocols other than HTTP — Kafka, ZooKeeper, Redis,
-memcached, DNS, NTP, SNMP, StatsD, syslog, database connections). A spec fails when an exclusion
-matches no shipped attribute. A `proxy_url` on the gateway is refused (its routes are not a
-proxy), a `site`/`universe_domain` refused when a gateway host is it or under it, a list
-(`hostnames`) element by element, `prometheus.exporter.blackbox`'s `targets` must be a literal
-list of object literals whose `address` is checked, and its `config` may not name a gateway host
-in any key or string (as an endpoint, or as text in its ASCII or Unicode form). A value the lint
-cannot read — a function call (`sys.env`), a component export (`local.file`, `remote.*`), a value
-a declare is given in a `foreach` template — is refused unless it is a concatenation whose leading
-literal parts fix an `http(s)` authority (up to `/`, `?` or `#`) on a host that is not the
-gateway, or fix the route segment of one of the org's routes on it. Declare and module arguments
-are followed to their literals exactly as tenants are (`resolve`). The check runs wherever the lint
-walks (the top level, declares, `foreach` templates, literal `import.string` and pinned
-`import.git` modules), at save, at serve time and in the preflight; creating, rotating or revoking
-a route, and the rotation overlap ending (`internal/routeapply`), mark the org's served configs
-dirty (and the API path recomputes them), and the serve-time verdict cache is keyed by the
-gateway's hosts and the org's routes. The lint reads the URL as written; DNS and where an
-endpoint's server sends a client next are not followed. An org not in strict mode is not checked,
-and is served the same bytes with or without a gateway configured.
+read it from a Kubernetes secret; to revisit if a route kind ever accepts an arbitrary body), names
+that are identities or selectors, every `otelcol.receiver.*`, and protocols other than HTTP —
+Kafka, ZooKeeper, Redis, memcached, DNS, NTP, SNMP, StatsD, syslog, database connections). A spec
+fails when an exclusion matches no shipped attribute, and a spec pins that Shepherd's wizard
+goldens, the D6 baseline, the dev seed and the k8s-monitoring fixtures pass with a gateway
+configured and routes in use. The check runs wherever the lint walks (the top level, declares,
+`foreach` templates, literal `import.string` and pinned `import.git` modules), at save, at serve
+time and in the preflight; creating, rotating or revoking a route, and the rotation overlap ending,
+mark the org's served configs dirty (the API path recomputes them), and the serve-time verdict
+cache is keyed by the gateway's hosts, whether routes are in use, and the org's routes. DNS, and
+where an endpoint's server sends a client next, are not followed. An org not in strict mode is not
+checked, and is served the same bytes with or without a gateway configured.
 
 **Admin-allowed components (0047).** An app admin may allow a component strict mode refuses for one
 org (`AdminService.List/Add/RemoveOrgStrictComponent`; Admin → Organisations → Edit). `Add` takes a

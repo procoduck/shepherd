@@ -83,3 +83,13 @@ ON CONFLICT (collector_id) DO UPDATE SET
     last_failed_seq = EXCLUDED.last_failed_seq
 WHERE serve_cache.last_failed_seq < EXCLUDED.last_failed_seq
 RETURNING collector_id;
+
+-- name: MarkServeCacheDirtyAll :exec
+-- Every collector's served config, for a change every org's strict tenant
+-- check reads (the installation's first live tenant route, or its last).
+INSERT INTO serve_cache (collector_id, content, hash, dirty, dirty_seq)
+SELECT c.id, '', '', true, 1
+FROM collectors c
+ON CONFLICT (collector_id) DO UPDATE SET
+    dirty = true,
+    dirty_seq = serve_cache.dirty_seq + 1;

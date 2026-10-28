@@ -949,6 +949,10 @@ func (l *tenantLinter) headers(v ast.Expr, sc scope) {
 		return
 	case *ast.ObjectExpr:
 		for _, f := range e.Fields {
+			if strings.EqualFold(f.Name.Name, "host") || strings.EqualFold(f.Name.Name, ":authority") {
+				l.hostHeader(f.Value, sc)
+				continue
+			}
 			if !strings.EqualFold(f.Name.Name, tenantHeader) {
 				continue
 			}

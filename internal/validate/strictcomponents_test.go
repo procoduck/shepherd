@@ -3,6 +3,7 @@ package validate_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -295,21 +296,33 @@ var _ = Describe("strict tenant mode accepts only classified components (#421)",
 		// Strict tenant mode checks gateway route endpoints: with a gateway
 		// configured, what Shepherd itself writes (a wizard's OAuth2 token URL
 		// read from a Kubernetes secret included) still passes.
-		It("pass the gateway route endpoint check with a gateway configured", func() {
+		It("pass the gateway route endpoint check with a gateway configured and routes in use", func() {
 			p := validate.TenantPolicy{
 				Strict: true, Owns: func(string) bool { return true },
-				Gateway: validate.GatewayRoutes{Hosts: []string{"gw.example.com"}},
+				Gateway: validate.GatewayRoutes{Hosts: []string{"gw.example.com"}, RoutesInUse: true},
 			}
+			texts := map[string]string{}
 			for _, f := range files() {
 				b, err := os.ReadFile(f)
 				Expect(err).NotTo(HaveOccurred())
+				texts[f] = string(b)
+			}
+			for i, cfg := range []beacon.BaselineConfig{
+				beacon.NewBaselineConfig("https://shepherd.example.com/beacon/v1/write"),
+				beacon.NewBaselineConfigOAuth2("https://shepherd.example.com/beacon/v1/write", "https://idp.example.com/token", []string{"s"}),
+			} {
+				text, err := beacon.RenderBaselinePipeline(cfg)
+				Expect(err).NotTo(HaveOccurred())
+				texts[fmt.Sprintf("baseline %d", i)] = text
+			}
+			for name, text := range texts {
 				var refused []string
-				for _, m := range errorsOf(validate.TenantLint(string(b), p)) {
+				for _, m := range errorsOf(validate.TenantLint(text, p)) {
 					if strings.Contains(m, validate.GatewayEndpointRefusal) {
 						refused = append(refused, m)
 					}
 				}
-				Expect(refused).To(BeEmpty(), f)
+				Expect(refused).To(BeEmpty(), name)
 			}
 		})
 

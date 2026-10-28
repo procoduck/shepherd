@@ -55,6 +55,9 @@ type Policy struct {
 	// (OwnsRoute).
 	GatewayHosts []string
 	Routes       []Route
+	// RoutesInUse is whether the installation has a live tenant route: an
+	// endpoint the lint cannot read is then refused.
+	RoutesInUse bool
 }
 
 // Route is one of an org's tenant routes as strict tenant mode reads it.
@@ -193,8 +196,13 @@ func LoadOrg(ctx context.Context, q *sqlc.Queries, org sqlc.Org, requireOwned bo
 	if err != nil {
 		return Policy{}, err
 	}
+	inUse, err := q.AnyLiveTenantRoute(ctx)
+	if err != nil {
+		return Policy{}, fmt.Errorf("checking for live tenant routes: %w", err)
+	}
 	return Policy{
-		Strict: org.StrictTenants || requireOwned, OrgStrict: org.StrictTenants, Owned: Rules(rows),
+		RoutesInUse: inUse,
+		Strict:      org.StrictTenants || requireOwned, OrgStrict: org.StrictTenants, Owned: Rules(rows),
 		OrgID: org.ID, ImportRepos: repos, AllowedComponents: components,
 		GatewayHosts: GatewayHosts(), Routes: routes,
 	}, nil
@@ -264,7 +272,7 @@ func (p Policy) Validation(q *sqlc.Queries, src pinnedimport.Source) validate.Te
 	return validate.TenantPolicy{
 		Strict: true, Owns: p.Owns, Git: src.Modules(q, p.OrgID, p.ImportRepos), Inline: inliner(q, p.OrgID, p.ImportRepos),
 		AllowedComponents: componentSet(p.AllowedComponents),
-		Gateway:           validate.GatewayRoutes{Hosts: p.GatewayHosts, Owns: p.OwnsRoute},
+		Gateway:           validate.GatewayRoutes{Hosts: p.GatewayHosts, Owns: p.OwnsRoute, RoutesInUse: p.RoutesInUse},
 	}
 }
 
@@ -323,8 +331,13 @@ func Preflight(ctx context.Context, q *sqlc.Queries, org sqlc.Org, requireTenant
 	if err != nil {
 		return nil, err
 	}
+	inUse, err := q.AnyLiveTenantRoute(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("checking for live tenant routes: %w", err)
+	}
 	p := Policy{
-		Strict: true, OrgStrict: org.StrictTenants, Owned: Rules(rows), OrgID: org.ID, ImportRepos: repos,
+		RoutesInUse: inUse,
+		Strict:      true, OrgStrict: org.StrictTenants, Owned: Rules(rows), OrgID: org.ID, ImportRepos: repos,
 		AllowedComponents: components, GatewayHosts: GatewayHosts(), Routes: routes,
 	}
 	base := Violation{OrgID: org.ID.String(), OrgName: org.Name}
@@ -521,13 +534,17 @@ func OrphanedPipelines(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, 
 	if err != nil {
 		return nil, err
 	}
+	inUse, err := q.AnyLiveTenantRoute(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("checking for live tenant routes: %w", err)
+	}
 	ownsTenant := func(t string) bool { return gateway.OrgOwnsTenant(remaining, t) }
 	policy := validate.TenantPolicy{
 		Strict: true, Owns: ownsTenant,
 		Git: pinnedimport.Cached.Modules(q, orgID, repos), Inline: inliner(q, orgID, repos),
 		AllowedComponents: componentSet(components),
 		// A route whose tenant is removed is no longer one of the org's.
-		Gateway: validate.GatewayRoutes{Hosts: GatewayHosts(), Owns: routeOwner(routes, ownsTenant)},
+		Gateway: validate.GatewayRoutes{Hosts: GatewayHosts(), Owns: routeOwner(routes, ownsTenant), RoutesInUse: inUse},
 	}
 	var out []string
 	for i := range pipelines {

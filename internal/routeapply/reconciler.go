@@ -61,6 +61,11 @@ type Store interface {
 	// routes, so a route revoked here can change what its collectors are
 	// served.
 	MarkServeCacheDirtyByOrg(ctx context.Context, orgID pgtype.UUID) error
+	// AnyLiveTenantRoute and MarkServeCacheDirtyAll: when the last live
+	// route is revoked, every org's strict tenant verdict on an endpoint the
+	// lint cannot read changes, so every served config is recomputed.
+	AnyLiveTenantRoute(ctx context.Context) (bool, error)
+	MarkServeCacheDirtyAll(ctx context.Context) error
 }
 
 type backoff struct {
@@ -157,6 +162,15 @@ func (r *Reconciler) Reconcile(ctx context.Context) {
 			if err := r.store.MarkServeCacheDirtyByOrg(ctx, revoked[i].OrgID); err != nil {
 				r.logger.Error("marking the org's served configs for recompute after a route was revoked",
 					"org_id", revoked[i].OrgID.String(), "err", err)
+			}
+		}
+		if len(revoked) > 0 {
+			inUse, err := r.store.AnyLiveTenantRoute(ctx)
+			if err == nil && !inUse {
+				err = r.store.MarkServeCacheDirtyAll(ctx)
+			}
+			if err != nil {
+				r.logger.Error("marking every served config for recompute after the last route was revoked", "err", err)
 			}
 		}
 	}

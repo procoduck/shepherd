@@ -69,10 +69,13 @@ var ownSegment, otherSegment string
 
 // routeWriter is a loki.write "w" to the sink through the tenant route
 // segment, as an exporter to the gateway is written.
-func routeWriter(segment string) string {
+func routeWriter(segment string) string { return routeWriterVia("gateway", segment) }
+
+// routeWriterVia is routeWriter reaching the gateway by the name host.
+func routeWriterVia(host, segment string) string {
 	return `loki.write "w" {
   endpoint {
-    url       = "http://gateway:3100/otlp/` + segment + `/loki/api/v1/push"
+    url       = "http://` + host + `:3100/otlp/` + segment + `/loki/api/v1/push"
     tenant_id = "mine"
   }
 }
@@ -250,6 +253,12 @@ func refusedCases() map[string]refusedCase {
 		// would send it under that route's tenant, whatever tenant_id says.
 		"r-gateway-route": {
 			lokiSource("r-gateway-route", toWriter) + routeWriter(otherSegment),
+			"strict tenant mode checks gateway route endpoints",
+		},
+		// The same route reached by a name Shepherd is not told is the
+		// gateway's: the segment alone decides.
+		"r-gateway-unlisted-host": {
+			lokiSource("r-gateway-unlisted-host", toWriter) + routeWriterVia("ingress", otherSegment),
 			"strict tenant mode checks gateway route endpoints",
 		},
 	}
@@ -518,6 +527,7 @@ VALUES ('%s', '%s', %s, '["cluster=\"%s\""]'::jsonb, true, 'ui', '{}'::jsonb, 'e
 				HaveKeyWithValue("r-groups-regex", ContainElement("remotecfg")),
 				HaveKeyWithValue("r-truncate", []string{"mix"}),
 				HaveKeyWithValue("r-gateway-route", []string{"theirs"}),
+				HaveKeyWithValue("r-gateway-unlisted-host", []string{"theirs"}),
 			))
 	})
 })

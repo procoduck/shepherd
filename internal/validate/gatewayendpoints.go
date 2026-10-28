@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"net/netip"
 	"net/url"
+	pathpkg "path"
 	"regexp"
 	"sort"
 	"strconv"
@@ -23,14 +24,21 @@ import (
 // routes (internal/gateway: RenderHTTPRoute, PathPrefix) set the tenant
 // themselves: a request to the gateway under /otlp/<segment> or
 // /faro/<segment> is sent on with the X-Scope-OrgID of the route's tenant,
-// whatever the request carried. So in a strict org every endpoint whose host
-// is the gateway must be under one of the org's own routes, and an endpoint
-// the lint cannot read is refused unless what it can read proves the host is
-// not the gateway.
+// whatever the request carried. The routes name no host, so the gateway
+// routes such a request however it is reached (an address, another name, a
+// Host header). Segments are unique across the installation and never reused
+// (0009_tenant_routes: UNIQUE (kind, segment)), so the rule does not depend
+// on the host: in a strict org every endpoint, on any host, whose path is
+// under a route kind and a string with a route segment's shape must be under
+// one of the org's own routes (foreignRoute).
 //
-// The gateway's hosts are configured (gateway.routes.public_base_url's host
-// and gateway.routes.hosts, internal/tenancy). With none configured there is
-// nothing to check: the lint cannot know which host serves the routes.
+// The gateway's hosts, when configured (gateway.routes.public_base_url's
+// host and gateway.routes.hosts, internal/tenancy), add a stricter rule
+// there: an endpoint on them must be under one of the org's routes, written
+// plainly; a proxy or a Host header naming them is refused. An endpoint the
+// lint cannot read cannot be proved off another org's route, so it is
+// refused whenever the installation has a live tenant route or a configured
+// gateway host (checkUnread); with neither, nothing can route by segment.
 //
 // Which attributes are endpoints is read from every shipped component
 // schema, not a hand list: every string or list attribute whose name says it
@@ -44,14 +52,22 @@ const GatewayEndpointRefusal = "strict tenant mode checks gateway route endpoint
 // GatewayRoutes is the tenant-route gateway as the lint sees it.
 type GatewayRoutes struct {
 	// Hosts are the host names and addresses the gateway answers to,
-	// normalised (NormalizeGatewayHost). Empty: no endpoint is checked.
+	// normalised (NormalizeGatewayHost). Empty: only the segment rule
+	// applies.
 	Hosts []string
 	// Owns reports whether the org owns the route of kind ("otlp" or
 	// "faro") with this segment. A nil Owns owns none.
 	Owns func(kind, segment string) bool
+	// RoutesInUse is whether the installation has a live (not revoked)
+	// tenant route: an endpoint the lint cannot read is then refused.
+	RoutesInUse bool
 }
 
 func (g GatewayRoutes) configured() bool { return len(g.Hosts) > 0 }
+
+// checkUnread is whether an endpoint the lint cannot read is refused: some
+// tenant route may be reached through it.
+func (g GatewayRoutes) checkUnread() bool { return g.RoutesInUse || g.configured() }
 
 func (g GatewayRoutes) owns(kind, segment string) bool { return g.Owns != nil && g.Owns(kind, segment) }
 
@@ -110,6 +126,7 @@ var endpointNameExclusions = map[string]string{
 	"endpoint_patterns":     notAnEndpoint,
 	"url_path_patterns":     notAnEndpoint,
 	"iam_server_id_header":  "a Vault login header value",
+	// Revisit if a route kind ever accepts an arbitrary request body.
 	"token_url": "the OAuth2 token endpoint: the client sends it only a form-encoded token request, which no " +
 		"OTLP or Faro route accepts; the endpoint the data goes to is checked",
 	"host_identifiers":  "names resource attributes, not a host",
@@ -460,9 +477,54 @@ func parseEndpoint(s string) (endpointTarget, error) {
 	}, nil
 }
 
-// gatewayProblem says why strict tenant mode refuses endpoint s of kind, or
+// segmentShapeRE and the length bounds are gateway.ValidateSegment's (a
+// spec pins the two together): the shape of every tenant route segment.
+var segmentShapeRE = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
+
+// IsRouteSegmentShape reports whether s has the shape of a tenant route
+// segment (gateway.ValidateSegment).
+func IsRouteSegmentShape(s string) bool {
+	return len(s) >= 3 && len(s) <= 63 && segmentShapeRE.MatchString(s)
+}
+
+// pathForms are the forms a gateway may read path p in: as written, with
+// backslashes as slashes, and each with empty, "." and ".." segments
+// resolved (path.Clean). p is already percent-decoded (url.URL.Path).
+func pathForms(p string) []string {
+	forms := []string{p}
+	if strings.Contains(p, "\\") {
+		forms = append(forms, strings.ReplaceAll(p, "\\", "/"))
+	}
+	for _, f := range forms[:len(forms):len(forms)] {
+		forms = append(forms, pathpkg.Clean("/"+f))
+	}
+	return forms
+}
+
+// foreignRoute says why path p is under a tenant route the org does not own,
+// or "": in any form a gateway may read it in (pathForms, case folded), its
+// first two elements are a route kind and a string with a route segment's
+// shape that is not one of the org's routes of that kind. Segments are
+// unique across the installation and never reused, so this holds on every
+// host, however the request reaches the gateway.
+func (g GatewayRoutes) foreignRoute(p string) string {
+	for _, f := range pathForms(p) {
+		segs := strings.SplitN(strings.TrimPrefix(f, "/"), "/", 3)
+		if len(segs) < 2 {
+			continue
+		}
+		kind, seg := strings.ToLower(segs[0]), strings.ToLower(segs[1])
+		if routeKinds[kind] && IsRouteSegmentShape(seg) && !g.owns(kind, seg) {
+			return fmt.Sprintf("its path is under the %s route segment %q, which is not one of this organisation's "+
+				"tenant routes", kind, seg)
+		}
+	}
+	return ""
+}
+
+// endpointProblem says why strict tenant mode refuses endpoint s of kind, or
 // "".
-func (g GatewayRoutes) gatewayProblem(s string, kind EndpointAttrKind) string {
+func (g GatewayRoutes) endpointProblem(s string, kind EndpointAttrKind) string {
 	if kind == EndpointDomain {
 		d := normalizeHostName(strings.TrimSpace(s))
 		for _, h := range g.Hosts {
@@ -474,8 +536,11 @@ func (g GatewayRoutes) gatewayProblem(s string, kind EndpointAttrKind) string {
 	}
 	t, err := parseEndpoint(s)
 	if err != nil {
-		return fmt.Sprintf("%q cannot be read as a URL or host:port, so the tenant check cannot tell whether it is "+
-			"the gateway (%s)", s, g.Hosts[0])
+		if !g.checkUnread() {
+			return ""
+		}
+		return fmt.Sprintf("%q cannot be read as a URL or host:port, so the tenant check cannot tell which route "+
+			"it reaches", s)
 	}
 	onGateway := false
 	for _, h := range t.hosts {
@@ -483,11 +548,19 @@ func (g GatewayRoutes) gatewayProblem(s string, kind EndpointAttrKind) string {
 			onGateway = true
 		}
 	}
-	if !onGateway {
+	if kind == EndpointProxy {
+		if onGateway {
+			return fmt.Sprintf("%q sends requests through the gateway, whose tenant routes are not a proxy", s)
+		}
 		return ""
 	}
-	if kind == EndpointProxy {
-		return fmt.Sprintf("%q sends requests through the gateway, whose tenant routes are not a proxy", s)
+	if t.routed {
+		if p := g.foreignRoute(t.path); p != "" {
+			return fmt.Sprintf("%q: %s", s, p)
+		}
+	}
+	if !onGateway {
+		return ""
 	}
 	if !t.routed {
 		return fmt.Sprintf("%q is on the gateway but names no route path, so it reaches no route of this "+
@@ -530,10 +603,9 @@ func endpointKind(component, block, attr string) EndpointAttrKind {
 }
 
 // gatewayEndpoint checks attribute a, in the component the walk is in, when
-// the schemas make it an endpoint and the policy names the gateway's hosts.
+// the schemas make it an endpoint.
 func (l *tenantLinter) gatewayEndpoint(a *ast.AttributeStmt, sc scope) {
-	g := l.policy.Gateway
-	if l.policy.literalsOnly || !g.configured() {
+	if l.policy.literalsOnly {
 		return
 	}
 	owner, block := sc.ownerBlock()
@@ -562,21 +634,32 @@ func (l *tenantLinter) gatewayEndpoint(a *ast.AttributeStmt, sc scope) {
 	l.endpointValue(a.Value, kind, where, sc)
 }
 
+// unreadRefusal is the refusal of an endpoint value the lint cannot read.
+func unreadRefusal(where string) string {
+	return fmt.Sprintf("%s is set from a value the tenant check cannot read, so it cannot tell which tenant route "+
+		"it reaches — %s, and refuses it; write the endpoint as a literal", where, GatewayEndpointRefusal)
+}
+
 // endpointTargetList checks a targets list whose key names an endpoint: it
-// must be a list of object literals, each key read as an endpoint.
+// must be a list of object literals (when unread values are refused,
+// checkUnread), each key read as an endpoint.
 func (l *tenantLinter) endpointTargetList(v ast.Expr, key, where string, sc scope) {
+	g := l.policy.Gateway
 	arr, ok := unparen(v).(*ast.ArrayExpr)
 	if !ok {
-		l.refuse(v, fmt.Sprintf("%s is not a literal list, so the tenant check cannot tell whether a target is the "+
-			"gateway (%s) — %s, and refuses it; write the targets as a literal list", where, l.policy.Gateway.Hosts[0],
-			GatewayEndpointRefusal))
+		if g.checkUnread() {
+			l.refuse(v, fmt.Sprintf("%s is not a literal list, so the tenant check cannot tell which tenant route a "+
+				"target reaches — %s, and refuses it; write the targets as a literal list", where, GatewayEndpointRefusal))
+		}
 		return
 	}
 	for _, el := range arr.Elements {
 		obj, ok := unparen(el).(*ast.ObjectExpr)
 		if !ok {
-			l.refuse(el, fmt.Sprintf("%s has a target that is not an object literal, so the tenant check cannot tell "+
-				"whether it is the gateway (%s) — %s, and refuses it", where, l.policy.Gateway.Hosts[0], GatewayEndpointRefusal))
+			if g.checkUnread() {
+				l.refuse(el, fmt.Sprintf("%s has a target that is not an object literal, so the tenant check cannot "+
+					"tell which tenant route it reaches — %s, and refuses it", where, GatewayEndpointRefusal))
+			}
 			continue
 		}
 		for _, f := range obj.Fields {
@@ -588,39 +671,38 @@ func (l *tenantLinter) endpointTargetList(v ast.Expr, key, where string, sc scop
 }
 
 // endpointValue checks one endpoint value: every string it can be (resolve,
-// declare and module arguments followed to literals); one it cannot read is
-// refused unless every prefix it can read fixes a host that is not the
-// gateway and, on the gateway, the route segment.
+// declare and module arguments followed to literals). One it cannot read is
+// refused when the installation uses tenant routes (checkUnread) unless the
+// literal start of a concatenation already fixes its whole path
+// (provenPath).
 func (l *tenantLinter) endpointValue(v ast.Expr, kind EndpointAttrKind, where string, sc scope) {
 	g := l.policy.Gateway
 	values, ok := l.resolve(v, sc, 0)
 	if !ok {
-		if l.provenOffGateway(v, kind, sc) {
+		if !g.checkUnread() || l.provenPath(v, kind, sc) {
 			return
 		}
-		l.refuse(v, fmt.Sprintf("%s is set from a value the tenant check cannot read, so it cannot tell whether it "+
-			"points at the gateway (%s) — %s, and refuses it; write the endpoint as a literal", where, g.Hosts[0],
-			GatewayEndpointRefusal))
+		l.refuse(v, unreadRefusal(where))
 		return
 	}
 	for _, s := range values {
 		if !l.budget.charge(1 + len(s)/64) {
 			return
 		}
-		if p := g.gatewayProblem(s, kind); p != "" {
+		if p := g.endpointProblem(s, kind); p != "" {
 			l.refuse(v, fmt.Sprintf("%s: %s — %s, and refuses it; send to one of this organisation's tenant routes",
 				where, p, GatewayEndpointRefusal))
 		}
 	}
 }
 
-// provenOffGateway reports whether an endpoint the lint cannot read in full
-// is still known not to reach another org's route: v is a concatenation
-// whose leading operands it can read, and each value they can be is an
-// http(s) URL whose authority is complete (followed by "/", "?" or "#") on a
-// host that is not the gateway, or that is the gateway with the route
-// segment complete and owned.
-func (l *tenantLinter) provenOffGateway(v ast.Expr, kind EndpointAttrKind, sc scope) bool {
+// provenPath reports whether an endpoint the lint cannot read in full still
+// cannot reach another org's route: v is a concatenation whose leading
+// operands it can read, and each value they can be is an http(s) URL whose
+// path is complete in it (a "?" or "#" follows the path) and passes
+// endpointProblem. A path not complete in the literal start proves nothing:
+// what follows may add any element, ".." included.
+func (l *tenantLinter) provenPath(v ast.Expr, kind EndpointAttrKind, sc scope) bool {
 	if kind != EndpointURL {
 		return false
 	}
@@ -667,10 +749,9 @@ func (l *tenantLinter) provenOffGateway(v ast.Expr, kind EndpointAttrKind, sc sc
 	return true
 }
 
-// prefixProven reports whether every URL starting with prefix p is off the
-// gateway, or under an owned route of it.
+// prefixProven reports whether every URL starting with prefix p has the
+// path p fixes, and that endpoint passes the check.
 func (l *tenantLinter) prefixProven(p string) bool {
-	g := l.policy.Gateway
 	i := strings.Index(p, "://")
 	if i <= 0 {
 		return false
@@ -680,35 +761,39 @@ func (l *tenantLinter) prefixProven(p string) bool {
 		return false
 	}
 	rest := p[i+3:]
-	end := strings.IndexAny(rest, "/?#")
+	end := strings.IndexAny(rest, "?#")
 	if end < 0 {
 		return false
 	}
-	t, err := parseEndpoint(p[:i+3+end] + "/")
-	if err != nil {
-		return false
+	return l.policy.Gateway.endpointProblem(p[:i+3+end], EndpointURL) == ""
+}
+
+// hostHeader checks a Host (or :authority) request header: one naming a
+// gateway host is refused (point the endpoint at the gateway instead, where
+// its route is checked), and one the lint cannot read is refused when the
+// gateway's hosts are configured.
+func (l *tenantLinter) hostHeader(v ast.Expr, sc scope) {
+	g := l.policy.Gateway
+	if l.policy.literalsOnly || !g.configured() {
+		return
 	}
-	on := false
-	for _, h := range t.hosts {
-		on = on || hostIsGateway(h, g.Hosts)
+	values, ok := l.resolve(v, sc, 0)
+	if !ok {
+		l.refuse(v, "a Host header set from a value the tenant check cannot read may name the gateway — "+
+			GatewayEndpointRefusal+", and refuses it; write it as a literal")
+		return
 	}
-	if !on {
-		return true
+	for _, s := range values {
+		h := strings.TrimSpace(s)
+		if hu, err := url.Parse("//" + h); err == nil {
+			h = hu.Hostname()
+		}
+		if hostIsGateway(h, g.Hosts) {
+			l.refuse(v, fmt.Sprintf("a Host header %q names the gateway, so the request would reach a tenant route "+
+				"the endpoint does not name — %s, and refuses it; send to one of this organisation's tenant routes "+
+				"on the gateway instead", s, GatewayEndpointRefusal))
+		}
 	}
-	// On the gateway: the prefix must reach past "/<kind>/<segment>/" and
-	// name an owned route, written plainly.
-	path := rest[end:]
-	if strings.ContainsAny(path, "?#") {
-		path = path[:strings.IndexAny(path, "?#")]
-	}
-	segs := strings.Split(strings.TrimPrefix(path, "/"), "/")
-	if len(segs) < 3 {
-		return false
-	}
-	if g.gatewayProblem(p[:i+3+end]+"/"+segs[0]+"/"+segs[1], EndpointURL) != "" {
-		return false
-	}
-	return true
 }
 
 // blackboxGatewayProblem says what strict tenant mode refuses in a blackbox
@@ -717,9 +802,6 @@ func (l *tenantLinter) prefixProven(p string) bool {
 // or OAuth2 token_url, a header a probe sends — or "". Each string is read as
 // an endpoint and searched for each host in its ASCII and Unicode forms.
 func (g GatewayRoutes) blackboxGatewayProblem(text string) string {
-	if !g.configured() {
-		return ""
-	}
 	var doc any
 	if err := yaml.Unmarshal([]byte(text), &doc); err != nil {
 		return "does not parse as YAML"
@@ -733,6 +815,15 @@ func (g GatewayRoutes) blackboxGatewayProblem(text string) string {
 	}
 	var problem string
 	check := func(s string) bool {
+		if t, err := parseEndpoint(s); err == nil && t.routed && strings.Contains(s, "/") {
+			if p := g.foreignRoute(t.path); p != "" {
+				problem = fmt.Sprintf("has %q: %s, which a probe would send requests to", s, p)
+				return true
+			}
+		}
+		if !g.configured() {
+			return false
+		}
 		low := strings.ToLower(s)
 		for _, n := range names {
 			if strings.Contains(low, n) {

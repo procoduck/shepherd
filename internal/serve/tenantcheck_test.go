@@ -184,8 +184,17 @@ func TestStrictTenantCheckGatewayRoutesAndTheCacheKey(t *testing.T) {
 	}
 	noHost := gw
 	noHost.GatewayHosts = nil
-	if v := verdict(noHost, foreign); v != "" {
-		t.Errorf("with no gateway host configured nothing is checked (cached verdict reused?), got %q", v)
+	if v := verdict(noHost, foreign); !strings.Contains(v, validate.GatewayEndpointRefusal) {
+		t.Errorf("another org's segment is refused on any host, with no gateway host configured, got %q", v)
+	}
+	computed := "otelcol.exporter.otlphttp \"o\" {\n  client {\n    endpoint = sys.env(\"EP\")\n  }\n}\n"
+	if v := verdict(noHost, computed); v != "" {
+		t.Errorf("no live route and no host: an unread endpoint passes, got %q", v)
+	}
+	inUse := noHost
+	inUse.RoutesInUse = true
+	if v := verdict(inUse, computed); !strings.Contains(v, validate.GatewayEndpointRefusal) {
+		t.Errorf("a live route in the installation must refuse an unread endpoint (cached verdict reused?), got %q", v)
 	}
 	if v := verdict(gw, exporter(own.Segment)); v != "" {
 		t.Errorf("an own route must pass, got %q", v)

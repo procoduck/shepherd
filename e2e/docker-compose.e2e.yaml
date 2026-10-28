@@ -428,13 +428,13 @@ services:
       LISTEN: ":3100"
     ports:
       - "127.0.0.1:13100:3100"
-    # The sink also plays the tenant-route gateway, reached by this second
-    # name (shepherd's SHEPHERD_GATEWAY_ROUTES_HOSTS): pushes to
-    # tenantsink:3100 are plain sink pushes, pushes to gateway:3100 go
-    # through a tenant route.
+    # The sink also plays the tenant-route gateway, reached by the name
+    # `gateway` (shepherd's SHEPHERD_GATEWAY_ROUTES_HOSTS) and by `ingress`,
+    # a name Shepherd is not told about: a push under /otlp/<segment> goes
+    # through that tenant route whichever name reached it.
     networks:
       default:
-        aliases: [gateway]
+        aliases: [gateway, ingress]
     healthcheck:
       test: ["CMD", "/tenantsink", "-health-check"]
       interval: 2s

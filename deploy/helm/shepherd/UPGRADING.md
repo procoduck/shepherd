@@ -61,14 +61,18 @@ can be allowed (today `otelcol.auth.google`); any other name is refused.
 
 ### 4. Gateway route endpoints (strict tenant mode with the receiver tier)
 
-Shepherd's tenant routes set the tenant themselves, so in a strict organisation every endpoint on
-the gateway's host must now be under one of that organisation's own routes (`/otlp/<segment>` or
-`/faro/<segment>` of an active route, or a deprecated one during its rotation overlap), and an
-endpoint written as an expression (`sys.env(…)`, a component export) is refused unless its literal
-start already names another host. Shepherd takes the gateway's host from `receiver.publicBaseURL`;
-list any other name or address the gateway answers to — its in-cluster Service name, a second
-public name — in `config.gateway.routes.hosts` (or `SHEPHERD_GATEWAY_ROUTES_HOSTS`,
-comma-separated):
+Shepherd's tenant routes set the tenant themselves, whichever name or address reaches the
+gateway, so in a strict organisation an endpoint on any host whose path is under a route segment
+(`/otlp/<segment>/…` or `/faro/<segment>/…`) must now be under one of that organisation's own
+routes (active, or deprecated during its rotation overlap). Once the installation has any live
+tenant route, or a gateway host is configured, an endpoint written as an expression (`sys.env(…)`,
+a component export) is refused too, unless its literal part completes the path (a `?` or `#`
+follows it). Vendors' OTLP paths, such as Grafana Cloud's `/otlp/v1/…`, are not affected.
+
+The gateway's hosts are an extra on top: Shepherd takes one from `receiver.publicBaseURL`, and you
+can list more in `config.gateway.routes.hosts` (or `SHEPHERD_GATEWAY_ROUTES_HOSTS`,
+comma-separated). On them every endpoint must be under one of the organisation's routes, and a
+proxy or `Host` header naming them is refused:
 
 ```yaml
 config:
@@ -78,8 +82,8 @@ config:
         - edge-gateway.gateways.svc.cluster.local
 ```
 
-With neither set, no endpoint is checked. Run the preflight (step 1) with the hosts set before you
-upgrade; it lists each pipeline whose endpoint is refused. Point it at one of the organisation's
+Run the preflight (step 1) before you upgrade, with the hosts set if you set any; it lists each
+pipeline whose endpoint is refused. Point it at one of the organisation's
 routes, write the endpoint as a literal, or disable the pipeline. A value in `hosts` that is not a
 host name or IP address (a URL, a port, a path) stops the server from starting.
 

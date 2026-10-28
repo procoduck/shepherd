@@ -17,9 +17,10 @@ Categories used here:
 before upgrading if any org uses strict tenant mode: a stored pipeline that uses a component the
 schema overlay classifies `refused` (or one no shipped schema classifies) is excluded from served
 config until it is fixed or an app admin allows the component for its org. Strict tenant mode
-also checks gateway route endpoints once the gateway's hosts are configured
-(`gateway.routes.public_base_url`, `gateway.routes.hosts`): a stored pipeline sending to the
-gateway outside the org's own tenant routes is excluded the same way. Migration `0047` is
+also checks gateway route endpoints: a stored pipeline sending under another organisation's tenant
+route segment, on any host, or to the configured gateway hosts (`gateway.routes.public_base_url`,
+`gateway.routes.hosts`) outside its own routes, or (once any tenant route exists) to an endpoint
+the check cannot read, is excluded the same way. Migration `0047` is
 additive; non-strict orgs are served the same bytes.
 
 ### Added
@@ -44,34 +45,38 @@ additive; non-strict orgs are served the same bytes.
   finding and one audit row per change; `shepherd admin tenant-preflight` lists such pipelines.
   (#421)
 - **Strict tenant mode checks gateway route endpoints.** Shipped. Shepherd's tenant routes set
-  the tenant themselves (`/otlp/<segment>`, `/faro/<segment>`), so in a strict org every endpoint
-  on the gateway's hosts must be under one of the org's own routes: a live route (active, or
-  deprecated during its rotation overlap) of that kind whose tenant the org owns. The hosts are
-  `gateway.routes.public_base_url`'s and the new `gateway.routes.hosts`
-  (`SHEPHERD_GATEWAY_ROUTES_HOSTS`, comma-separated: the gateway's in-cluster Service name, a
-  second public name, an IP); with none configured nothing is checked. Hosts are compared as a
-  client resolves them — case, trailing dot, IDN, percent-encoding and numeric IPv4 forms
-  normalised, on every port — and the path as the route's prefix match reads it, segment by
-  segment; a path on the gateway that is not written plainly (percent-encoding, `.`/`..`, an
-  empty segment) is refused. An endpoint the lint cannot read — a function call, a component
-  export, `sys.env`, a value a declare is given in a `foreach` template — is refused unless its
-  literal prefix fixes a host other than the gateway, or an owned route on it; declare and
-  module arguments are followed to literals as for tenants. Proxies (`proxy_url`) on the gateway,
-  Datadog's `site` when the gateway is under it, blackbox targets and blackbox module settings
-  naming the gateway are refused. Which attributes are endpoints is read from every shipped
-  schema (a URL, endpoint, address, host or server attribute, less listen addresses, TLS server
-  names, OAuth2 token URLs and non-HTTP protocols); the new `gateway_endpoints` check is named on
-  all 71 components that have one, and 23 moved from `allowed` to `checked` for it: `beyla.ebpf`,
+  the tenant themselves (`/otlp/<segment>`, `/faro/<segment>`) and name no host, and segments are
+  unique across the installation and never reused. So in a strict org every endpoint, on any
+  host, whose path starts with `otlp` or `faro` and a string shaped like a route segment must be
+  under one of the org's own routes: a live route (active, or deprecated during its rotation
+  overlap) of that kind whose tenant the org owns. The path is read as a gateway may read it
+  (percent-decoded, backslashes as slashes, `.`/`..` and empty segments resolved, case-folded),
+  element by element as the route's prefix match is; vendors' OTLP paths (Grafana Cloud's `/otlp`
+  and `/otlp/v1/...`, `/v1/traces`) are untouched. The gateway's hosts, when configured
+  (`gateway.routes.public_base_url`'s and the new `gateway.routes.hosts`,
+  `SHEPHERD_GATEWAY_ROUTES_HOSTS`, comma-separated), add a stricter rule there: every endpoint on
+  them must be under an owned route, written plainly, and a `proxy_url`, a `Host`/`:authority`
+  header, Datadog's `site` or a blackbox module setting naming them is refused. Hosts are compared
+  as a client resolves them (case, trailing dot, IDN, percent-encoding and numeric IPv4 forms
+  normalised, on every port). An endpoint the lint cannot read — a function call, a component
+  export, `sys.env`, a value a declare is given in a `foreach` template — is refused whenever the
+  installation has a live tenant route or a gateway host is configured, unless its literal start
+  completes the path (a `?` or `#` follows it); declare and module arguments are followed to
+  literals as for tenants. Which attributes are endpoints is read from every shipped schema (a
+  URL, endpoint, address, host or server attribute, less listen addresses, TLS server names,
+  OAuth2 token URLs and non-HTTP protocols); the new `gateway_endpoints` check is named on all 71
+  components that have one, and 23 moved from `allowed` to `checked` for it: `beyla.ebpf`,
   `discovery.consulagent`, `.nerve`, `.openstack`, `.ovhcloud`, `.serverset`, `.triton`,
-  `otelcol.exporter.awss3`, `.datadog`, `.googlecloud`,
-  `.googlecloudpubsub`, `.splunkhec`, `otelcol.processor.resourcedetection`,
-  `prometheus.exporter.apache`, `.cadvisor`, `.consul`, `.databricks`, `.elasticsearch`,
-  `.github`, `.squid`, `.unix`, `remote.s3` and `remote.vault`. The repo test fails when a
-  component with an endpoint attribute does not name the check. Refused at save, excluded at
-  serve time and listed by `shepherd admin tenant-preflight`, as the other checks; creating,
-  rotating or revoking a route (and the rotation overlap ending) marks the org's served configs
-  dirty and recomputes them, and the serve-time verdict cache is keyed by the gateway's hosts and
-  the org's routes.
+  `otelcol.exporter.awss3`, `.datadog`, `.googlecloud`, `.googlecloudpubsub`, `.splunkhec`,
+  `otelcol.processor.resourcedetection`, `prometheus.exporter.apache`, `.cadvisor`, `.consul`,
+  `.databricks`, `.elasticsearch`, `.github`, `.squid`, `.unix`, `remote.s3` and `remote.vault`.
+  The repo test fails when a component with an endpoint attribute does not name the check, and a
+  spec pins that Shepherd's wizards, baseline, dev seed and the k8s-monitoring fixtures pass.
+  Refused at save, excluded at serve time and listed by `shepherd admin tenant-preflight`, as the
+  other checks; creating, rotating or revoking a route (and the rotation overlap ending) marks the
+  org's served configs dirty and recomputes them — the installation's first live route and its
+  last revoke mark every served config — and the serve-time verdict cache is keyed by the
+  gateway's hosts, whether routes are in use, and the org's routes.
 - **`prometheus.exporter.blackbox` in strict tenant mode.** Shipped. A probe sends the requests
   its modules define, so in a strict org the blackbox exporter's `config` must be a literal YAML
   config that names the `X-Scope-OrgID` header nowhere (keys and strings, case-insensitively,

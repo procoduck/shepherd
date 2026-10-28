@@ -243,16 +243,19 @@
         <code>query_response</code> (<code>config_file</code> is refused).</p>
       <p><strong>Gateway route endpoints.</strong> Shepherd&rsquo;s tenant routes set the tenant
         themselves: anything sent to the gateway under <code>/otlp/&lt;segment&gt;</code> arrives
-        under the route&rsquo;s tenant. So in a strict organisation every exporter, writer, probe or
-        other endpoint on the gateway&rsquo;s host must be under one of the organisation&rsquo;s own
-        tenant routes (active, or deprecated while its rotation overlap lasts). An endpoint written
-        as anything but a literal &mdash; <code>sys.env(&hellip;)</code>, a component export, a
-        value given in a <code>foreach</code> template &mdash; is refused unless its literal start
-        already names another host (or one of the organisation&rsquo;s routes); module and
-        <code>declare</code> arguments are followed to the values they are given. Shepherd knows the
-        gateway&rsquo;s host from <code>receiver.publicBaseURL</code>; list any other name or address
-        the gateway answers to (its in-cluster Service name, for example) in
-        <code>config.gateway.routes.hosts</code>. With neither set, endpoints are not checked.</p>
+        under the route&rsquo;s tenant, whatever name or address reached the gateway. So in a strict
+        organisation every exporter, writer, probe or other endpoint, on any host, whose path is under
+        a route segment must be under one of the organisation&rsquo;s own tenant routes (active, or
+        deprecated while its rotation overlap lasts). Other services&rsquo; OTLP paths, such as
+        Grafana Cloud&rsquo;s <code>/otlp/v1/&hellip;</code>, are not affected. Once any tenant route
+        exists, an endpoint written as anything but a literal &mdash; <code>sys.env(&hellip;)</code>,
+        a component export, a value given in a <code>foreach</code> template &mdash; is refused
+        unless its literal part completes the path; module and <code>declare</code> arguments are
+        followed to the values they are given. Shepherd also knows the gateway&rsquo;s host from
+        <code>receiver.publicBaseURL</code>, and any other name you list in
+        <code>config.gateway.routes.hosts</code>: on those hosts every endpoint must be one of the
+        organisation&rsquo;s routes, and a proxy or <code>Host</code> header naming them is
+        refused.</p>
       <pre><code>config:
   gateway:
     routes:

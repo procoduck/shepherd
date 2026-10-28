@@ -278,6 +278,36 @@ var _ = Describe("shepherd.mgmt.v1.TenantRouteService RPC", Label("integration")
 		Expect(code).To(Equal(http.StatusOK), msg)
 	})
 
+	// Whether the installation has a live route decides, in every strict
+	// org, whether an endpoint the lint cannot read is refused: the first
+	// route and the last revoke mark every org's served configs dirty.
+	It("marks every org's served configs dirty when the installation's first route is created or its last revoked", func() {
+		other, err := st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{Name: "route-other-org", DisplayName: "O", AdminGroupID: "o-admins"})
+		Expect(err).NotTo(HaveOccurred())
+		cluster, err := st.Queries.UpsertCluster(ctx, "route-other-cluster")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(st.Queries.ClaimCluster(ctx, sqlc.ClaimClusterParams{ID: cluster.ID, OrgID: other.ID})).To(Succeed())
+		collector, err := st.Queries.UpsertCollector(ctx, sqlc.UpsertCollectorParams{ClusterID: cluster.ID, Role: "singleton"})
+		Expect(err).NotTo(HaveOccurred())
+		seq := func() int64 {
+			c, _ := st.Queries.GetServeCache(ctx, collector.ID) //nolint:errcheck // no row reads as 0
+			return c.DirtySeq
+		}
+		before := seq()
+		admin := createSession(false, []string{"tenant-route-admin-group"})
+		body := map[string]any{}
+		for k, v := range createBody {
+			body[k] = v
+		}
+		body["orgId"] = orgID.String()
+		created := decodeBody(postConnect("/shepherd.mgmt.v1.TenantRouteService/CreateTenantRoute", body, admin))
+		Expect(seq()).To(BeNumerically(">", before), "the first route marks another org dirty")
+		before = seq()
+		Expect(postConnect("/shepherd.mgmt.v1.TenantRouteService/RevokeTenantRoute",
+			map[string]any{"orgId": orgID.String(), "id": created["id"]}, admin).StatusCode).To(Equal(http.StatusOK))
+		Expect(seq()).To(BeNumerically(">", before), "revoking the last route marks another org dirty")
+	})
+
 	It("returns the apply outcome the reconciler recorded on the row", func() {
 		admin := createSession(false, []string{"tenant-route-admin-group"})
 		body := map[string]any{}
