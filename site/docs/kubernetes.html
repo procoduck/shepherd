@@ -112,7 +112,7 @@
       <h2 id="installing">Installing</h2>
       <div class="code-block" data-lang="shell">
         <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
-        <pre><code>helm install shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.25.0 \
+        <pre><code>helm install shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.25.1 \
   --namespace shepherd --create-namespace \
   --set existingSecret=shepherd-secrets</code></pre>
       </div>
@@ -124,8 +124,8 @@
         release it was published for.
       </p>
       <p class="note">
-        <strong>Chart version is not the app version.</strong> <code>--version 0.25.0</code> is the
-        <em>chart&rsquo;s</em>; Shepherd&rsquo;s is the chart&rsquo;s <code>appVersion</code> (<code>0.21.0</code> for chart <code>0.25.0</code>). They move independently, so a
+        <strong>Chart version is not the app version.</strong> <code>--version 0.25.1</code> is the
+        <em>chart&rsquo;s</em>; Shepherd&rsquo;s is the chart&rsquo;s <code>appVersion</code> (<code>0.21.1</code> for chart <code>0.25.1</code>). They move independently, so a
         chart-only change bumps only the chart. Run
         <code>helm show chart oci://ghcr.io/procoduck/charts/shepherd</code> to see which Shepherd
         release a chart version installs.
@@ -174,7 +174,7 @@
       <p>
         Nothing is exposed outside the cluster unless you ask for it. To see exactly what an install
         would create before creating it, render it locally:
-        <code>helm template shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.25.0</code>.
+        <code>helm template shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.25.1</code>.
       </p>
 
       <h2 id="migrations">Migrations run before the new code</h2>
@@ -413,7 +413,7 @@ kubectl -n shepherd port-forward svc/shepherd 8080:8080</code></pre>
         <pre><code>kubectl -n shepherd label pod \
   -l 'app.kubernetes.io/instance=shepherd,app.kubernetes.io/name=shepherd,!app.kubernetes.io/component' \
   app.kubernetes.io/component=server
-helm upgrade shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.25.0 \
+helm upgrade shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.25.1 \
   --namespace shepherd --reuse-values</code></pre>
       </div>
       <p>
@@ -610,7 +610,7 @@ kubectl -n shepherd logs job/shepherd-migrate     # if the release failed</code>
 <footer>
   <div class="wrap">
     <div class="foot-left">
-      <span class="pill">v0.21.0</span>
+      <span class="pill">v0.21.1</span>
       <span>self-hosted Grafana Alloy fleet manager</span>
     </div>
     <div class="foot-links">
