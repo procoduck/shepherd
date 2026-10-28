@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,6 +14,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/prometheus/prometheus/model/value"
 
 	"shepherd/internal/simulate"
 )
@@ -182,6 +184,76 @@ prometheus.remote_write "leak" {
 		var done runView
 		Expect(json.Unmarshal(final.Body.Bytes(), &done)).To(Succeed())
 		Expect(done.RemainingSeconds).To(Equal(0))
+	})
+
+	It("answers a poll whose results carry NaN, ±Inf and stale-marker samples with 200 and a decodable body", func() {
+		// Real Alloy self-metrics carry NaN (an empty summary's quantiles):
+		// a prometheus.exporter.self pipeline used to fail every run with
+		// "json: unsupported value: NaN" and a truncated 200 body.
+		var nanQueue *Queue
+		nanQueue = newTestQueue(cfg, func(context.Context, runnerOptions) runOutcome {
+			s := nanQueue.harness.activeSink()
+			s.addSample(map[string]string{"__name__": "q", "quantile": "0.5"}, math.NaN(), 1000)
+			s.addSample(map[string]string{"__name__": "q", "quantile": "0.5"}, math.Inf(1), 2000)
+			s.addSample(map[string]string{"__name__": "neg"}, math.Inf(-1), 1000)
+			s.addSample(map[string]string{"__name__": "stale"}, math.Float64frombits(value.StaleNaN), 1000)
+			s.addSample(map[string]string{"__name__": "ok"}, 2.5, 1000)
+			return runOutcome{}
+		})
+		DeferCleanup(nanQueue.Close)
+		handler = NewServer(cfg, nanQueue, nil, nil).Handler()
+		srv := httptest.NewServer(handler)
+		DeferCleanup(srv.Close)
+		client := simulate.NewClient(srv.URL, "", nil)
+
+		run, err := client.Start(context.Background(), simulate.ClientStartRequest{Config: capturingConfig()})
+		Expect(err).NotTo(HaveOccurred())
+
+		var final simulate.ClientRun
+		Eventually(func() string {
+			var getErr error
+			final, getErr = client.Get(context.Background(), run.ID)
+			Expect(getErr).NotTo(HaveOccurred(), "the poll must decode, not fail with a truncated body")
+			return final.State
+		}).Should(Equal(string(StateCompleted)))
+
+		Expect(final.Results).NotTo(BeNil())
+		byName := map[string]simulate.ClientSeries{}
+		for _, s := range final.Results.Series {
+			byName[s.Name] = s
+		}
+		Expect(byName).To(HaveLen(4))
+		Expect(math.IsNaN(float64(byName["q"].FirstValue))).To(BeTrue())
+		Expect(value.IsStaleNaN(float64(byName["q"].FirstValue))).To(BeFalse())
+		Expect(math.IsInf(float64(byName["q"].LastValue), 1)).To(BeTrue())
+		Expect(math.IsInf(float64(byName["neg"].LastValue), -1)).To(BeTrue())
+		Expect(value.IsStaleNaN(float64(byName["stale"].LastValue))).To(BeTrue())
+		Expect(float64(byName["ok"].LastValue)).To(Equal(2.5))
+	})
+
+	It("reports a response it cannot encode as a 500 with a JSON error body, never a truncated 200", func() {
+		srv := NewServer(cfg, queue, nil, nil)
+		rec := httptest.NewRecorder()
+		srv.writeJSON(rec, http.StatusOK, map[string]any{"unencodable": make(chan int)})
+
+		Expect(rec.Code).To(Equal(http.StatusInternalServerError))
+		Expect(rec.Header().Get("Content-Type")).To(Equal("application/json"))
+		var apiErr APIError
+		Expect(json.Unmarshal(rec.Body.Bytes(), &apiErr)).To(Succeed(), "body: %q", rec.Body.String())
+		Expect(apiErr.Code).To(Equal("encode_failed"))
+		Expect(apiErr.Message).NotTo(BeEmpty())
+
+		// And the client surfaces it as a typed API error naming the failure,
+		// not "unexpected end of JSON input".
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			srv.writeJSON(w, http.StatusOK, map[string]any{"unencodable": make(chan int)})
+		}))
+		DeferCleanup(ts.Close)
+		_, err := simulate.NewClient(ts.URL, "", nil).Get(context.Background(), "any")
+		var clientErr *simulate.ClientAPIError
+		Expect(errors.As(err, &clientErr)).To(BeTrue(), "got %v", err)
+		Expect(clientErr.HTTPStatus).To(Equal(http.StatusInternalServerError))
+		Expect(clientErr.Code).To(Equal("encode_failed"))
 	})
 
 	Context("with a bearer token configured", func() {

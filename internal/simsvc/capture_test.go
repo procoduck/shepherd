@@ -3,6 +3,7 @@ package simsvc
 import (
 	"bytes"
 	"encoding/json"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -79,8 +80,36 @@ var _ = Describe("Prometheus remote_write capture", func() {
 		Expect(buildInfo.Labels).To(HaveKeyWithValue("job", "integrations/self"))
 		Expect(buildInfo.Labels).To(HaveKeyWithValue("version", "v1.18.1"))
 		Expect(buildInfo.SampleCount).To(Equal(1))
-		Expect(buildInfo.LastValue).To(Equal(1.0))
+		Expect(buildInfo.LastValue).To(BeEquivalentTo(1.0))
 		Expect(buildInfo.LastTimestampMS).To(BeNumerically(">", 0))
+	})
+
+	It("encodes the results of a real Alloy self-metrics body, NaN samples included, as JSON", func() {
+		// The golden body is prometheus.exporter.self output from real Alloy,
+		// and three of its samples are NaN: the deterministic form of the
+		// sandbox run that failed with "json: unsupported value: NaN".
+		header := http.Header{}
+		header.Set("Content-Encoding", "snappy")
+		header.Set("Content-Type", "application/x-protobuf")
+		header.Set("X-Prometheus-Remote-Write-Version", "0.1.0")
+		Expect(postTo(harness, simulate.CapturePathPrometheus, header, goldenBytes("remote_write_alloy_v1.18.1.snappy")).Code).
+			To(Equal(http.StatusNoContent))
+
+		results := sink.snapshot()
+		nonFinite := 0
+		for _, s := range results.Series {
+			if math.IsNaN(float64(s.LastValue)) || math.IsInf(float64(s.LastValue), 0) {
+				nonFinite++
+			}
+		}
+		Expect(nonFinite).To(BeNumerically(">", 0), "the golden body is meant to carry NaN samples")
+
+		raw, err := json.Marshal(results)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(string(raw)).To(ContainSubstring(`"last_value":"NaN"`))
+		var decoded simulate.ClientResults
+		Expect(json.Unmarshal(raw, &decoded)).To(Succeed())
+		Expect(decoded.Series).To(HaveLen(len(results.Series)))
 	})
 
 	It("aggregates repeated samples of one series rather than duplicating it", func() {
@@ -97,8 +126,8 @@ var _ = Describe("Prometheus remote_write capture", func() {
 		results := sink.snapshot()
 		Expect(results.Series).To(HaveLen(1))
 		Expect(results.Series[0].SampleCount).To(Equal(2))
-		Expect(results.Series[0].FirstValue).To(Equal(3.0))
-		Expect(results.Series[0].LastValue).To(Equal(7.0))
+		Expect(results.Series[0].FirstValue).To(BeEquivalentTo(3.0))
+		Expect(results.Series[0].LastValue).To(BeEquivalentTo(7.0))
 		Expect(results.Series[0].FirstTimestampMS).To(Equal(int64(1000)))
 		Expect(results.Series[0].LastTimestampMS).To(Equal(int64(2000)))
 	})

@@ -4,6 +4,8 @@ import (
 	"sort"
 	"strings"
 	"sync"
+
+	"shepherd/internal/simulate"
 )
 
 // Result caps. Every cap has a companion *_truncated flag on Results because
@@ -19,15 +21,17 @@ const (
 )
 
 // Series is one captured time series. First/Last values and timestamps make a
-// counter's advance visible without shipping every sample.
+// counter's advance visible without shipping every sample. The values are
+// simulate.SampleValue rather than float64 because a captured sample can be
+// NaN, ±Inf or the stale marker, which encoding/json refuses to encode.
 type Series struct {
-	Name             string            `json:"name"`
-	Labels           map[string]string `json:"labels"`
-	SampleCount      int               `json:"sample_count"`
-	FirstValue       float64           `json:"first_value"`
-	LastValue        float64           `json:"last_value"`
-	FirstTimestampMS int64             `json:"first_timestamp_ms"`
-	LastTimestampMS  int64             `json:"last_timestamp_ms"`
+	Name             string               `json:"name"`
+	Labels           map[string]string    `json:"labels"`
+	SampleCount      int                  `json:"sample_count"`
+	FirstValue       simulate.SampleValue `json:"first_value"`
+	LastValue        simulate.SampleValue `json:"last_value"`
+	FirstTimestampMS int64                `json:"first_timestamp_ms"`
+	LastTimestampMS  int64                `json:"last_timestamp_ms"`
 }
 
 // LogLine is one captured log entry at the Loki push receiver.
@@ -118,12 +122,12 @@ func (s *sink) addSample(labels map[string]string, value float64, timestampMS in
 		}
 		existing = &Series{
 			Name: labels["__name__"], Labels: labels,
-			FirstValue: value, FirstTimestampMS: timestampMS,
+			FirstValue: simulate.SampleValue(value), FirstTimestampMS: timestampMS,
 		}
 		s.series[key] = existing
 	}
 	existing.SampleCount++
-	existing.LastValue = value
+	existing.LastValue = simulate.SampleValue(value)
 	existing.LastTimestampMS = timestampMS
 }
 
