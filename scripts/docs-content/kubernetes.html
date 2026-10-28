@@ -18,7 +18,7 @@
       <h2 id="installing">Installing</h2>
       <div class="code-block" data-lang="shell">
         <div class="code-head"><span>shell</span><button class="copy-btn" type="button">Copy</button></div>
-        <pre><code>helm install shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.24.0 \
+        <pre><code>helm install shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.25.0 \
   --namespace shepherd --create-namespace \
   --set existingSecret=shepherd-secrets</code></pre>
       </div>
@@ -30,8 +30,8 @@
         release it was published for.
       </p>
       <p class="note">
-        <strong>Chart version is not the app version.</strong> <code>--version 0.24.0</code> is the
-        <em>chart&rsquo;s</em>; Shepherd&rsquo;s is the chart&rsquo;s <code>appVersion</code> (<code>0.20.0</code> for chart <code>0.24.0</code>). They move independently, so a
+        <strong>Chart version is not the app version.</strong> <code>--version 0.25.0</code> is the
+        <em>chart&rsquo;s</em>; Shepherd&rsquo;s is the chart&rsquo;s <code>appVersion</code> (<code>0.21.0</code> for chart <code>0.25.0</code>). They move independently, so a
         chart-only change bumps only the chart. Run
         <code>helm show chart oci://ghcr.io/procoduck/charts/shepherd</code> to see which Shepherd
         release a chart version installs.
@@ -80,7 +80,7 @@
       <p>
         Nothing is exposed outside the cluster unless you ask for it. To see exactly what an install
         would create before creating it, render it locally:
-        <code>helm template shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.24.0</code>.
+        <code>helm template shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.25.0</code>.
       </p>
 
       <h2 id="migrations">Migrations run before the new code</h2>
@@ -182,6 +182,24 @@ kubectl -n shepherd port-forward svc/shepherd 8080:8080</code></pre>
         needs operator action has its own section in
         <a href="https://github.com/procoduck/shepherd/blob/main/deploy/helm/shepherd/UPGRADING.md">UPGRADING.md</a>.
         Migrations run ahead of the new pods automatically.
+      </p>
+
+      <h3 id="upgrading-to-0-25">Upgrading to chart 0.25.0: preflight strict orgs, upgrade both images together</h3>
+      <p>
+        An ordinary <code>helm upgrade</code>: four additive migrations
+        (<code>0047</code>&ndash;<code>0050</code>) run ahead of the new pods, and the served config
+        format moves to 5, which recomputes every cached row once to the same bytes, so no
+        collector reloads. Strict tenant mode now accepts only classified components and checks
+        endpoints under tenant-route segments against the organisation&rsquo;s own routes; a
+        stored pipeline that fails either is left out of served config until it is fixed. If any
+        organisation uses strict tenant mode, list every name collectors reach the gateway by in
+        <code>config.gateway.routes.hosts</code>, then run
+        <code>shepherd admin tenant-preflight</code> before and after the upgrade; with
+        <code>tenants.require_owned</code> on, the server does not start while it lists anything.
+        HTTPRoute installs can set <code>route.scheme</code> so the install notes print the right
+        URL. Upgrade the server and simulator images together: the simulator&rsquo;s results
+        encoding changed for non-finite samples. Details in
+        <a href="https://github.com/procoduck/shepherd/blob/main/deploy/helm/shepherd/UPGRADING.md">UPGRADING.md</a>.
       </p>
 
       <h3 id="upgrading-to-0-24">Upgrading to chart 0.24.0: run the tenant preflight if you use strict tenant mode</h3>
@@ -294,7 +312,7 @@ kubectl -n shepherd port-forward svc/shepherd 8080:8080</code></pre>
         <pre><code>kubectl -n shepherd label pod \
   -l 'app.kubernetes.io/instance=shepherd,app.kubernetes.io/name=shepherd,!app.kubernetes.io/component' \
   app.kubernetes.io/component=server
-helm upgrade shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.24.0 \
+helm upgrade shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.25.0 \
   --namespace shepherd --reuse-values</code></pre>
       </div>
       <p>

@@ -2,77 +2,70 @@
 
 ## 0.24.x → 0.25.0
 
-Shepherd v0.21. A `helm upgrade` with one additive migration (`0047`) and no fleet-wide reload:
-organisations not in strict tenant mode are served the same bytes as before. **If any
-organisation uses strict tenant mode** (or you set `tenants.require_owned`), follow steps 1, 3
-and 4: strict tenant mode now accepts only components with a reviewed classification, and checks
-endpoints on the tenant-route gateway against the organisation's own routes; a stored pipeline
-that fails either is left out of served config until it is fixed (or the component is allowed for
-its organisation).
+Shepherd v0.21.0. A `helm upgrade` with four additive migrations (`0047`–`0050`) and no
+fleet-wide reload: the served config format moves to 5, but every cached row recomputes to the
+same bytes and hash. Organisations not in strict tenant mode are served the same bytes as before.
+**If any organisation uses strict tenant mode** (or you set `tenants.require_owned`), follow
+steps 1–3: strict tenant mode now accepts only components with a reviewed classification and
+checks endpoints under tenant-route segments against the organisation's own routes, and a stored
+pipeline that fails either is left out of served config until it is fixed (or the component is
+allowed for its organisation). Everyone should read step 5: the server and simulator images move
+together.
 
 ### 1. Before you upgrade: run the tenant preflight (strict tenant mode only)
 
-Every component of every shipped schema now has a strict classification in the schema overlay:
-allowed, checked (accepted because the tenant check already reads its tenant-relevant
-attributes), or refused. In a strict organisation a component classified refused — in this
-release only `otelcol.auth.google` — or one no shipped schema classifies is refused at save, and
-a stored pipeline using one is **excluded from its collectors' served config** when it is served.
-Find such pipelines before you upgrade: run `shepherd admin tenant-preflight` **with the new
-image** against a copy of your database brought to the new schema with that image's `shepherd
-migrate up`, or right after the upgrade from a server pod:
+Run `shepherd admin tenant-preflight` **with the v0.21 image and the configuration the upgraded
+server will run with** — including the gateway hosts of step 2, which the preflight checks
+endpoints against — against a copy of your database brought to the new schema with that image's
+`shepherd migrate up` (the preflight reads the new `org_strict_components` table); it starts no
+server. If that is awkward, run it right after the upgrade from a server pod:
 
 ```sh
 kubectl -n shepherd exec svc/shepherd -- /usr/local/bin/shepherd admin tenant-preflight
 ```
 
-It lists each pipeline with the component (or the endpoint, step 4) and exits non-zero while
-anything is listed. Replace the component, disable the pipeline, or allow the component for the
-organisation (step 3). Run it with the gateway hosts you will configure (step 4) set, so it checks
-what the upgraded server will.
+It checks every organisation as strict tenant mode would, lists each item with the reason and a
+fix hint, and exits non-zero while anything is listed. For an organisation in strict tenant mode
+the pipelines it lists are exactly the ones v0.21 leaves out of its collectors' served config.
+What each kind of finding means and how to clear it:
+
+- **A component** strict tenant mode refuses (in this release only `otelcol.auth.google`, whose
+  `token_header` may name `X-Scope-OrgID`): replace it, disable the pipeline, or have an
+  application administrator allow it for the organisation (step 3). A name no shipped schema has,
+  or a module instance whose module or declare was not found, cannot be allowed: edit the
+  pipeline.
+- **A route**: an endpoint under a tenant route the organisation may not use — another
+  organisation's, one of its own that is revoked, or one whose tenant it no longer owns (the
+  reason says which) — or an endpoint on the gateway's hosts that is not under one of its routes:
+  send to one of the organisation's own live routes, written as a literal.
+- **A tenant**: a tenant label or header the organisation does not own, or that the check cannot
+  read: assign the tenant to the organisation (Admin → Organisations → Edit), or change the
+  pipeline to a tenant it owns.
+- **Text that does not parse** ("the pipeline text does not parse: …"): a pipeline stored before
+  a check its text no longer passes. Fix the text; nothing else about it can be judged until it
+  parses.
 
 **With `tenants.require_owned: true`, the server refuses to start while the preflight lists
-anything**, as in 0.24: clear the list first, or set `config.tenants.require_owned: false` for the
-upgrade, fix the listed pipelines, and turn it back on.
+anything**, as in 0.24 — now including the component and route findings. New pods would
+crash-loop while the old ones keep serving, so clear the list first, or set
+`config.tenants.require_owned: false` for the upgrade, fix the listed pipelines, and turn it back
+on.
 
-### 2. Upgrade: migration 0047
-
-```sh
-helm upgrade shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.25.0 \
-  --namespace shepherd --reuse-values
-```
-
-`0047` creates `org_strict_components` (the components an app admin allowed per organisation).
-It is additive, and pods still on the old image ignore it. Its down migration drops it.
-
-### 3. Allowing a component for one organisation
-
-An application administrator can allow a component strict mode refuses for one organisation:
-Admin → Organisations → Edit → **Admin-allowed components**, enter the component name (such as
-`otelcol.auth.google`) and choose Allow (or `AdminService/AddOrgStrictComponent` with `org_id`
-and `component`). It takes effect at once and recomputes the organisation's served configs, so a
-pipeline excluded only for that component is served again. The entry lifts **only** the
-component refusal: every other strict check — tenants, headers, label maps, capture-group labels
-— still applies to the component, and the page marks it "admin-allowed, unreviewed". Both changes
-are audited (`org.strict_component.add` / `.remove`). An entry cannot be removed while the
-organisation is strict and an enabled pipeline uses the component; the refusal names those
-pipelines. Only enabled pipelines are checked: a disabled pipeline that uses the component is
-refused when it is enabled again. Only a component a shipped schema has and classifies refused
-can be allowed (today `otelcol.auth.google`); any other name is refused.
-
-### 4. Gateway route endpoints (strict tenant mode with the receiver tier)
+### 2. Tell Shepherd every name of the gateway (strict tenant mode with tenant routes)
 
 Shepherd's tenant routes set the tenant themselves, whichever name or address reaches the
 gateway, so in a strict organisation an endpoint on any host whose path is under a route segment
-(`/otlp/<segment>/…` or `/faro/<segment>/…`) must now be under one of that organisation's own
-routes (active, or deprecated during its rotation overlap). Once the installation has any live
-tenant route, or a gateway host is configured, an endpoint written as an expression (`sys.env(…)`,
-a component export) is refused too, unless its literal part completes the path (a `?` or `#`
-follows it). Vendors' OTLP paths, such as Grafana Cloud's `/otlp/v1/…`, are not affected.
+(`/otlp/<segment>/…` or `/faro/<segment>/…`) must be under one of that organisation's own routes
+(active, or deprecated during its rotation overlap, with a tenant the organisation owns). Vendors'
+OTLP paths, such as Grafana Cloud's `/otlp/v1/…`, are not affected.
 
-The gateway's hosts are an extra on top: Shepherd takes one from `receiver.publicBaseURL`, and you
-can list more in `config.gateway.routes.hosts` (or `SHEPHERD_GATEWAY_ROUTES_HOSTS`,
-comma-separated). On them every endpoint must be under one of the organisation's routes, and a
-proxy or `Host` header naming them is refused:
+On the gateway's own hosts the check is stricter: every endpoint there must be under one of the
+organisation's routes, written as a plain literal, and a proxy, a `Host`/`:authority` header,
+Datadog's `site` or a blackbox module setting naming them is refused. Shepherd takes one host from
+`gateway.routes.public_base_url` (the chart sets it from `receiver.publicBaseURL` when the
+receiver tier is on). **If collectors reach the gateway by any other name** — an in-cluster
+Service name, an internal load balancer, an IP — list those names in `gateway.routes.hosts`
+(environment `SHEPHERD_GATEWAY_ROUTES_HOSTS`, comma-separated), before you run step 1:
 
 ```yaml
 config:
@@ -82,10 +75,111 @@ config:
         - edge-gateway.gateways.svc.cluster.local
 ```
 
-Run the preflight (step 1) before you upgrade, with the hosts set if you set any; it lists each
-pipeline whose endpoint is refused. Point it at one of the organisation's
-routes, write the endpoint as a literal, or disable the pipeline. A value in `hosts` that is not a
-host name or IP address (a URL, a port, a path) stops the server from starting.
+Hosts are compared as a client resolves them (case, trailing dot, IDN, percent-encoding and
+numeric IPv4 forms normalised, on every port). A value that is not a host name or IP address (a
+URL, a port, a path) stops the server from starting. Once the installation has any live tenant
+route, or a gateway host is configured, an endpoint written as an expression (`sys.env(…)`, a
+component export) is refused too, unless its literal part completes the path (a `?` or `#`
+follows it).
+
+### 3. Allowing a component for one organisation (optional, after the upgrade)
+
+An application administrator can allow a component strict mode refuses for one organisation:
+Admin → Organisations → Edit → **Admin-allowed components**, enter the component name (such as
+`otelcol.auth.google`) and choose Allow (or `AdminService/AddOrgStrictComponent` with `org_id`
+and `component`). It takes effect at once and recomputes the organisation's served configs, so a
+pipeline excluded only for that component is served again. The entry lifts **only** the
+component refusal: every other strict check — tenants, headers, label maps, capture-group labels,
+gateway endpoints — still applies to the component, and the page marks it "admin-allowed,
+unreviewed". Both changes are audited (`org.strict_component.add` / `.remove`). Only a component a
+shipped schema has and classifies refused can be allowed; any other name is refused. An entry
+cannot be removed while the organisation is strict and an enabled pipeline uses the component; the
+refusal names those pipelines (a disabled pipeline that uses it is refused when it is enabled
+again). An allowed public-preview or experimental component still needs the collector's
+`--stability.level`. The table this writes is created by migration `0047` (step 6).
+
+### 4. HTTPRoute installs: check the scheme the install notes print
+
+Chart notes only; no rendered object changes. `NOTES.txt` used to print `https://` for every
+Ingress host and HTTPRoute hostname. An Ingress host is now `https` only when an `ingress.tls`
+entry covers it. For an HTTPRoute the chart cannot read the Gateway, so the new **`route.scheme`**
+value (`http` or `https`) says how the listener serves the hostnames; left empty it is `http` when
+the first `parentRef` names port 80, `https` when it names 443, and otherwise `https` with a line
+in the notes saying it was assumed. Set it if your Gateway listener is plain http on another port:
+
+```yaml
+route:
+  scheme: http
+```
+
+### 5. Upgrade the server and simulator images together
+
+The sandbox simulator now encodes captured NaN, ±Inf and stale-marker samples as the strings
+`"NaN"`, `"+Inf"`, `"-Inf"` and `"StaleNaN"` (finite values are unchanged on the wire), so a v0.20
+server cannot read a v0.21 simulator's results for a run that captured one, and a v0.20 simulator
+still fails such a run. Both images follow the chart's `appVersion` by default; if you pin
+`image.tag` or `simulator.image.tag`, move both to `0.21.0` in the same upgrade.
+
+### 6. Upgrade: migrations 0047–0050 and the format-5 recompute
+
+```sh
+helm upgrade shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.25.0 \
+  --namespace shepherd --reuse-values
+```
+
+The migration Job (a `pre-upgrade` hook, on by default) applies them before the new pods start;
+if you turned it off, run `shepherd migrate up` yourself first. All four are additive and quick,
+and pods still on the old image ignore them:
+
+- `0047` creates `org_strict_components`, the components an app admin allowed per organisation.
+  Its down migration drops it.
+- `0048` creates `beacon_instance_reports`, each instance's last beacon report, so
+  Reconciliation reads "nothing running" rather than "unknown" once the sweeper has removed a
+  disabled pipeline's rows. A replica with no record yet falls back to the previous rule. Its down
+  migration drops it.
+- `0049` adds the nullable `serve_cache.provenance`, how each served config was built (the
+  collector page's new Pipelines tab). Its down migration drops it.
+- `0050` adds `simulate_runs.effective_duration_seconds` and `duration_note` (the extended sandbox
+  run window). Existing runs keep what they requested. Its down migration drops them.
+
+**Serve format 5, once, with no reload.** Every served-config row recomputes once, on its
+collector's next poll, to fill in `provenance`. The bytes and hash are unchanged, so collectors
+see a not-modified poll and do not reload. Two cases change a **strict** organisation's served
+text, and those collectors reload once:
+
+- a pipeline with a comment trailing its `otelcol.exporter.loki` block (as the
+  grafana/k8s-monitoring chart renders it): the inserted `loki.process
+  "shepherd_tenant_drop_<label>"` block now goes after that comment, so the comment stays with
+  the exporter;
+- a pipeline excluded for an endpoint under one of the organisation's own routes that no longer
+  routes for it: the served header's exclusion reason says the route is revoked, or that its
+  tenant is no longer one the organisation owns.
+
+The pipelines step 1 listed are left out of their strict organisation's served config, which also
+changes those collectors' bytes; they are shown in the served header under `// Excluded (N) -
+strict tenant check:`, on the pipeline page, as a `strict_tenant_excluded` Reconciliation finding
+and in the audit log, as in 0.24. Run the preflight again from a server pod after the upgrade; it
+should list what you expected and nothing new.
+
+### API changes
+
+All additive; the collector API (`collector.v1`) is unchanged. New: `AdminService`'s
+`ListOrgStrictComponents`, `AddOrgStrictComponent` and `RemoveOrgStrictComponent` (app admin);
+`GetServedConfigResponse.provenance_recorded`, `contributing`, `excluded` and `baseline_lines`;
+`SimulateRun.effective_duration_seconds` and `duration_note`. `GraphBinding.prop` may now be a
+path into nested blocks (`endpoint[0].basic_auth.password`); a prop without `.` or `[` keeps its
+meaning. `CreatePipeline` and `UpdatePipeline` answer `invalid_argument`, not `internal`, for a
+`source` other than `ui`, `wizard`, `git` or `visual`.
+
+### Rolling back
+
+`helm rollback` to chart 0.24.x works on the migrated schema: v0.20 ignores the new tables and
+columns and serves the format-5 rows as they are (the same bytes). Roll the simulator back with
+the server (step 5). v0.20 does not run the component or gateway route checks, so pipelines v0.21
+left out for them are served again on the next recompute. To remove the schema changes too, run
+`shepherd migrate down` four times with the v0.21 image before rolling back; that deletes the
+admin-allowed components, the instance report records, the served-config provenance and the run
+window columns.
 
 ## 0.23.x → 0.24.0
 

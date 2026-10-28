@@ -34,6 +34,16 @@
 > checking more constructs at save time and re-checking stored pipelines when served (PRs #415,
 > #416), and the two pre-release kind walkthroughs' fixes (PRs #411, #414, #417, #418). Its
 > baseline is `a4d7733` (§1). Known follow-ups are in §4.
+>
+> **v0.21.0** (chart 0.25.0, 2026-10-28) ships the 0.21 queue (#420): strict tenant mode
+> accepting only classified components, with app-admin-allowed components per org and a
+> real-Alloy regression suite (#421, PR #429), strict tenant mode checking gateway route endpoints
+> (PR #431), the four post-0.20 follow-ups (#422, PR #428), the collector page's contributing and
+> excluded pipelines (#423, PR #432, `serve.Format` 5), the sandbox run window (#424, PR #433), the
+> chart upgrade spec, `NOTES.txt` schemes and the typed pipeline source (#425, PR #437), canvas
+> keyboard accessibility and nested-block bindings (#426, PR #438), and the fixes from the rc.1
+> and final kind walkthroughs (PRs #434, #435, #439). First published as the prerelease
+> **v0.21.0-rc.1** (chart 0.25.0-rc.1). Its baseline is `8d3355d` (§1). Known follow-ups are in §4.
 > Completed rounds live in `docs/archive/` — the history this ledger used to carry inline is
 > `docs/archive/completed-2026-09-11.md`. Do not start a second ledger.
 
@@ -43,7 +53,7 @@
 |---|---|
 | `docs/project-status.md` | this ledger — verified baseline, open bugs, unbuilt features, open follow-ups |
 | `docs/spec.md` | authoritative product/build specification (§ numbers referenced below) |
-| `docs/plans/` | dated per-PR implementation plans while their work is unreleased; a plan moves to `docs/archive/plans/` once it has shipped in a tag. Empty between releases; open now: `2026-10-27-v021-queue.md` (0.21, #420–#426). The last shipped, `2026-10-26-v020-queue.md` (0.19.1 and 0.20, #389–#418), is in `docs/archive/plans/` with every earlier plan |
+| `docs/plans/` | dated per-PR implementation plans while their work is unreleased; a plan moves to `docs/archive/plans/` once it has shipped in a tag. Empty between releases, as now. The last shipped, `2026-10-27-v021-queue.md` (0.21, #420–#426), is in `docs/archive/plans/` with every earlier plan |
 | `docs/visual-builder-design-VB1.md` | visual builder design — M1–M8 built; §6.4 (S3) is the live spec for the sandbox feature (enabled by default in the Helm chart since v0.0.1) |
 | `docs/reviews/` | **live decision records only**: `canvas-framework-evaluation.md` (the React Flow decision and the controlled-mode contract `CanvasPane` depends on). Closed reviews move to `docs/archive/reviews/` |
 | `docs/dev-guide.md` | running the dev stack |
@@ -57,7 +67,22 @@
 
 ---
 
-## 1. Verified baseline (2026-10-27, v0.20.0; table from 2026-10-24, v0.19.0)
+## 1. Verified baseline (2026-10-28, v0.21.0; table from 2026-10-24, v0.19.0)
+
+**v0.21.0:** the baseline commit is `8d3355d` (#439, the last merge before the v0.21.0 release
+PR). Its push runs are CI 40687932190, CodeQL 40687932245 and security-scan 40687932307, all
+green. The agent-protocol E2E is path-filtered on push: it last ran on push at `4eb168d` (#437,
+run 40670199312, green) and on #439's head `9e94d9a` (run 40686467834, green); the strict-tenant
+suite (`make e2e-strict`) last ran on #439's head (run 40686467676, green). The Kubernetes e2e,
+now including the upgrade from the previous published chart (#425), last ran on #437's head
+`eb36ee7` (run 40666631389, green) and on the rc.1 release PR's head `60725dd` (run 40658856126,
+green); #438 and #439 touched no path it filters on. The push CI run on `9dc6408` (#438,
+40679692449) failed once in `TestTenantLintIsBounded`, a timing bound (§4); the same test passed
+on #438's PR runs and on `8d3355d`. Each 0.21 PR added red-first specs for its change (the PR
+descriptions list them). Two kind walkthroughs with Playwright ran before the tag: one before the
+v0.21.0-rc.1 tag (its findings fixed in #434 and #435) and the final one after #438 (its findings
+fixed in #439, with four accessibility and API follow-ups in §4). The table below is the
+v0.19.0 evidence and stays valid for every surface the 0.20 and 0.21 PRs did not touch.
 
 **v0.20.0:** the baseline commit is `a4d7733` (#418, the last merge before the v0.20.0 release
 PR). Its push runs are CI 40431408354, CodeQL 40431408270, security-scan 40431408360 and E2E
@@ -252,6 +277,17 @@ the manual end-to-end pass the list above records. Re-walk them on the next rele
   judging beacon rows against the instance's last report and saying "unknown" with nothing
   reporting (PRs #414, #417, #418, migration `0046`); audit, log-format and editor-warning fixes
   (PR #417). Walked on kind before the tag except the #417/#418 fixes (§1).
+- **v0.21.0** (chart 0.25.0) — strict tenant mode accepts only components with a shipped strict
+  classification (allowed, checked or refused), with app-admin-allowed components
+  per org (#421, PR #429, migration `0047`) and the real-Alloy `make e2e-strict` suite; strict
+  tenant mode checks gateway route endpoints, with `gateway.routes.hosts` (PR #431); Reconciliation
+  after the sweep, the wizard preview's warnings, bounded version strings and the exporter comment
+  (#422, PR #428, migration `0048`); the collector page's Pipelines tab (#423, PR #432, migration
+  `0049`, `serve.Format` 5); the sandbox run window (#424, PR #433, migration `0050`); NaN/Inf
+  sandbox samples (PR #435); the chart upgrade spec, `NOTES.txt` schemes and
+  `pipelinesource.Source` (#425, PR #437); canvas keyboard accessibility, axe scan and
+  nested-block bindings (#426, PR #438); walkthrough fixes (PRs #434, #439). Walked on kind before
+  the tag (§1).
 
 ### History
 
@@ -299,7 +335,11 @@ remediation with its D1–D14 decisions, and the v0.5.0 dependency and toolchain
   tag.
 - 2026-10-28 — v0.21.0-rc.1, prerelease (strict component allowlist and real-Alloy suite, gateway
   route endpoints in strict mode, post-0.20 follow-ups, collector contributing/excluded pipelines,
-  sandbox run window, walkthrough fixes), chart 0.25.0-rc.1; release run recorded after the tag.
+  sandbox run window, walkthrough fixes), chart 0.25.0-rc.1; release run 40659974682.
+- 2026-10-28 — v0.21.0 (strict component allowlist and gateway route endpoints, collector
+  contributing/excluded pipelines, sandbox run window, canvas keyboard accessibility and nested
+  bindings, chart notes schemes and upgrade spec), chart 0.25.0; release run recorded after the
+  tag.
 
 ---
 
@@ -432,7 +472,7 @@ worktrees with their `node_modules`) and crashed the daemon; `.dockerignore` fix
 
 ## 3. Unbuilt / gated features
 
-F-CONTRIB closed (#423) — shipped on main, unreleased: the collector page's Pipelines tab lists
+F-CONTRIB closed (#423) — shipped in v0.21.0: the collector page's Pipelines tab lists
 the contributing pipelines (link, revision, matcher evidence, line span in the served config, the
 baseline's lines) and the excluded ones with their reason (role, strict tenant check, unparsable
 matcher), recorded by `serve.ComputeServed` with the served bytes (`serve_cache.provenance`,
@@ -574,23 +614,22 @@ decisions are in `docs/archive/plans/2026-10-26-v020-queue.md`.
 **Known follow-ups from v0.20.0** (found in the pre-release walkthroughs and reviews, not fixed in
 the release):
 
-- [x] **Reconciliation after the sweep.** — shipped on main (PR #428, unreleased): each
+- [x] **Reconciliation after the sweep.** — shipped in v0.21.0 (PR #428): each
       instance's last report is kept in `beacon_instance_reports` (migration `0048`), swept with
       the instance lifecycle, so the tab reads "nothing running". Original note: A collector whose only pipeline was disabled reads
       correctly (nothing running) while its beacon rows remain; once the sweeper has deleted them,
       the tab reads "unknown" rather than "nothing running", because no row is left to carry the
       instance's last report.
-- [x] **The wizard preview shows "No problems" beside warnings.** — shipped on main (PR
-      #428, unreleased): the preview reuses the editor's `EditorValidationStatus`. The pipeline editor counts
+- [x] **The wizard preview shows "No problems" beside warnings.** — shipped in v0.21.0 (PR
+      #428): the preview reuses the editor's `EditorValidationStatus`. The pipeline editor counts
       warnings since PR #417; the wizard preview's summary does not yet.
 - [x] **The trailing `// otelcol.exporter.loki` comment ends up after the inserted drop block.**
-      — shipped on main (PR #428, unreleased): the block goes after a comment ending the
+      — shipped in v0.21.0 (PR #428): the block goes after a comment ending the
       exporter's closing line.
       In a strict org's served form, a `// otelcol.exporter.loki` comment that trails the exporter
       lands after the inserted `loki.process "shepherd_tenant_drop_<label>"` block instead of next
       to the exporter, so it reads as belonging to the wrong block. Cosmetic; served text only.
-- [x] **Junk or flapping Alloy version strings are untested.** — shipped on main (PR #428,
-      unreleased): specs added; they exposed unbounded versions in the audit row and fingerprint,
+- [x] **Junk or flapping Alloy version strings are untested.** — shipped in v0.21.0 (PR #428): specs added; they exposed unbounded versions in the audit row and fingerprint,
       an audit per re-check for a flapping unknown version, and NUL bytes failing as `Internal`,
       all fixed. The version-aware check is covered
       for released, pre-release, too-new and missing versions; malformed version strings, and an
@@ -633,10 +672,11 @@ In rough priority order; closed items stay in place, marked with the release tha
 - [x] **Wizards have no channel to say when they silently drop or add something** (B2) — a
       first-class warnings field on the render preview shipped in v0.10.0 (#134).
 - [x] **`Chart.yaml` `kubeVersion` floor** (B3) — raised to 1.29 in v0.9.0 (#131).
-- [ ] **`NOTES.txt` prints `https://` for every `route.hostnames` entry** although a route may be
-      plain http (the kind dev stack's is). Cosmetic; fix with the next chart release.
+- [x] **`NOTES.txt` prints `https://` for every `route.hostnames` entry** — shipped in v0.21.0
+      (#425, PR #437): an Ingress host is `https` only when `ingress.tls` covers it, an HTTPRoute
+      takes the new `route.scheme` value (or infers it from the first `parentRef`'s port).
 - [x] **A 30 s sandbox run against a 30 s scrape interval captures one scrape or none**, depending
-      on where the scrape jitter lands. — shipped on main (#424, unreleased): a run is extended to
+      on where the scrape jitter lands. — shipped in v0.21.0 (#424, PR #433): a run is extended to
       two of the longest scrape or poll intervals in the pipeline, capped at the 120 s maximum, and
       the run dialog says why (`SimulateRun.effective_duration_seconds` / `duration_note`,
       migration 0050).
@@ -655,17 +695,17 @@ In rough priority order; closed items stay in place, marked with the release tha
       (built upstream with Go 1.26.5). v1.19.2 is built on a patched Go and carries 2, both in
       grpc (upstream). Bumped as a schema bump: `ALLOY_IMAGE`/`ALLOY_VERSION`, `make schema`,
       overlay reconciliation, the v1.18.1 artifact kept embedded for upgrade-review diffs.
-- [x] **Typed `Source` enum (done 2026-10-28, #425).** `pipelines.source` is
+- [x] **Typed `Source` enum (shipped in v0.21.0, #425).** `pipelines.source` is
       `pipelinesource.Source` from the sqlc models up (a `sqlc.yaml` column override), so the
       `exhaustive` linter checks switches over it; a test keeps the constants and the CHECK
       constraint in step. (The role half: step 7a, #361, made `auth.Role` and `auth.Requirement`
       typed.)
-- [x] **Canvas keyboard wiring** — done (#426): node/port/wire navigation, keyboard wiring and
+- [x] **Canvas keyboard wiring** — shipped in v0.21.0 (#426): node/port/wire navigation, keyboard wiring and
       deletion, screen-reader names, a live region, the `?` shortcut sheet, a `--color-focus`
       ring, and an axe scan in the mocked UI suite (`web/src/visual/components/useCanvasKeyboard.ts`,
       `web/src/visual/canvasA11y.ts`, `web/tests/specs/visual-keyboard.spec.ts`,
       `visual-a11y-axe.spec.ts`).
-- [x] **Nested `bindings[]` entries** — done (#426): `GraphBinding.prop` takes a binding path
+- [x] **Nested `bindings[]` entries** — shipped in v0.21.0 (#426): `GraphBinding.prop` takes a binding path
       (`endpoint[0].basic_auth.password`, `internal/visual/bindingpath.go`,
       `web/src/visual/bindingPath.ts`); both renderers place it inside the block; the picker
       writes it; the graph-view parse reports references at the same canonical path.
@@ -711,6 +751,10 @@ In rough priority order; closed items stay in place, marked with the release tha
 - [ ] **Collector detail tabs are plain buttons, not `role="tab"`.** The tab strip on the
       collector page has no `tablist`/`tab`/`tabpanel` roles or `aria-selected`, so assistive
       technology does not announce it as tabs (v0.21.0 final walkthrough).
+- [ ] **`TestTenantLintIsBounded` can miss its time bound on a loaded runner.** The push CI run
+      on `9dc6408` (run 40679692449) failed its `| pieces 6000x64x500 (just under the contents
+      cap)` case once; PR runs and the next push passed. Make the bound robust to runner load
+      (allocation- or step-counted rather than wall-clock) so `main` does not flake.
 - [ ] **`Render` returns 200 with the content minus an invalid binding, plus the diagnostic.** A
       caller reading `content` alone sees text that looks valid; only `diagnostics` says a binding
       was left out (v0.21.0 final walkthrough). Decide whether such a render should return no
