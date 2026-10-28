@@ -145,6 +145,77 @@ message GetServedConfigResponse {
   string content = 1;
   string hash = 2;
   google.protobuf.Timestamp computed_at = 3;
+  // provenance_recorded is whether the fields below describe content: false
+  // for a row computed before Shepherd recorded provenance (or with no
+  // content yet); it is recorded on the collector's next recompute.
+  // F-CONTRIB (#423): written by the same assembly that wrote content, so the
+  // fields never describe a different decision than the one served.
+  bool provenance_recorded = 4;
+  // contributing lists the pipelines in content, in content's order.
+  repeated ContributingPipeline contributing = 5;
+  // excluded lists the pipelines that matched this collector but were left
+  // out of content.
+  repeated ExcludedPipeline excluded = 6;
+  // baseline_lines is where the self-monitoring (D6 beacon) baseline
+  // pipeline sits in content; unset when none is served.
+  LineSpan baseline_lines = 7;
+}
+
+// LineSpan is a 1-based, inclusive line range of a served config's content.
+message LineSpan {
+  int32 first = 1;
+  int32 last = 2;
+}
+
+// MatcherEvidence is one matcher of a contributing pipeline and the
+// collector label value it was evaluated against.
+message MatcherEvidence {
+  // matcher is the matcher as the pipeline stores it, e.g. team=~"a.*".
+  string matcher = 1;
+  // label is the label name the matcher reads.
+  string label = 2;
+  // value is the collector's value for label; "" when present is false.
+  string value = 3;
+  // present is whether the collector has label at all (a negative matcher
+  // matches a collector without it).
+  bool present = 4;
+}
+
+// ContributingPipeline is one pipeline in a served config.
+message ContributingPipeline {
+  string pipeline_id = 1;
+  string name = 2;
+  // revision is the revision served (the header's "(rev N)").
+  int32 revision = 3;
+  // source is "ui" | "wizard" | "git".
+  string source = 4;
+  // repo_link is set for a git pipeline, which matches the collector its repo
+  // link names instead of by matchers (matchers is then empty).
+  bool repo_link = 5;
+  // matchers is every matcher of the pipeline (all of them matched).
+  repeated MatcherEvidence matchers = 6;
+  // lines is the pipeline's declare block in content, from
+  // `declare "<block_name>" {` through `<block_name> "default" { }`.
+  LineSpan lines = 7;
+  string block_name = 8;
+}
+
+// ExcludedPipeline is one pipeline that matched a collector but is not in its
+// served config.
+message ExcludedPipeline {
+  string pipeline_id = 1;
+  string name = 2;
+  // reason is "role" (the collector's role does not allow the pipeline's
+  // signals, or they could not be derived), "strict_tenant" (strict tenant
+  // mode's serve-time check refused it) or "unparsable_matcher" (a matcher
+  // does not parse). A string, per this repo's enum-like-field rule.
+  string reason = 3;
+  // message says why in a sentence; for strict_tenant it is the check's
+  // finding.
+  string message = 4;
+  // disallowed_signals is set for reason "role": the pipeline's signals the
+  // role does not allow.
+  repeated string disallowed_signals = 5;
 }
 
 message GetReconciliationRequest {

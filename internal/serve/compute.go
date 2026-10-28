@@ -77,6 +77,11 @@ type Result struct {
 	// baseline (degrade, don't fail the whole collector over a baseline
 	// render bug) — callers should log BaselineErr at their own level.
 	BaselineErr error
+	// Provenance is how Content was built — contributors with their line
+	// spans in Content, exclusions, the baseline's lines (F-CONTRIB, #423).
+	// Metadata only: it never changes Content or Hash. Store writes it with
+	// them.
+	Provenance Provenance
 }
 
 // errNilSchema is returned when Deps.Schema is nil: see Deps.Schema.
@@ -170,6 +175,7 @@ func assemble(deps Deps, coll Collector, pipelines []merge.Pipeline, stampID, st
 		Hash:        hash,
 		Exclusions:  assembled.Exclusions,
 		BaselineErr: baselineErr,
+		Provenance:  newProvenance(assembled, content, hash),
 	}, nil
 }
 

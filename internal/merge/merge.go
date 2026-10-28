@@ -12,8 +12,6 @@ import (
 	"regexp"
 	"slices"
 	"strings"
-
-	"github.com/prometheus/alertmanager/pkg/labels"
 )
 
 // Pipeline is the minimal representation of a pipeline needed by the merge engine.
@@ -124,23 +122,8 @@ func SanitizeName(name string) string {
 // Git pipelines are matched by collector ID, not by label matchers.
 // UI/wizard pipelines with zero matchers match nothing.
 func MatchesPipeline(p Pipeline, cl CollectorLabels) (bool, error) {
-	if p.Source == "git" {
-		return p.RepoLinkCollectorID == cl.CollectorID, nil
-	}
-	if len(p.Matchers) == 0 {
-		return false, nil
-	}
-	for _, ms := range p.Matchers {
-		m, err := labels.ParseMatcher(ms)
-		if err != nil {
-			return false, fmt.Errorf("parsing matcher %q: %w", ms, err)
-		}
-		v := cl.Labels[m.Name]
-		if !m.Matches(v) {
-			return false, nil
-		}
-	}
-	return true, nil
+	matched, _, err := matchEvidence(p, cl)
+	return matched, err
 }
 
 // AssembleResult is the output of the merge engine for a single collector.
@@ -155,6 +138,10 @@ type AssembleResult struct {
 	// in Content's order (#297). Metadata only — it never changes Content or
 	// Hash — and Spans(Content) recovers exactly the same map from the bytes.
 	Spans []BlockSpan
+	// Contributors is every included pipeline in Content's order, with the
+	// evidence that selected it and its Span (F-CONTRIB, #423). Metadata
+	// only, like Spans.
+	Contributors []Contributor
 }
 
 // Assemble builds the merged Alloy configuration for a collector.
@@ -176,15 +163,12 @@ func Assemble(collectorID, collectorDisplayName string, cl CollectorLabels, pipe
 	// Pipelines whose matchers could not be parsed. Reported like role
 	// exclusions rather than aborting the assembly -- see below.
 	var unmatchable []Exclusion
+	// What selected each pipeline, by name (Assemble refuses two selected
+	// pipelines whose names collide, so a name names one pipeline here).
+	evidence := make(map[string][]MatcherEvidence)
 	for i := range pipelines {
 		p := &pipelines[i]
-		if p.Source == "git" {
-			if p.RepoLinkCollectorID == cl.CollectorID {
-				selected = append(selected, *p)
-			}
-			continue
-		}
-		matched, err := MatchesPipeline(*p, cl)
+		matched, ev, err := matchEvidence(*p, cl)
 		if err != nil {
 			// One unparsable matcher used to abort the whole assembly, which
 			// meant a single bad pipeline froze config serving for every
@@ -195,13 +179,16 @@ func Assemble(collectorID, collectorDisplayName string, cl CollectorLabels, pipe
 			// Matchers are also parsed at save now, so reaching this means the
 			// row predates that check or was written outside the API.
 			unmatchable = append(unmatchable, Exclusion{
+				PipelineID:   p.ID,
 				PipelineName: p.Name,
 				Reason:       fmt.Sprintf("unparsable matcher, excluded: %v", err),
+				Kind:         ExclusionUnparsableMatcher,
 			})
 			continue
 		}
 		if matched {
 			selected = append(selected, *p)
+			evidence[p.Name] = ev
 		}
 	}
 
@@ -229,7 +216,7 @@ func Assemble(collectorID, collectorDisplayName string, cl CollectorLabels, pipe
 	for i := range selected {
 		p := &selected[i]
 		if p.TenantProblem != "" {
-			exclusions = append(exclusions, Exclusion{PipelineName: p.Name, Reason: p.TenantProblem, TenantCheck: true})
+			exclusions = append(exclusions, Exclusion{PipelineID: p.ID, PipelineName: p.Name, Reason: p.TenantProblem, Kind: ExclusionTenantCheck})
 			continue
 		}
 		kept = append(kept, *p)
@@ -271,6 +258,7 @@ func Assemble(collectorID, collectorDisplayName string, cl CollectorLabels, pipe
 	// bytes written are unchanged by it.
 	linesWritten := strings.Count(sb.String(), "\n")
 	spans := make([]BlockSpan, 0, len(selected))
+	contributors := make([]Contributor, 0, len(selected))
 	for i := range selected {
 		p := &selected[i]
 		if i > 0 {
@@ -295,14 +283,22 @@ func Assemble(collectorID, collectorDisplayName string, cl CollectorLabels, pipe
 		sb.WriteString("}\n")
 		fmt.Fprintf(&sb, "%s \"default\" { }\n", blockName)
 		linesWritten = declareLine + len(contentLines) + 2
-		spans = append(spans, BlockSpan{
+		span := BlockSpan{
 			PipelineName: p.Name, BlockName: blockName,
 			DeclareLine: declareLine, EndLine: linesWritten,
+		}
+		spans = append(spans, span)
+		contributors = append(contributors, Contributor{
+			PipelineID: p.ID, PipelineName: p.Name, Source: p.Source, Revision: p.Revision,
+			RepoLink: p.Source == "git", Matchers: evidence[p.Name], Span: span,
 		})
 	}
 
 	content := sb.String()
-	return AssembleResult{Content: content, Hash: HashContent(content), Exclusions: exclusions, Spans: spans}, nil
+	return AssembleResult{
+		Content: content, Hash: HashContent(content), Exclusions: exclusions,
+		Spans: spans, Contributors: contributors,
+	}, nil
 }
 
 // HashContent computes hex(sha256(content)).
@@ -341,9 +337,12 @@ func buildHeader(collectorID, displayName string, pipelines []Pipeline, exclusio
 	// tenant exclusion is byte-identical to one served before the check.
 	var roleExcl, tenantExcl []Exclusion
 	for _, e := range exclusions {
-		if e.TenantCheck {
+		// An unparsable matcher has always been listed with the role
+		// exclusions; moving it would change served bytes.
+		switch e.Kind {
+		case ExclusionTenantCheck:
 			tenantExcl = append(tenantExcl, e)
-		} else {
+		case ExclusionRole, ExclusionUnparsableMatcher:
 			roleExcl = append(roleExcl, e)
 		}
 	}

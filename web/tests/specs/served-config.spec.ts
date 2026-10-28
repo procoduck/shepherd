@@ -3,10 +3,8 @@ import { appAdmin } from '../fixtures/personas';
 import { expect, test } from '../fixtures/test';
 
 /*
- * 'contributing pipeline links are visible' was removed rather than fixed: the
- * collector detail page has no contributing-pipelines UI, and the test asserted
- * only that some heading existed, so it passed without touching the feature it
- * was named for. Recorded as F-CONTRIB in docs/project-status.md.
+ * Contributing and excluded pipelines (F-CONTRIB, #423) are on the collector's
+ * Pipelines tab: collector-pipelines.spec.ts.
  */
 
 test('served config renders as read-only text, not an editor', async ({ page, api }) => {

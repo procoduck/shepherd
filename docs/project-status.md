@@ -429,11 +429,12 @@ worktrees with their `node_modules`) and crashed the daemon; `.dockerignore` fix
 
 ## 3. Unbuilt / gated features
 
-### F-CONTRIB — collector detail does not show contributing pipelines · **low**
-
-Served config is shown, but nothing links back to the pipelines that produced it, so there is no way
-to get from "this collector runs X" to "because pipeline Y matched". The merge engine already knows
-the contributing set.
+F-CONTRIB closed (#423) — shipped on main, unreleased: the collector page's Pipelines tab lists
+the contributing pipelines (link, revision, matcher evidence, line span in the served config, the
+baseline's lines) and the excluded ones with their reason (role, strict tenant check, unparsable
+matcher), recorded by `serve.ComputeServed` with the served bytes (`serve_cache.provenance`,
+migration 0049, `serve.Format` 5). A version mismatch is not an exclusion (serving continues,
+flagged), so it is not listed as one.
 
 All gateway-tier workstreams (W1–W11) and attribute-based matching (#139) have shipped — the last
 of them in v0.12.0: the receiver tier (#109, opt-in, R3 signed), tenant-route apply, onboarding

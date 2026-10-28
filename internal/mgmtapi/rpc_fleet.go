@@ -591,11 +591,15 @@ func (s *FleetService) GetServedConfig(ctx context.Context, req *connect.Request
 	if err != nil {
 		return connect.NewResponse(&mgmtv1.GetServedConfigResponse{}), nil //nolint:nilerr // cache miss renders as an all-empty 200, matching legacy ServedConfig
 	}
-	return connect.NewResponse(&mgmtv1.GetServedConfigResponse{
+	resp := &mgmtv1.GetServedConfigResponse{
 		Content:    cache.Content,
 		Hash:       cache.Hash,
 		ComputedAt: timestampFromPg(cache.ComputedAt),
-	}), nil
+	}
+	// F-CONTRIB (#423): how this content was built, as the recompute that
+	// wrote it recorded it — read from the row, never recomputed per view.
+	provenanceToProto(resp, cache.Provenance, cache.Hash)
+	return connect.NewResponse(resp), nil
 }
 
 // ListAssignments lists the group assignments granting access to a

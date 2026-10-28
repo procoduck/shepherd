@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useParams } from '@tanstack/react-router';
 import { CheckCircle, Copy, Plus, Search } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { clients } from '@/api/transport';
 import { CollectorAttributes, CollectorLabelsButton } from '@/components/CollectorLabels';
+import { CollectorPipelines, type ShowLines } from '@/components/CollectorPipelines';
 import {
   CollectorReconciliation,
   CollectorRejectionNote,
@@ -19,10 +20,47 @@ import { useMe } from '@/hooks/useMe';
 import { useOrgId } from '@/hooks/useOrg';
 import { errorText, formError } from '@/lib/formError';
 import { Role } from '@/lib/roles';
+import { linesLabel, spanContains } from '@/lib/servedProvenance';
 import { formatTimestampRelative } from '@/lib/utils';
 import { assignmentColumns, instanceColumns, statusColor, statusTitle } from './collectorColumns';
 
-type Tab = 'config' | 'reconciliation' | 'info' | 'attributes' | 'access';
+type Tab = 'config' | 'pipelines' | 'reconciliation' | 'info' | 'attributes' | 'access';
+
+/**
+ * The served config as read-only text, one span per line so a pipeline's
+ * block (F-CONTRIB: the Pipelines tab's "Lines N–M") can be highlighted and
+ * scrolled to. The text content is the served content unchanged.
+ */
+function ServedConfigText({ content, highlight }: { content: string; highlight?: ShowLines }) {
+  const first = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    if (highlight) first.current?.scrollIntoView?.({ block: 'center' });
+  }, [highlight]);
+  const lines = content.split('\n');
+  return (
+    <pre
+      data-testid='served-config-text'
+      className='rounded-lg border border-border bg-background p-4 text-xs font-mono text-zinc-300 overflow-auto max-h-[60vh] whitespace-pre-wrap'
+    >
+      {lines.map((line, i) => {
+        const n = i + 1;
+        const on = spanContains(highlight?.lines, n);
+        const text = i < lines.length - 1 ? `${line}\n` : line;
+        if (!on) return text;
+        return (
+          <mark
+            key={n}
+            ref={n === highlight?.lines.first ? first : undefined}
+            data-line={n}
+            className='bg-info-surface text-info'
+          >
+            {text}
+          </mark>
+        );
+      })}
+    </pre>
+  );
+}
 
 export function CollectorDetailPage() {
   const { id } = useParams({ from: '/shell/content/collectors/$id' });
@@ -30,6 +68,7 @@ export function CollectorDetailPage() {
   const { data: me } = useMe();
   const [tab, setTab] = useState<Tab>('config');
   const [copied, setCopied] = useState(false);
+  const [highlight, setHighlight] = useState<ShowLines | undefined>();
 
   const isOrgAdmin =
     !!me?.isAppAdmin || me?.orgs?.some((o) => o.id === orgId && o.role === Role.ADMIN) === true;
@@ -55,7 +94,7 @@ export function CollectorDetailPage() {
   const { data: servedConfig, isLoading: configLoading } = useQuery({
     queryKey: ['served-config', orgId, id],
     queryFn: () => clients.fleet.getServedConfig({ orgId, id }),
-    enabled: !!orgId && tab === 'config',
+    enabled: !!orgId && (tab === 'config' || tab === 'pipelines'),
     refetchInterval: 30000,
   });
 
@@ -153,10 +192,11 @@ export function CollectorDetailPage() {
   const instances = detail?.instances ?? [];
   const latestOs = instances[0]?.os;
   const tabs: Tab[] = isOrgAdmin
-    ? ['config', 'reconciliation', 'info', 'attributes', 'access']
-    : ['config', 'reconciliation', 'info', 'attributes'];
+    ? ['config', 'pipelines', 'reconciliation', 'info', 'attributes', 'access']
+    : ['config', 'pipelines', 'reconciliation', 'info', 'attributes'];
   const tabLabels: Record<Tab, string> = {
     config: 'Served Config',
+    pipelines: 'Pipelines',
     reconciliation: 'Reconciliation',
     info: 'Info',
     attributes: 'Attributes & Labels',
@@ -250,9 +290,26 @@ export function CollectorDetailPage() {
           {configLoading ? (
             <p className='text-sm text-muted'>Loading config…</p>
           ) : servedConfig?.content ? (
-            <pre className='rounded-lg border border-border bg-background p-4 text-xs font-mono text-zinc-300 overflow-auto max-h-[60vh] whitespace-pre-wrap'>
-              {servedConfig.content}
-            </pre>
+            <>
+              {highlight && (
+                <div
+                  className='flex items-center gap-3 text-xs text-muted'
+                  data-testid='served-config-highlight'
+                >
+                  <span>
+                    Highlighting {linesLabel(highlight.lines).toLowerCase()} — {highlight.name}
+                  </span>
+                  <button
+                    type='button'
+                    onClick={() => setHighlight(undefined)}
+                    className='text-indigo-400 underline underline-offset-2 hover:opacity-80'
+                  >
+                    Clear
+                  </button>
+                </div>
+              )}
+              <ServedConfigText content={servedConfig.content} highlight={highlight} />
+            </>
           ) : (
             <div className='rounded-lg border border-border bg-card/40 p-8 text-center'>
               <p className='text-sm text-muted-2'>No config served yet.</p>
@@ -262,6 +319,17 @@ export function CollectorDetailPage() {
             </div>
           )}
         </div>
+      )}
+
+      {tab === 'pipelines' && (
+        <CollectorPipelines
+          served={servedConfig}
+          loading={configLoading}
+          onShowLines={(s) => {
+            setHighlight(s);
+            setTab('config');
+          }}
+        />
       )}
 
       {tab === 'reconciliation' && (

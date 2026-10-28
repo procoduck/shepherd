@@ -168,7 +168,8 @@
       </p>
       <p>
         A collector&rsquo;s page has tabs for its <strong>Served Config</strong> (the exact merged
-        config it receives), <strong>Reconciliation</strong> (whether what its role declares, what
+        config it receives), <strong>Pipelines</strong> (the pipelines that config is built from
+        and the ones left out, below), <strong>Reconciliation</strong> (whether what its role declares, what
         it is served and what its beacon reports agree), <strong>Info</strong> (its instances), and
         <strong>Attributes &amp; Labels</strong>, where an org admin sets labels that pipelines can
         match on (<a href="matchers.html#matching-on-labels">Matchers</a>); org admins also get
@@ -179,6 +180,21 @@
         pipeline it includes with its revision, <code>(rev N)</code>, and names any pipeline left out
         for its role and why. Any change to that text &mdash; including a revision bump with
         unchanged pipeline text &mdash; makes the collector reload once on its next poll.
+      </p>
+      <p>
+        The <strong>Pipelines</strong> tab says why that config holds what it does. Under
+        <strong>Contributing</strong> is each pipeline in it, linked to its editor, with the revision
+        served, each of its matchers next to the value the collector has for that label (a git
+        pipeline says it matched by its repo link), and the lines its block occupies in the served
+        config; choosing the lines opens the Served Config tab with the block highlighted. The
+        self-monitoring baseline is listed too, marked as such. Under <strong>Excluded</strong> is
+        each pipeline that matches the collector but was left out, with the reason &mdash;
+        <strong>Role</strong> (its signals are ones the collector&rsquo;s role does not allow),
+        <strong>Strict tenant check</strong> (with the check&rsquo;s finding) or
+        <strong>Unparsable matcher</strong>. Shepherd records all of this when it builds the served
+        config, so the tab always describes the config the collector is actually served. A config
+        built before this was recorded says so; it is recorded on the collector&rsquo;s next poll. An
+        Alloy version mismatch never excludes a pipeline &mdash; it is the version warning above.
       </p>
 
       <h2 id="k8s-monitoring">With Grafana's k8s-monitoring chart</h2>

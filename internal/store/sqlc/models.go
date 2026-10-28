@@ -335,6 +335,7 @@ type ServeCache struct {
 	DirtySeq      int64              `json:"dirty_seq"`
 	Format        int16              `json:"format"`
 	LastFailedSeq int64              `json:"last_failed_seq"`
+	Provenance    json.RawMessage    `json:"provenance"`
 }
 
 type ServiceAccount struct {

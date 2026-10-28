@@ -27,13 +27,21 @@ import (
 // That is not a failure, and what to do about it is the caller's policy — the
 // lazy path still has a poll to answer, the eager path simply moves on,
 // because the recompute that observed the newer mark writes instead.
+//
+// r.Provenance is written in the same row write as the content it describes
+// (F-CONTRIB, #423).
 func Store(ctx context.Context, q *sqlc.Queries, collectorID pgtype.UUID, expectedSeq int64, r Result) (row sqlc.ServeCache, written bool, err error) {
+	provenance, err := json.Marshal(r.Provenance)
+	if err != nil {
+		return sqlc.ServeCache{}, false, fmt.Errorf("encoding serve provenance: %w", err)
+	}
 	row, err = q.UpsertServeCacheConditional(ctx, sqlc.UpsertServeCacheConditionalParams{
 		CollectorID: collectorID,
 		Content:     r.Content,
 		Hash:        r.Hash,
 		DirtySeq:    expectedSeq,
 		Format:      Format,
+		Provenance:  provenance,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return sqlc.ServeCache{}, false, nil

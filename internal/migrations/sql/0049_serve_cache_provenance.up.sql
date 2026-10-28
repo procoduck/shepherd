@@ -1,0 +1,14 @@
+-- How each cached served config was built (F-CONTRIB, #423): the pipelines in
+-- it with the matcher evidence that selected each and the line span of its
+-- declare block in content, the pipelines that matched but were excluded and
+-- why, and the D6 baseline's lines. internal/serve.ComputeServed produces it
+-- in the same assembly that writes content, and UpsertServeCacheConditional
+-- writes both in one row write, so the collector page reads the decision that
+-- was served — never a re-evaluation of the pipeline set. JSON in the shape of
+-- internal/serve.Provenance (versioned by its "v" key).
+--
+-- NULL for a row computed before this migration (or a failure placeholder):
+-- the page says provenance is recorded on the next recompute. serve.Format 5
+-- makes every row recompute on its collector's next poll; the served bytes and
+-- hash are unchanged by it, so no collector reloads.
+ALTER TABLE serve_cache ADD COLUMN provenance jsonb;

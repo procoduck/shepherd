@@ -25,7 +25,7 @@ var _ = Describe("strict tenant mode's serve-time exclusion (Pipeline.TenantProb
 		Expect(r.Content).To(ContainSubstring("// Excluded (1) - strict tenant check:\n//   - refused: 3:5 the labels are not a literal map\n"))
 		Expect(r.Content).NotTo(ContainSubstring("signal/role mismatch"))
 		Expect(r.Exclusions).To(ConsistOf(merge.Exclusion{
-			PipelineName: "refused", Reason: "3:5 the labels are not a literal map", TenantCheck: true,
+			PipelineName: "refused", Reason: "3:5 the labels are not a literal map", Kind: merge.ExclusionTenantCheck,
 		}))
 	})
 
