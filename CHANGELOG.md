@@ -25,6 +25,11 @@ Categories used here:
   pipelines. For anyone else, an org viewer for example, a cached module is linted as before (without
   marking it recently used), and one not cached yet is reported as not fetched instead of being
   fetched.
+- **Shipped — sign-in sessions are stored as digests.** The session table keeps a SHA-256 digest
+  of each session cookie instead of the cookie itself. Migration `0052` ends every existing
+  session, so everyone signs in again once after the upgrade. `shepherd dev create-session`
+  prints a `dev-<persona>-<random>` token and stores only its digest. See UPGRADING for the
+  rollout and rollback notes.
 
 ## v0.21.1
 

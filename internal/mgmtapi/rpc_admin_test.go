@@ -78,7 +78,7 @@ var _ = Describe("shepherd.mgmt.v1 AdminService and MeService RPC", Label("integ
 		Expect(err).NotTo(HaveOccurred())
 		sessionID := fmt.Sprintf("admin-rpc-session-%d", time.Now().UnixNano())
 		_, err = st.Queries.CreateSession(ctx, sqlc.CreateSessionParams{
-			ID: sessionID, UserOid: "admin-user-oid", Email: "admin-user@example.com", DisplayName: "Admin User",
+			ID: auth.HashSessionToken(sessionID), UserOid: "admin-user-oid", Email: "admin-user@example.com", DisplayName: "Admin User",
 			GroupIds:   groupsJSON,
 			IsAppAdmin: isAppAdmin,
 			ExpiresAt:  pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true},

@@ -1,4 +1,7 @@
 -- name: CreateSession :one
+-- id is the SHA-256 hex digest of the shepherd_session cookie value
+-- (auth.HashSessionToken), never the cookie itself; every lookup and delete
+-- by id takes the digest too.
 -- user_id is set only for local sessions (source = 'local'); an OIDC session
 -- has no local users row and leaves it NULL. Authorization branches on it —
 -- see internal/auth.authorizeOrgAccess.

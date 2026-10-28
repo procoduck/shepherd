@@ -48,7 +48,7 @@ var _ = Describe("Sweeper", Label("integration"), func() {
 
 	createSession := func(id string, expiresAt time.Time) {
 		_, err := st.Queries.CreateSession(ctx, sqlc.CreateSessionParams{
-			ID:             id,
+			ID:             auth.HashSessionToken(id),
 			UserOid:        "user-" + id,
 			Email:          id + "@example.com",
 			DisplayName:    id,
@@ -124,11 +124,11 @@ var _ = Describe("Sweeper", Label("integration"), func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(n).To(Equal(int64(2)))
 
-		_, err = st.Queries.GetSessionByID(ctx, "test-session-a")
+		_, err = st.Queries.GetSessionByID(ctx, auth.HashSessionToken("test-session-a"))
 		Expect(err).To(HaveOccurred())
-		_, err = st.Queries.GetSessionByID(ctx, "test-session-c")
+		_, err = st.Queries.GetSessionByID(ctx, auth.HashSessionToken("test-session-c"))
 		Expect(err).To(HaveOccurred())
-		_, err = st.Queries.GetSessionByID(ctx, "test-session-b")
+		_, err = st.Queries.GetSessionByID(ctx, auth.HashSessionToken("test-session-b"))
 		Expect(err).NotTo(HaveOccurred())
 	})
 

@@ -91,7 +91,7 @@ var _ = Describe("MeService GetMe role resolution", Label("integration"), func()
 		Expect(err).NotTo(HaveOccurred())
 		sessionID := fmt.Sprintf("me-roles-session-%d", time.Now().UnixNano())
 		_, err = st.Queries.CreateSession(ctx, sqlc.CreateSessionParams{
-			ID: sessionID, UserOid: "me-roles-user-oid", Email: "me-roles-user@example.com", DisplayName: "Me Roles User",
+			ID: auth.HashSessionToken(sessionID), UserOid: "me-roles-user-oid", Email: "me-roles-user@example.com", DisplayName: "Me Roles User",
 			GroupIds:   groupsJSON,
 			IsAppAdmin: false,
 			ExpiresAt:  pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true},
@@ -153,7 +153,7 @@ var _ = Describe("MeService GetMe role resolution", Label("integration"), func()
 		groupsJSON, err := json.Marshal([]string{})
 		Expect(err).NotTo(HaveOccurred())
 		_, err = st.Queries.CreateSession(ctx, sqlc.CreateSessionParams{
-			ID: sessionID, UserID: user.ID, UserOid: "local:" + user.Login, Email: user.Email, DisplayName: user.DisplayName,
+			ID: auth.HashSessionToken(sessionID), UserID: user.ID, UserOid: "local:" + user.Login, Email: user.Email, DisplayName: user.DisplayName,
 			GroupIds:   groupsJSON,
 			IsAppAdmin: false,
 			ExpiresAt:  pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true},
@@ -208,7 +208,7 @@ var _ = Describe("MeService GetMe role resolution", Label("integration"), func()
 		Expect(err).NotTo(HaveOccurred())
 		sessionID := fmt.Sprintf("me-tenant-session-%d", time.Now().UnixNano())
 		_, err = st.Queries.CreateSession(ctx, sqlc.CreateSessionParams{
-			ID: sessionID, UserOid: "me-tenant-user", Email: "me-tenant@example.com", DisplayName: "Viewer",
+			ID: auth.HashSessionToken(sessionID), UserOid: "me-tenant-user", Email: "me-tenant@example.com", DisplayName: "Viewer",
 			GroupIds: groupsJSON, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true},
 			Source: "test",
 		})

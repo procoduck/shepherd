@@ -375,7 +375,7 @@ serve_cache(collector_id uuid PRIMARY KEY REFERENCES collectors,
            dirty boolean DEFAULT true, dirty_seq bigint NOT NULL DEFAULT 0,
            format smallint NOT NULL DEFAULT 0)
 
-sessions(id text PRIMARY KEY,                       -- random 256-bit, base64url
+sessions(id text PRIMARY KEY,                       -- hex SHA-256 of the cookie (192-bit random, base64url); the cookie itself is never stored
            user_oid text, email text, display_name text,
            group_ids jsonb, is_app_admin boolean,
            id_token_expires timestamptz, expires_at timestamptz)
@@ -2210,7 +2210,7 @@ Use `?unclaimed=true` to filter to unclaimed only. The old behaviour of returnin
 `shepherd dev seed` and `shepherd dev create-session` are developer-only CLI commands:
 - Direct DB access — no HTTP flow, no auth required.
 - `dev seed`: idempotent, ON CONFLICT DO NOTHING, creates 2 orgs, 3 clusters (`prod-eu-1`, `staging-eu-1`, `data-eng-eu-1`), collectors, pipelines and a token.
-- `dev create-session`: inserts session row with `source='dev'`, prints session ID to stdout.
+- `dev create-session`: inserts session row with `source='dev'`, prints the session token (`dev-<persona>-<random>`) to stdout; the row stores only its SHA-256 digest, like every session.
 - Both commands must NEVER be exposed via HTTP and are not to be called in production.
 - `shepherd dev create-session --persona` supports: `appadmin`, `admin-platform`, `viewer-platform`, `nobody`.
 

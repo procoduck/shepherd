@@ -368,7 +368,7 @@ func newTestSession(ctx context.Context, st *store.Store, groupID string) string
 	groupsJSON, err := json.Marshal(groups)
 	Expect(err).NotTo(HaveOccurred())
 	_, err = st.Queries.CreateSession(ctx, sqlc.CreateSessionParams{
-		ID: id, UserOid: "user-" + id, Email: id + "@example.com", DisplayName: "Test User",
+		ID: auth.HashSessionToken(id), UserOid: "user-" + id, Email: id + "@example.com", DisplayName: "Test User",
 		GroupIds:   groupsJSON,
 		IsAppAdmin: false,
 		ExpiresAt:  pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true},

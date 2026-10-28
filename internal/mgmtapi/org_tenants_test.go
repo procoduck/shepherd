@@ -46,7 +46,7 @@ var _ = Describe("Org tenants", Label("integration"), func() {
 		Expect(err).NotTo(HaveOccurred())
 		id := fmt.Sprintf("org-tenants-session-%d", time.Now().UnixNano())
 		_, err = st.Queries.CreateSession(ctx, sqlc.CreateSessionParams{
-			ID: id, UserOid: "user-" + id, Email: id + "@example.com", DisplayName: "Tenants",
+			ID: auth.HashSessionToken(id), UserOid: "user-" + id, Email: id + "@example.com", DisplayName: "Tenants",
 			GroupIds: groupsJSON, IsAppAdmin: isAppAdmin,
 			ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}, Source: "test",
 		})

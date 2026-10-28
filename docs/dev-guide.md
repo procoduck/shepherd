@@ -216,11 +216,13 @@ docker compose -f dev/docker-compose.dev.yaml exec shepherd \
   /usr/local/bin/shepherd dev create-session --persona admin-platform
 
 # Personas: appadmin | admin-platform | viewer-platform | nobody
-# Output: session_id=dev-admin-platform-1234567890
+# Output: session_id=dev-admin-platform-<random> persona=admin-platform ttl=1h0m0s
 # Set cookie: shepherd_session=<session_id>
 ```
 
-This is a direct DB insert — no HTTP flow. **Never use in production.**
+This is a direct DB insert — no HTTP flow. The printed token is the cookie value; the session
+row stores only its SHA-256 digest, so copy the token from the output, not from the table.
+**Never use in production.**
 
 ---
 

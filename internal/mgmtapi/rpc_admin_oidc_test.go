@@ -334,7 +334,7 @@ func newNonAdminSession(ctx context.Context, st *store.Store) *http.Cookie {
 	groupsJSON, err := json.Marshal([]string{"some-org-group"})
 	Expect(err).NotTo(HaveOccurred())
 	_, err = st.Queries.CreateSession(ctx, sqlc.CreateSessionParams{
-		ID: id, UserOid: "user-" + id, Email: id + "@example.com", DisplayName: "Ordinary User",
+		ID: auth.HashSessionToken(id), UserOid: "user-" + id, Email: id + "@example.com", DisplayName: "Ordinary User",
 		GroupIds:   groupsJSON,
 		IsAppAdmin: false,
 		ExpiresAt:  pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true},
@@ -472,7 +472,7 @@ func newOrgScopedAdminSession(ctx context.Context, st *store.Store, groupID stri
 	groupsJSON, err := json.Marshal([]string{groupID})
 	Expect(err).NotTo(HaveOccurred())
 	_, err = st.Queries.CreateSession(ctx, sqlc.CreateSessionParams{
-		ID: id, UserOid: "user-" + id, Email: id + "@example.com", DisplayName: "Org Admin",
+		ID: auth.HashSessionToken(id), UserOid: "user-" + id, Email: id + "@example.com", DisplayName: "Org Admin",
 		GroupIds:   groupsJSON,
 		IsAppAdmin: false,
 		ExpiresAt:  pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true},

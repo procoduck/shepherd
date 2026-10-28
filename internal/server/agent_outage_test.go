@@ -171,7 +171,7 @@ var _ = Describe("collector requests during a database outage (#374)", Label("in
 	adminRPC := func(procedure, body string) {
 		sessionID := fmt.Sprintf("outage-admin-%d", time.Now().UnixNano())
 		_, err := st.Queries.CreateSession(ctx, sqlc.CreateSessionParams{
-			ID: sessionID, UserOid: "admin-oid", Email: "admin@example.com", DisplayName: "Admin",
+			ID: auth.HashSessionToken(sessionID), UserOid: "admin-oid", Email: "admin@example.com", DisplayName: "Admin",
 			GroupIds: json.RawMessage(`[]`), IsAppAdmin: true,
 			ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}, Source: "test",
 		})

@@ -647,11 +647,12 @@ func (h *Handler) createSessionAndSetCookie(w http.ResponseWriter, r *http.Reque
 	if p.idTokenExp != nil {
 		idTokenExpires = pgtype.Timestamptz{Time: *p.idTokenExp, Valid: true}
 	}
-	sessionID := randomState()
-	if _, err := h.store.Queries.CreateSession(r.Context(), sqlc.CreateSessionParams{ID: sessionID, UserID: p.userID, UserOid: p.userOID, Email: p.email, DisplayName: p.displayName, GroupIds: groupsJSON, IsAppAdmin: p.isAppAdmin, IDTokenExpires: idTokenExpires, ExpiresAt: pgtype.Timestamptz{Time: p.expiresAt, Valid: true}, Source: p.source}); err != nil {
+	// The cookie carries the token; the row stores only its digest.
+	token := NewSessionToken()
+	if _, err := h.store.Queries.CreateSession(r.Context(), sqlc.CreateSessionParams{ID: HashSessionToken(token), UserID: p.userID, UserOid: p.userOID, Email: p.email, DisplayName: p.displayName, GroupIds: groupsJSON, IsAppAdmin: p.isAppAdmin, IDTokenExpires: idTokenExpires, ExpiresAt: pgtype.Timestamptz{Time: p.expiresAt, Valid: true}, Source: p.source}); err != nil {
 		return fmt.Errorf("creating session: %w", err)
 	}
-	http.SetCookie(w, sessionCookie(sessionID, int(time.Until(p.expiresAt).Seconds()), h.cfg.Auth.InsecureCookies))
+	http.SetCookie(w, sessionCookie(token, int(time.Until(p.expiresAt).Seconds()), h.cfg.Auth.InsecureCookies))
 	return nil
 }
 
@@ -787,7 +788,7 @@ func cmpOr(a, b string) string {
 // LogoutHandler deletes the session and clears the cookie.
 func (h *Handler) LogoutHandler(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie("shepherd_session"); err == nil {
-		if delErr := h.store.Queries.DeleteSession(r.Context(), c.Value); delErr != nil {
+		if delErr := h.store.Queries.DeleteSession(r.Context(), HashSessionToken(c.Value)); delErr != nil {
 			h.logger.Warn("logout: delete session", "err", delErr)
 		}
 	}
@@ -801,7 +802,8 @@ func (h *Handler) SessionMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		c, err := r.Cookie("shepherd_session")
 		if err == nil && c.Value != "" {
-			row, err := h.store.Queries.GetSessionByID(r.Context(), c.Value)
+			// sessions.id is the digest of the cookie value, never the value.
+			row, err := h.store.Queries.GetSessionByID(r.Context(), HashSessionToken(c.Value))
 			switch {
 			case err != nil:
 				// No such row (never existed, already logged out, or its own
@@ -821,7 +823,8 @@ func (h *Handler) SessionMiddleware(next http.Handler) http.Handler {
 				// once past its ID token's expiry the row is dead weight, and
 				// leaving it would let the SAME expired cookie keep tripping
 				// this check (and this delete) on every subsequent request
-				// instead of failing once and staying failed.
+				// instead of failing once and staying failed. row.ID is the
+				// stored digest, so it deletes the row directly.
 				if delErr := h.store.Queries.DeleteSession(r.Context(), row.ID); delErr != nil {
 					h.logger.Warn("deleting session past id_token_expires", "err", delErr)
 				}
