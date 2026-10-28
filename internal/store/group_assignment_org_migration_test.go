@@ -43,7 +43,7 @@ var _ = Describe("Migration: 0053_group_assignment_org", Label("integration"), f
 
 	BeforeEach(func(ctx context.Context) {
 		url = sharedPG.IsolatedDB(ctx, GinkgoTB())
-		Expect(store.MigrateTo(ctx, url, 51)).To(Succeed())
+		Expect(store.MigrateTo(ctx, url, 52)).To(Succeed())
 		reopen(ctx)
 
 		orgA = scalar(ctx, `INSERT INTO orgs (name, display_name, admin_group_id) VALUES ('m53-a', 'A', 'a-admin') RETURNING id::text`)
@@ -142,18 +142,16 @@ var _ = Describe("Migration: 0053_group_assignment_org", Label("integration"), f
 		Expect(orgOf[collNo]).To(BeEmpty(), "no granting org is known, so the entry is platform-level")
 	})
 
-	It("binds a v0.21 binary's insert (no org_id) to the collector's org, and refuses one with no org", func(ctx context.Context) {
+	It("refuses a v0.21 binary's insert, which names no org", func(ctx context.Context) {
+		// Filling the org in for it could bind a grant to an org the cluster
+		// moved to after the old binary's ownership check, so it is refused.
 		_, err := db.Exec(ctx, `INSERT INTO group_assignments (collector_id, group_id, group_display_name) VALUES ($1, 'g-old', 'g-old')`, collStill)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(scalar(ctx, `SELECT org_id::text FROM group_assignments WHERE group_id = 'g-old'`)).To(Equal(orgA))
-
-		_, err = db.Exec(ctx, `INSERT INTO group_assignments (collector_id, group_id, group_display_name) VALUES ($1, 'g-none', 'g-none')`, collNo)
 		Expect(err).To(MatchError(ContainSubstring("not-null")))
 	})
 
 	It("drops the column on the down migration and keeps the bound rows", func(ctx context.Context) {
 		db.Close()
-		Expect(store.MigrateTo(ctx, url, 51)).To(Succeed())
+		Expect(store.MigrateTo(ctx, url, 52)).To(Succeed())
 		reopen(ctx)
 		Expect(scalar(ctx, `SELECT count(*)::text FROM information_schema.columns
 			WHERE table_name = 'group_assignments' AND column_name = 'org_id'`)).To(Equal("0"))

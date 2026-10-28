@@ -57,10 +57,15 @@ ORDER BY resource_id;
 To re-create a grant that is still wanted, an admin of the org that now owns the cluster assigns
 the group again from the collector's Access tab.
 
-During the rolling update a v0.21 pod can still create assignments (the migration binds them to
-the collector's current org), but its cluster claim and unclaim leave the previous org's
+During the rolling update a v0.21 pod cannot create assignments (its insert names no org, which
+`0053` requires), so an Access-tab change that reaches an old pod fails until the rollout
+completes; retry it afterwards. A v0.21 pod's cluster claim and unclaim leave the previous org's
 assignments in place; they grant nothing on an upgraded pod and are removed by the cluster's next
 claim or unclaim.
+
+`0053` judges an assignment by when it was first created. If a cluster moved and its new owner
+then assigned a group the previous owner had also assigned, that assignment is removed too;
+re-create it after the upgrade.
 
 **Rolling back:** the down migration drops the `org_id` column. It does not restore the
 assignments `0053` removed; their audit entries remain.

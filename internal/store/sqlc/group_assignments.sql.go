@@ -17,6 +17,7 @@ SELECT c.id, $1::text, $2::text, cl.org_id
 FROM collectors c
 JOIN clusters cl ON cl.id = c.cluster_id
 WHERE c.id = $3 AND cl.org_id = $4
+FOR SHARE OF cl
 ON CONFLICT (collector_id, group_id) DO UPDATE
 SET group_display_name = EXCLUDED.group_display_name,
     org_id = EXCLUDED.org_id,
@@ -35,7 +36,8 @@ type CreateGroupAssignmentParams struct {
 // while the collector's cluster is in that org, so a cluster that moved
 // between the caller's ownership check and this statement gets no row (the
 // caller sees pgx.ErrNoRows) rather than a grant bound to an org that no
-// longer owns it.
+// longer owns it. FOR SHARE OF cl makes a claim that is already updating the
+// cluster finish first, so the org check sees its result.
 func (q *Queries) CreateGroupAssignment(ctx context.Context, arg CreateGroupAssignmentParams) (GroupAssignment, error) {
 	row := q.db.QueryRow(ctx, createGroupAssignment,
 		arg.GroupID,

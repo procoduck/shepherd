@@ -73,6 +73,14 @@ var _ = Describe("group assignments across cluster org changes", Label("integrat
 		return len(rows) + len(rowsB)
 	}
 
+	It("lets an org be deleted while it still holds a grant on a cluster another org owns", func() {
+		// A v0.21 pod's claim moves the cluster without removing org A's grant.
+		_, err := st.Pool().Exec(ctx, "UPDATE clusters SET org_id = $1 WHERE id = $2", orgB, cluster.ID) // RAW-SQL-OK: simulates an older binary's claim
+		Expect(err).NotTo(HaveOccurred())
+		Expect(st.Queries.DeleteOrg(ctx, orgA)).To(Succeed())
+		Expect(rowCount()).To(Equal(0))
+	})
+
 	It("grants within the org that made the grant", func() {
 		Expect(grantsIn(orgA)).To(ConsistOf(collector.ID))
 		Expect(grantsIn(orgB)).To(BeEmpty())

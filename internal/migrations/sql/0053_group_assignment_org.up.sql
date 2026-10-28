@@ -22,7 +22,8 @@
 -- the collector, detail.group_id), plus the reason and, when the log knows
 -- it, the org that granted the row (its latest assignment.create entry); the
 -- row is filed under that org so its admins see it.
-ALTER TABLE group_assignments ADD COLUMN org_id uuid REFERENCES orgs(id);
+-- A grant whose org is deleted grants nothing, so it goes with the org.
+ALTER TABLE group_assignments ADD COLUMN org_id uuid REFERENCES orgs(id) ON DELETE CASCADE;
 
 UPDATE group_assignments ga
 SET org_id = cl.org_id
@@ -77,25 +78,8 @@ ALTER TABLE group_assignments ALTER COLUMN org_id SET NOT NULL;
 -- (org_id, group_id).
 CREATE INDEX idx_group_assignments_org_group ON group_assignments (org_id, group_id);
 
--- Rolling-update and rollback compatibility: a v0.21 binary's
--- CreateGroupAssignment names no org_id, and NOT NULL would refuse it. That
--- binary has just checked the collector belongs to the caller's org, so an
--- insert without an org is bound to the collector's current one. A collector
--- with no org still gets no row (NOT NULL refuses it). New binaries always
--- name the org, so this never fires for them.
-CREATE FUNCTION group_assignments_default_org() RETURNS trigger
-LANGUAGE plpgsql AS $$
-BEGIN
-    IF NEW.org_id IS NULL THEN
-        SELECT cl.org_id INTO NEW.org_id
-        FROM collectors c
-        JOIN clusters cl ON cl.id = c.cluster_id
-        WHERE c.id = NEW.collector_id;
-    END IF;
-    RETURN NEW;
-END;
-$$;
-
-CREATE TRIGGER group_assignments_default_org
-    BEFORE INSERT ON group_assignments
-    FOR EACH ROW EXECUTE FUNCTION group_assignments_default_org();
+-- Rolling-update compatibility: a v0.21 binary's CreateGroupAssignment names
+-- no org_id, so NOT NULL refuses it and that pod's Access-tab create fails
+-- until the rollout completes. That is deliberate: filling the org in for it
+-- (a trigger reading the collector's current org) could bind a grant to an org
+-- the cluster moved to after the old pod's ownership check.
