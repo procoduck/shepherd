@@ -1,6 +1,8 @@
 package mgmtapi
 
 import (
+	"time"
+
 	mgmtv1 "shepherd/gen/shepherd/mgmt/v1"
 	"shepherd/internal/merge"
 	"shepherd/internal/reconcile"
@@ -17,8 +19,8 @@ import (
 // Every name and message here comes from the collector's own org: both serve
 // paths load only that org's pipelines (serve.LoadPipelines), and the caller
 // has already proved the collector is the org's (loadOwnedCollector).
-func provenanceToProto(resp *mgmtv1.GetServedConfigResponse, raw []byte, hash string) {
-	p, ok := serve.DecodeProvenance(raw, hash)
+func provenanceToProto(resp *mgmtv1.GetServedConfigResponse, raw []byte, hash string, computedAt time.Time) {
+	p, ok := serve.DecodeProvenance(raw, hash, computedAt)
 	if !ok {
 		return
 	}

@@ -3,6 +3,7 @@ package serve
 import (
 	"encoding/json"
 	"strings"
+	"time"
 
 	"shepherd/internal/merge"
 )
@@ -26,7 +27,14 @@ type Provenance struct {
 	// Hash is the hash of the content this provenance describes.
 	// DecodeProvenance refuses a record whose Hash is not the row's: a binary
 	// predating migration 0049 rewrites content without it.
-	Hash         string              `json:"hash"`
+	Hash string `json:"hash"`
+	// ComputedAt is the computed_at of the row write that stored this
+	// record, stamped by the database in that same statement
+	// (UpsertServeCacheConditional); empty until stored. A pre-0049 binary's
+	// upsert moves the row's computed_at and leaves the record alone — the
+	// same bytes, so the same hash, but label evidence that may be stale —
+	// so DecodeProvenance refuses a record whose stamp is not the row's.
+	ComputedAt   string              `json:"computed_at,omitempty"`
 	Contributors []ContributorRecord `json:"contributors"`
 	Excluded     []ExclusionRecord   `json:"excluded"`
 	// Baseline is the D6 baseline pipeline's lines; nil when none is served.
@@ -131,16 +139,22 @@ func appendedSpan(merged, content string) *LineSpan {
 }
 
 // DecodeProvenance reads a stored serve_cache.provenance value for the row
-// whose hash is hash. ok is false for a row with none (computed before
-// migration 0049, or a failure placeholder), in another version, or recorded
-// for other content than the row now holds: the caller then shows that
-// provenance is recorded on the next recompute.
-func DecodeProvenance(raw []byte, hash string) (Provenance, bool) {
+// whose hash is hash and computed_at is computedAt. ok is false for a row
+// with none (computed before migration 0049, or a failure placeholder), in
+// another version, recorded for other content than the row now holds, or
+// left behind by a later write that did not record its own (a pre-0049
+// replica's, mid-rollout): the caller then shows that provenance is recorded
+// on the next recompute.
+func DecodeProvenance(raw []byte, hash string, computedAt time.Time) (Provenance, bool) {
 	if len(raw) == 0 {
 		return Provenance{}, false
 	}
 	var p Provenance
 	if err := json.Unmarshal(raw, &p); err != nil || p.Version != provenanceVersion || p.Hash != hash {
+		return Provenance{}, false
+	}
+	stamped, err := time.Parse(time.RFC3339Nano, p.ComputedAt)
+	if err != nil || !stamped.Equal(computedAt) {
 		return Provenance{}, false
 	}
 	return p, true

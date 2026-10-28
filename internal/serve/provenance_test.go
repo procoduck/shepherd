@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"shepherd/internal/beacon"
 	"shepherd/internal/merge"
@@ -89,22 +90,30 @@ func TestComputeServed_Provenance(t *testing.T) {
 		t.Fatalf("excluded kinds = %v, want %v", kinds, want)
 	}
 
-	// The stored form round-trips.
+	// The stored form round-trips. The database stamps the record with the
+	// row write's computed_at, in to_jsonb's format.
+	at := time.Date(2026, 10, 28, 2, 40, 17, 123456000, time.UTC)
+	p.ComputedAt = "2026-10-28T02:40:17.123456+00:00"
 	raw, err := json.Marshal(p)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	back, ok := serve.DecodeProvenance(raw, got.Hash)
+	back, ok := serve.DecodeProvenance(raw, got.Hash, at)
 	if !ok || len(back.Contributors) != 2 || back.Contributors[1].Lines != p.Contributors[1].Lines || back.Baseline == nil {
 		t.Fatalf("decoded provenance = %+v (ok=%v)", back, ok)
 	}
-	if _, ok := serve.DecodeProvenance(nil, got.Hash); ok {
+	if _, ok := serve.DecodeProvenance(nil, got.Hash, at); ok {
 		t.Fatalf("a row with no provenance decoded as recorded")
 	}
 	// A row whose content a pre-0049 binary rewrote keeps the old record:
 	// it describes other bytes, so it is not shown.
-	if _, ok := serve.DecodeProvenance(raw, merge.HashContent("other content")); ok {
+	if _, ok := serve.DecodeProvenance(raw, merge.HashContent("other content"), at); ok {
 		t.Fatalf("provenance recorded for another hash decoded as this row's")
+	}
+	// A later write that kept the record (a pre-0049 replica's) moved
+	// computed_at: the record no longer describes this write.
+	if _, ok := serve.DecodeProvenance(raw, got.Hash, at.Add(time.Second)); ok {
+		t.Fatalf("provenance stamped by an earlier write decoded as this row's")
 	}
 }
 

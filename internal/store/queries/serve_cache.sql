@@ -48,10 +48,14 @@ ON CONFLICT (collector_id) DO UPDATE SET
 -- on it — under the same generation check.
 --
 -- provenance (0049) is how content was built, written in the same row write so
--- the two never disagree; internal/serve.DecodeProvenance also checks the hash
--- it records against the row's, for a row a pre-0049 binary rewrote.
+-- the two never disagree. It is stamped with the computed_at this write sets
+-- (now() is the same value throughout the statement): a pre-0049 binary's
+-- upsert rewrites content and computed_at but leaves provenance alone, so
+-- internal/serve.DecodeProvenance shows a record only while its stamp is the
+-- row's computed_at (and its hash the row's hash).
 INSERT INTO serve_cache (collector_id, content, hash, computed_at, dirty, dirty_seq, format, provenance)
-VALUES (sqlc.arg(collector_id), sqlc.arg(content), sqlc.arg(hash), now(), false, 0, sqlc.arg(format), sqlc.narg(provenance)::jsonb)
+VALUES (sqlc.arg(collector_id), sqlc.arg(content), sqlc.arg(hash), now(), false, 0, sqlc.arg(format),
+        jsonb_set(sqlc.narg(provenance)::jsonb, '{computed_at}', to_jsonb(now())))
 ON CONFLICT (collector_id) DO UPDATE SET
     content     = EXCLUDED.content,
     hash        = EXCLUDED.hash,

@@ -338,11 +338,16 @@ func buildHeader(collectorID, displayName string, pipelines []Pipeline, exclusio
 	var roleExcl, tenantExcl []Exclusion
 	for _, e := range exclusions {
 		// An unparsable matcher has always been listed with the role
-		// exclusions; moving it would change served bytes.
+		// exclusions; moving it would change served bytes. An Exclusion
+		// without a Kind (TestEveryExclusionLiteralSetsKind keeps this
+		// package from building one) is listed there too rather than
+		// dropped: a missing line would hide it and change the bytes.
 		switch e.Kind {
 		case ExclusionTenantCheck:
 			tenantExcl = append(tenantExcl, e)
 		case ExclusionRole, ExclusionUnparsableMatcher:
+			roleExcl = append(roleExcl, e)
+		default:
 			roleExcl = append(roleExcl, e)
 		}
 	}

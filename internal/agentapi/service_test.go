@@ -650,7 +650,7 @@ WHERE serve_cache.dirty = true AND serve_cache.dirty_seq = $4`
 			Expect(cache.Dirty).To(BeFalse())
 			// F-CONTRIB (#423): the lazy path writes the provenance of the
 			// bytes it served in the same row write, spans into those bytes.
-			prov, ok := serve.DecodeProvenance(cache.Provenance, cache.Hash)
+			prov, ok := serve.DecodeProvenance(cache.Provenance, cache.Hash, cache.ComputedAt.Time)
 			Expect(ok).To(BeTrue(), "the agent path must record provenance with the content")
 			Expect(prov.Contributors).To(HaveLen(1))
 			Expect(prov.Contributors[0].PipelineID).To(Equal(pipeline.ID.String()))

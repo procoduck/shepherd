@@ -167,7 +167,8 @@ func (q *Queries) MarkServeCacheFailed(ctx context.Context, arg MarkServeCacheFa
 
 const upsertServeCacheConditional = `-- name: UpsertServeCacheConditional :one
 INSERT INTO serve_cache (collector_id, content, hash, computed_at, dirty, dirty_seq, format, provenance)
-VALUES ($1, $2, $3, now(), false, 0, $4, $5::jsonb)
+VALUES ($1, $2, $3, now(), false, 0, $4,
+        jsonb_set($5::jsonb, '{computed_at}', to_jsonb(now())))
 ON CONFLICT (collector_id) DO UPDATE SET
     content     = EXCLUDED.content,
     hash        = EXCLUDED.hash,
@@ -202,8 +203,11 @@ type UpsertServeCacheConditionalParams struct {
 // on it — under the same generation check.
 //
 // provenance (0049) is how content was built, written in the same row write so
-// the two never disagree; internal/serve.DecodeProvenance also checks the hash
-// it records against the row's, for a row a pre-0049 binary rewrote.
+// the two never disagree. It is stamped with the computed_at this write sets
+// (now() is the same value throughout the statement): a pre-0049 binary's
+// upsert rewrites content and computed_at but leaves provenance alone, so
+// internal/serve.DecodeProvenance shows a record only while its stamp is the
+// row's computed_at (and its hash the row's hash).
 func (q *Queries) UpsertServeCacheConditional(ctx context.Context, arg UpsertServeCacheConditionalParams) (ServeCache, error) {
 	row := q.db.QueryRow(ctx, upsertServeCacheConditional,
 		arg.CollectorID,

@@ -598,7 +598,7 @@ func (s *FleetService) GetServedConfig(ctx context.Context, req *connect.Request
 	}
 	// F-CONTRIB (#423): how this content was built, as the recompute that
 	// wrote it recorded it — read from the row, never recomputed per view.
-	provenanceToProto(resp, cache.Provenance, cache.Hash)
+	provenanceToProto(resp, cache.Provenance, cache.Hash, cache.ComputedAt.Time)
 	return connect.NewResponse(resp), nil
 }
 

@@ -3,6 +3,7 @@ package mgmtapi
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	mgmtv1 "shepherd/gen/shepherd/mgmt/v1"
 	"shepherd/internal/merge"
@@ -13,7 +14,7 @@ import (
 // that a record for other content than the row holds is not shown.
 func TestProvenanceToProto(t *testing.T) {
 	p := serve.Provenance{
-		Version: 1, Hash: "h1",
+		Version: 1, Hash: "h1", ComputedAt: "2026-10-28T02:40:17.5+00:00",
 		Contributors: []serve.ContributorRecord{{
 			PipelineID: "p1", Name: "alpha", Source: "git", Revision: 2, RepoLink: true,
 			Lines: serve.LineSpan{First: 6, Last: 12}, Block: "pipe_alpha",
@@ -31,13 +32,19 @@ func TestProvenanceToProto(t *testing.T) {
 	}
 
 	var stale mgmtv1.GetServedConfigResponse
-	provenanceToProto(&stale, raw, "h2")
+	at := time.Date(2026, 10, 28, 2, 40, 17, 500000000, time.UTC)
+	provenanceToProto(&stale, raw, "h2", at)
 	if stale.GetProvenanceRecorded() || len(stale.GetContributing()) != 0 {
 		t.Fatalf("a record for another hash was shown: %v", &stale)
 	}
+	var rewritten mgmtv1.GetServedConfigResponse
+	provenanceToProto(&rewritten, raw, "h1", at.Add(time.Millisecond))
+	if rewritten.GetProvenanceRecorded() {
+		t.Fatalf("a record an earlier write stamped was shown: %v", &rewritten)
+	}
 
 	var resp mgmtv1.GetServedConfigResponse
-	provenanceToProto(&resp, raw, "h1")
+	provenanceToProto(&resp, raw, "h1", at)
 	if !resp.GetProvenanceRecorded() {
 		t.Fatal("provenance not reported as recorded")
 	}

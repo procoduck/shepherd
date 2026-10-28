@@ -216,6 +216,51 @@ var _ = Describe("GetServedConfig provenance (F-CONTRIB)", Label("integration"),
 		Expect(code).NotTo(Equal(http.StatusOK))
 	})
 
+	// Mid-rollout: a replica predating migration 0049 recomputes a dirty row
+	// to the same bytes (so the same hash) with its own upsert, which leaves
+	// provenance as the newer replica wrote it. The label evidence in that
+	// record may be stale (a label changed and marked the row), so it must not
+	// be shown just because the hash still matches.
+	It("does not show provenance a pre-0049 replica's rewrite of the row left behind", func() {
+		coll := collectorIn(orgA, "prov-cluster-rollout")
+		adminA := sessionIn("pa-admin")
+		enabledPipeline(orgA, adminA, "rollout-metrics", metricsContents, `cluster="prov-cluster-rollout"`)
+		viewerA := sessionIn("pa-viewer")
+		Eventually(func() bool {
+			got, _ := served(orgA, coll, viewerA)
+			return got.ProvenanceRecorded
+		}, "10s", "50ms").Should(BeTrue())
+		before, err := st.Queries.GetServeCache(ctx, coll)
+		Expect(err).NotTo(HaveOccurred())
+
+		// A mark, then the v0.20 binary's UpsertServeCacheConditional: same
+		// content and hash, provenance untouched.
+		Expect(st.Queries.MarkServeCacheDirty(ctx, coll)).To(Succeed())
+		marked, err := st.Queries.GetServeCache(ctx, coll)
+		Expect(err).NotTo(HaveOccurred())
+		const v020Upsert = `INSERT INTO serve_cache (collector_id, content, hash, computed_at, dirty, dirty_seq, format)
+VALUES ($1, $2, $3, now(), false, 0, $5)
+ON CONFLICT (collector_id) DO UPDATE SET
+    content     = EXCLUDED.content,
+    hash        = EXCLUDED.hash,
+    computed_at = now(),
+    dirty       = false,
+    format      = EXCLUDED.format
+WHERE (serve_cache.dirty = true OR serve_cache.format < EXCLUDED.format)
+  AND serve_cache.dirty_seq = $4`
+		tag, err := st.Pool().Exec(ctx, v020Upsert, coll, before.Content, before.Hash, marked.DirtySeq, int16(4))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(tag.RowsAffected()).To(BeEquivalentTo(1), "the old replica's write must land, as it does mid-rollout")
+		after, err := st.Queries.GetServeCache(ctx, coll)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(after.Hash).To(Equal(before.Hash))
+		Expect(after.Provenance).To(MatchJSON(before.Provenance), "the old upsert leaves provenance alone")
+
+		got, _ := served(orgA, coll, viewerA)
+		Expect(got.ProvenanceRecorded).To(BeFalse(), "provenance from before the old replica's write must not be shown")
+		Expect(got.Contributing).To(BeEmpty())
+	})
+
 	It("reports a row computed before provenance was recorded as not recorded, and never re-evaluates it per view", func() {
 		coll := collectorIn(orgA, "prov-cluster-legacy")
 		// A row as a pre-0049 binary wrote it: content, no provenance.
