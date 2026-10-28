@@ -1050,13 +1050,15 @@ func (s *PipelineService) ValidatePipeline(ctx context.Context, req *connect.Req
 		name = "preview"
 	}
 	// The org's strict tenant policy: the authz interceptor has already
-	// checked the caller may read org_id.
+	// checked the caller may read org_id. Its pinned modules are read as
+	// validationModules decides for this caller.
 	var tenants validate.TenantPolicy
 	if orgID := looseUUID(req.Msg.GetOrgId()); orgID.Valid {
-		var err error
-		if tenants, err = lintPolicy(ctx, s.store.Queries, orgID, s.requireOwned, s.imports.Saving()); err != nil {
+		p, err := tenantPolicy(ctx, s.store.Queries, orgID, s.requireOwned)
+		if err != nil {
 			return nil, err
 		}
+		tenants = p.Validation(s.store.Queries, s.validationModules(ctx, req.Msg.GetOrgId(), p))
 	}
 	result := s.validator.ValidatePipeline(ctx, name, req.Msg.GetContents(), tenants)
 	// The served form: a strict org's pinned import.git modules inlined
@@ -1140,6 +1142,37 @@ func (s *PipelineService) ValidatePipeline(ctx context.Context, req *connect.Req
 	}
 
 	return connect.NewResponse(resp), nil
+}
+
+// validationModules is the pinned-module source ValidatePipeline lints the
+// strict org p's import.git blocks with. ValidatePipeline is org viewer, but
+// fetching a module is a save's work: it clones with the allowlist entry's
+// git credential, holds one of the process-wide fetch slots and writes the
+// module cache. So it fetches (Resolver.Saving, as a save would) only for a
+// caller who could save the text into the org, fetching it anyway: an org
+// editor or above (what VisualService.authorizeGraph asks of a new graph),
+// or one who may write a pipeline one of the org's teams owns (G11, a
+// CreatePipeline with that owner_team_id). Anyone else, an org viewer above
+// all, reads the cache only (pinnedimport.Cached, which never fetches or
+// writes): a cached module is linted as a save lints it, one not cached yet
+// is refused as not fetched. A check that fails reads the cache only.
+func (s *PipelineService) validationModules(ctx context.Context, orgIDStr string, p tenancy.Policy) pinnedimport.Source {
+	if !p.Strict || len(p.ImportRepos) == 0 {
+		return pinnedimport.Cached // no import.git is allowed, so none is fetched
+	}
+	if authorizeProcedure(ctx, s.store, auth.SessionFromCtx(ctx), orgIDStr, reqOrgEditor) == nil {
+		return s.imports.Saving()
+	}
+	teams, err := s.store.Queries.ListTeamsByOrg(ctx, p.OrgID)
+	if err != nil {
+		return pinnedimport.Cached
+	}
+	for i := range teams {
+		if pipelineCanEdit(ctx, s.store, orgIDStr, teams[i].ID.String()) {
+			return s.imports.Saving()
+		}
+	}
+	return pinnedimport.Cached
 }
 
 // FormatPipeline canonicalises the pipeline body (what `alloy fmt` does),

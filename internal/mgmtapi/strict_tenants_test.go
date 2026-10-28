@@ -960,6 +960,61 @@ var _ = Describe("Strict tenant mode", Label("integration"), func() {
 			ok(call(adminA, "PipelineService/DisablePipeline", map[string]any{"orgId": orgA.String(), "id": p["id"]}))
 			ok(call(appAdmin, "AdminService/RemoveOrgImportRepository", map[string]any{"orgId": orgA.String(), "id": added["id"]}))
 		})
+
+		// ValidatePipeline is org viewer, but a fetch uses the allowlist
+		// entry's credential and writes the module cache: only a caller who
+		// could save the text fetches, and a viewer reads the cache only.
+		It("fetches a module in ValidatePipeline only for a caller who could save the text; a viewer reads the cache and writes nothing", func() {
+			ok(allow(repo))
+			cache("owned.alloy", module("acme"))
+			_, err := st.Queries.UpdateOrg(ctx, sqlc.UpdateOrgParams{
+				ID: orgA, DisplayName: "strict-a", AdminGroupID: "strict-a-admins",
+				ViewerGroupID: pgtype.Text{String: "strict-a-viewers", Valid: true},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			_, err = st.Queries.CreateTeam(ctx, sqlc.CreateTeamParams{
+				OrgID: orgA, Name: "owners", IdpGroupID: pgtype.Text{String: "strict-a-owners", Valid: true},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			viewer, teamMember := session(false, "strict-a-viewers"), session(false, "strict-a-owners")
+
+			key, err := pinnedimport.NormalizeRepository(repo)
+			Expect(err).NotTo(HaveOccurred())
+			usedAt := func() time.Time {
+				GinkgoHelper()
+				row, err := st.Queries.GetPinnedImportModule(ctx, sqlc.GetPinnedImportModuleParams{
+					OrgID: orgA, RepositoryKey: key, Revision: sha, Path: "owned.alloy",
+				})
+				Expect(err).NotTo(HaveOccurred())
+				return row.UsedAt.Time
+			}
+			check := func(who *http.Cookie, path string) map[string]any {
+				GinkgoHelper()
+				return ok(call(who, "PipelineService/ValidatePipeline", map[string]any{
+					"orgId": orgA.String(), "name": "p", "contents": importing(sha, path),
+				}))
+			}
+			// pinnedimport.Cached's refusal of a module not cached: what a
+			// caller that never fetches is told.
+			const cacheOnly = "the module has not been fetched yet"
+
+			before := usedAt()
+			Expect(check(viewer, "owned.alloy")).To(HaveKeyWithValue("valid", true), "a cached module is linted for a viewer")
+			Expect(usedAt()).To(Equal(before), "a viewer's validation does not write the cache")
+			v := check(viewer, "none.alloy")
+			Expect(v).NotTo(HaveKeyWithValue("valid", true))
+			Expect(fmt.Sprint(v["diagnostics"])).To(ContainSubstring(cacheOnly), "a viewer's validation never fetches")
+
+			for name, who := range map[string]*http.Cookie{"org admin": adminA, "owning-team member": teamMember} {
+				before = usedAt()
+				Expect(check(who, "owned.alloy")).To(HaveKeyWithValue("valid", true), name)
+				Expect(usedAt()).To(BeTemporally(">", before), "%s: marks the module used, as its save would", name)
+				v = check(who, "none.alloy")
+				Expect(v).NotTo(HaveKeyWithValue("valid", true), name)
+				Expect(fmt.Sprint(v["diagnostics"])).To(And(ContainSubstring("could not be fetched"), Not(ContainSubstring(cacheOnly))),
+					"%s: fetches the module, as its save would", name)
+			}
+		})
 	})
 
 	// Strict tenant mode accepts only classified components (#421); an app
