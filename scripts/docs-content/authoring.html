@@ -67,6 +67,40 @@
         served — there is no separate translation step to be surprised by.
       </p>
       <p><img src="../img/generated-config.jpg" alt="The builder's Generated config tab showing the Alloy produced by the graph" loading="lazy"></p>
+      <h3 id="keyboard">Using the canvas from the keyboard</h3>
+      <p>
+        Everything on the canvas works without a mouse. Tab into the canvas and use the arrow keys to
+        reach its nodes; a screen reader announces each by component, label and port count, and every
+        change you make is announced. Press <kbd>?</kbd> on the canvas, or its keyboard button, for this
+        list.
+      </p>
+      <table>
+        <thead><tr><th>Keys</th><th>On</th><th>Does</th></tr></thead>
+        <tbody>
+          <tr><td>Arrow keys</td><td>a node</td><td>Focus the nearest node in that direction</td></tr>
+          <tr><td>Home / End</td><td>a node</td><td>Focus the first / last node, left to right</td></tr>
+          <tr><td>Space</td><td>a node</td><td>Select it (the Properties panel shows it)</td></tr>
+          <tr><td>I</td><td>a node</td><td>Open it in the Properties panel</td></tr>
+          <tr><td>Shift+arrow keys</td><td>a node</td><td>Move it 8px</td></tr>
+          <tr><td>Delete / Backspace</td><td>a node</td><td>Delete it and its wires</td></tr>
+          <tr><td>Enter</td><td>a node</td><td>Go to its ports</td></tr>
+          <tr><td>Arrow keys</td><td>a port</td><td>Move between the node&rsquo;s ports</td></tr>
+          <tr><td>Enter / Space</td><td>a port</td><td>Start a wire; the arrow keys then visit only the ports it can connect to, and Enter connects</td></tr>
+          <tr><td>Escape</td><td>a port</td><td>Cancel the wire, or go back to the node</td></tr>
+          <tr><td>Delete / Backspace</td><td>a port</td><td>Delete the wires on it</td></tr>
+          <tr><td>Delete / Backspace</td><td>a wire</td><td>Delete it (wires are Tab stops)</td></tr>
+          <tr><td>Ctrl/&#8984;+Z, Shift+Ctrl/&#8984;+Z</td><td>the canvas</td><td>Undo, redo &mdash; a keyboard edit is one step, like the mouse edit</td></tr>
+        </tbody>
+      </table>
+      <h3 id="bindings">Secrets and other bindings</h3>
+      <p>
+        A secret field never takes a typed value: pick a config node on the canvas (a
+        <code>remote.kubernetes.secret</code>, <code>local.file</code>, &hellip;) and, for a map-shaped
+        one, the key. The binding is stored at the field&rsquo;s path, nested blocks included &mdash;
+        <code>endpoint[1].basic_auth.password</code> is the second endpoint&rsquo;s password &mdash; and
+        the generated config writes the reference inside that block. The Properties panel lists every
+        binding a node holds under <strong>Bindings</strong>, with Unbind.
+      </p>
 
       <h2 id="3-raw-alloy-when-you-already-know-what-you-want">3. Raw Alloy, when you already know what you want</h2>
       <p>

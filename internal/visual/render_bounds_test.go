@@ -302,6 +302,12 @@ var _ = Describe("Render bounds (#391)", func() {
 
 		It("on every corpus graph", func() {
 			for _, name := range append(append([]string{}, corpusNames...), "diagnostics-mixed") {
+				if name == "bindings-nested" {
+					// Nested-path bindings (#426) postdate the legacy renderer,
+					// which wrote them as invalid top-level attributes; the
+					// corpus golden and the real alloy validate pin them.
+					continue
+				}
 				graphJSON, _ := readCorpus(name)
 				same(unmarshalDoc(graphJSON))
 			}

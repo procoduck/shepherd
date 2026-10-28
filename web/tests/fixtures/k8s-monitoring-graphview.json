@@ -3,7 +3,7 @@
     "bindings": [
       {
         "node": "n_loki_write_loki",
-        "prop": "endpoint.basic_auth.username",
+        "prop": "endpoint[0].basic_auth.username",
         "ref": {
           "export": "data",
           "expr": "convert.nonsensitive(remote.kubernetes.secret.loki.data[\"username\"])",
@@ -12,7 +12,7 @@
       },
       {
         "node": "n_loki_write_loki",
-        "prop": "endpoint.basic_auth.password",
+        "prop": "endpoint[0].basic_auth.password",
         "ref": {
           "export": "data",
           "expr": "remote.kubernetes.secret.loki.data[\"password\"]",
@@ -21,7 +21,7 @@
       },
       {
         "node": "n_prometheus_remote_write_prometheus",
-        "prop": "endpoint.basic_auth.username",
+        "prop": "endpoint[0].basic_auth.username",
         "ref": {
           "export": "data",
           "expr": "convert.nonsensitive(remote.kubernetes.secret.prometheus.data[\"username\"])",
@@ -30,7 +30,7 @@
       },
       {
         "node": "n_prometheus_remote_write_prometheus",
-        "prop": "endpoint.basic_auth.password",
+        "prop": "endpoint[0].basic_auth.password",
         "ref": {
           "export": "data",
           "expr": "remote.kubernetes.secret.prometheus.data[\"password\"]",

@@ -159,7 +159,8 @@ test.describe('graph view of a chart-generated pipeline (k8s-monitoring)', () =>
     await expect(endpoint).toContainText('"basic_auth": {');
     // The secret references, by the binding the server reported.
     const refs = inspector.getByTestId('inspector-bindings');
-    await expect(refs).toContainText('endpoint.basic_auth.password');
+    // The canonical binding path (#426): endpoint is a repeatable block.
+    await expect(refs).toContainText('endpoint[0].basic_auth.password');
     await expect(refs).toContainText('remote.kubernetes.secret "loki"');
   });
 

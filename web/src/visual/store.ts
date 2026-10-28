@@ -2,6 +2,7 @@ import deepEqual from 'fast-deep-equal';
 import { nanoid } from 'nanoid';
 import { temporal } from 'zundo';
 import { create } from 'zustand';
+import { bindingMatchesPath, bindingPropOf } from './bindingPath';
 import { deleteAtPath, EXPR_KEY, setAtPath } from './bindings';
 import { portsCompatible, validateGraph } from './l1';
 import { portHandleId } from './schemaAdapter';
@@ -157,16 +158,29 @@ interface VisualStore {
     label: string,
   ) => void;
   updateNode: (id: string, patch: Partial<GraphNode>) => void;
-  /** Writes `{"$expr": expr}` at `path` inside node `id`'s props (W5-01) — the
-   *  prop's own instance path, with a numeric segment per repeatable-block
-   *  index (matches `L1DiagnosticEx.path`, e.g.
-   *  `["endpoint", "0", "basic_auth", "password"]`). One undo step, like every
-   *  other mutation here. See bindings.ts's module doc for why this writes
-   *  into `props` rather than `doc.bindings[]`. */
-  setBinding: (nodeId: string, path: string[], expr: string) => void;
-  /** The inverse of `setBinding`: deletes the value at `path`, restoring the
-   *  unset state a literal or a wire could then fill. */
+  /** Binds the prop at `path` — its own instance path, with a numeric segment
+   *  per repeatable-block index (matches `L1DiagnosticEx.path`, e.g.
+   *  `["endpoint", "0", "basic_auth", "password"]`) — to `expr`. With `ref`
+   *  (the source node and its export; the inspector's picker always knows
+   *  them) it writes a `doc.bindings[]` entry at the canonical binding path
+   *  (`endpoint[0].basic_auth.password`, bindingPath.ts, #426), replacing any
+   *  entry or props value already at that path. Without `ref` it writes
+   *  `{"$expr": expr}` into props (W5-01's original channel). One undo step,
+   *  like every other mutation here. */
+  setBinding: (
+    nodeId: string,
+    path: string[],
+    expr: string,
+    ref?: { node: string; export: string },
+  ) => void;
+  /** The inverse of `setBinding`: deletes the value at `path` and every
+   *  `doc.bindings[]` entry addressing it, restoring the unset state a literal
+   *  or a wire could then fill. */
   removeBinding: (nodeId: string, path: string[]) => void;
+  /** Removes the node's `doc.bindings[]` entries whose prop is exactly
+   *  `prop` — the inspector's Bindings list (#426), which addresses a binding
+   *  by its path even where no field for it is on screen. */
+  unbindProp: (nodeId: string, prop: string) => void;
   removeNode: (id: string) => void;
   /** Adds a wire, or — when `to`'s port is `cardinality: scalar` (W5-03,
    *  design §3.2) — REPLACES whatever wire already lands there, as one undo
@@ -407,29 +421,59 @@ export const useVisualStore = create<VisualStore>()(
           return { doc, diagnostics: revalidate({ ...state, doc }) };
         }),
 
-      setBinding: (nodeId, path, expr) =>
+      setBinding: (nodeId, path, expr, ref) =>
         set((state) => {
           if (state.readOnly) return state;
-          const doc = {
-            ...state.doc,
-            nodes: state.doc.nodes.map((n) =>
-              n.id === nodeId
-                ? { ...n, props: setAtPath(n.props ?? {}, path, { [EXPR_KEY]: expr }) }
-                : n,
-            ),
-          };
+          const doc = ref
+            ? {
+                ...state.doc,
+                nodes: state.doc.nodes.map((n) =>
+                  n.id === nodeId ? { ...n, props: deleteAtPath(n.props ?? {}, path) } : n,
+                ),
+                bindings: [
+                  ...state.doc.bindings.filter(
+                    (b) => !(b.node === nodeId && bindingMatchesPath(b.prop, path)),
+                  ),
+                  { node: nodeId, prop: bindingPropOf(path), ref: { ...ref, expr } },
+                ],
+              }
+            : {
+                ...state.doc,
+                nodes: state.doc.nodes.map((n) =>
+                  n.id === nodeId
+                    ? { ...n, props: setAtPath(n.props ?? {}, path, { [EXPR_KEY]: expr }) }
+                    : n,
+                ),
+              };
           return { doc, diagnostics: revalidate({ ...state, doc }) };
         }),
 
       removeBinding: (nodeId, path) =>
         set((state) => {
           if (state.readOnly) return state;
+          const bindings = state.doc.bindings.filter(
+            (b) => !(b.node === nodeId && bindingMatchesPath(b.prop, path)),
+          );
           const doc = {
             ...state.doc,
             nodes: state.doc.nodes.map((n) =>
               n.id === nodeId ? { ...n, props: deleteAtPath(n.props ?? {}, path) } : n,
             ),
+            // Keep the array's identity when nothing matched (InspectorPanel
+            // and the undo equality read it).
+            bindings: bindings.length === state.doc.bindings.length ? state.doc.bindings : bindings,
           };
+          return { doc, diagnostics: revalidate({ ...state, doc }) };
+        }),
+
+      unbindProp: (nodeId, prop) =>
+        set((state) => {
+          if (state.readOnly) return state;
+          const bindings = state.doc.bindings.filter(
+            (b) => !(b.node === nodeId && b.prop === prop),
+          );
+          if (bindings.length === state.doc.bindings.length) return state;
+          const doc = { ...state.doc, bindings };
           return { doc, diagnostics: revalidate({ ...state, doc }) };
         }),
 
@@ -440,6 +484,11 @@ export const useVisualStore = create<VisualStore>()(
             ...state.doc,
             nodes: state.doc.nodes.filter((n) => n.id !== id),
             edges: state.doc.edges.filter((e) => e.from.node !== id && e.to.node !== id),
+            // The node's own bindings go with it. A binding that REFERENCES it
+            // stays, and L1 reports it as binding_dangling.
+            bindings: state.doc.bindings.some((b) => b.node === id)
+              ? state.doc.bindings.filter((b) => b.node !== id)
+              : state.doc.bindings,
           };
           return {
             doc,
@@ -579,6 +628,10 @@ export const useVisualStore = create<VisualStore>()(
             edges: state.doc.edges.filter(
               (e) => !selIds.has(e.id) && !selIds.has(e.from.node) && !selIds.has(e.to.node),
             ),
+            // A removed node's own bindings go with it (removeNode does the same).
+            bindings: state.doc.bindings.some((b) => selIds.has(b.node))
+              ? state.doc.bindings.filter((b) => !selIds.has(b.node))
+              : state.doc.bindings,
           };
           return { doc, diagnostics: revalidate({ ...state, doc }), selected: [] };
         }),

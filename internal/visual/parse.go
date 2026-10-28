@@ -23,9 +23,11 @@ type ParseResult struct {
 	// expression — wherever they sit in a body, nested blocks and function
 	// calls included. They are a PROJECTION for the read-only graph view: the
 	// expression itself stays in Props as {"$expr": ...} so Render reproduces
-	// it, which is also why they are kept out of Doc.Bindings — that channel
-	// renders `prop = expr` at the node's top level, wrong for a nested prop and
-	// a duplicate for a top-level one. Every consumer that turns a GraphView
+	// it, which is also why they are kept out of Doc.Bindings — rendering both
+	// would write the attribute twice. Each Prop is the canonical binding path
+	// (bindingpath.go, #426): `endpoint[0].basic_auth.password` for a
+	// reference inside a repeatable block, the same path a doc.bindings[]
+	// entry that rendered this text would carry. Every consumer that turns a GraphView
 	// response back into an editable draft must drop them
 	// (web/src/visual/graphViewFlow.ts, builderDraftFromGraphView).
 	Bindings []GraphBinding
@@ -411,7 +413,7 @@ func (gp *graphParser) wireAll(doc *GraphDocument) {
 	for i := range doc.Nodes {
 		// A group node has no block of its own: its body is its children.
 		if block := gp.blocks[doc.Nodes[i].ID]; block != nil {
-			gp.edges(doc, i, block.Body, nil, gp.nodeScope[doc.Nodes[i].ID], doc.Nodes[i].Props)
+			gp.edges(doc, i, block.Body, gp.topBodyAt(doc.Nodes[i]), gp.nodeScope[doc.Nodes[i].ID], doc.Nodes[i].Props)
 		}
 	}
 	for _, m := range gp.modules {
@@ -793,9 +795,10 @@ func (gp *graphParser) print(node ast.Node) string {
 
 // edges walks one node's body and converts every reference to another node
 // into an edge (deleting the prop it came from when the prop was nothing but
-// wiring) or a binding. path is the dotted location of the current body inside
-// the component; sc is the body the node sits in, which references resolve in.
-func (gp *graphParser) edges(doc *GraphDocument, idx int, body ast.Body, path []string, sc *parseScope, props map[string]interface{}) {
+// wiring) or a binding. at says where the current body sits inside the
+// component; sc is the body the node sits in, which references resolve in.
+func (gp *graphParser) edges(doc *GraphDocument, idx int, body ast.Body, at bodyAt, sc *parseScope, props map[string]interface{}) {
+	seen := map[string]int{}
 	for _, stmt := range body {
 		switch s := stmt.(type) {
 		case *ast.BlockStmt:
@@ -803,23 +806,81 @@ func (gp *graphParser) edges(doc *GraphDocument, idx int, body ast.Body, path []
 			if s.Label != "" {
 				continue
 			}
-			child, ok := props[name].(map[string]interface{})
-			if !ok {
+			occurrence := seen[name]
+			seen[name]++
+			schemaBlock := findBlock(at.blocks, name)
+			repeatable := schemaBlock != nil && schemaBlock.Repeatable
+			var child map[string]interface{}
+			inner := at.wireable
+			switch v := props[name].(type) {
+			case map[string]interface{}:
+				child = v
+			case []interface{}:
 				// A repeated block is an array; references inside one cannot
-				// be addressed by a port path, so they stay as props.
+				// be addressed by a port path, so they are never wires — but
+				// each instance's references are still bindings, at an
+				// indexed path (#426).
+				if occurrence < len(v) {
+					if m, isMap := v[occurrence].(map[string]interface{}); isMap {
+						child = m
+					}
+				}
+				inner, repeatable = false, true
+			}
+			if child == nil {
 				continue
 			}
-			gp.edges(doc, idx, s.Body, append(append([]string{}, path...), name), sc, child)
+			seg := name
+			if repeatable {
+				seg = fmt.Sprintf("%s[%d]", name, occurrence)
+			}
+			next := bodyAt{
+				path:     append(append([]string{}, at.path...), name),
+				bindPath: at.bindPath + seg + ".",
+				wireable: inner,
+			}
+			if schemaBlock != nil {
+				next.blocks = schemaBlock.Blocks
+			}
+			gp.edges(doc, idx, s.Body, next, sc, child)
 		case *ast.AttributeStmt:
-			prop := strings.Join(append(append([]string{}, path...), s.Name.Name), ".")
-			if refs, isWire := wireRefs(s.Value); isWire && gp.wire(doc, idx, prop, refs, sc) {
-				// The renderer writes the attribute back from the edges.
-				delete(props, s.Name.Name)
-				continue
+			prop := strings.Join(append(append([]string{}, at.path...), s.Name.Name), ".")
+			if at.wireable {
+				if refs, isWire := wireRefs(s.Value); isWire && gp.wire(doc, idx, prop, refs, sc) {
+					// The renderer writes the attribute back from the edges.
+					delete(props, s.Name.Name)
+					continue
+				}
 			}
-			gp.references(doc, idx, prop, s, sc)
+			gp.references(doc, idx, at.bindPath+s.Name.Name, s, sc)
 		}
 	}
+}
+
+// bodyAt is where a body being walked by edges sits inside its component.
+type bodyAt struct {
+	path     []string      // block names, dotted: what port paths match
+	bindPath string        // the canonical binding-path prefix (bindingpath.go), "" at the top
+	blocks   []BlockSchema // the schema's blocks at this level, nil without a schema
+	wireable bool          // false inside a repeated block
+}
+
+// topBodyAt is the walk's start for a node.
+func (gp *graphParser) topBodyAt(node GraphNode) bodyAt {
+	at := bodyAt{wireable: true}
+	if gp.hasSchema {
+		at.blocks = gp.schema.Components[node.Component].Blocks
+	}
+	return at
+}
+
+func findBlock(blocks []BlockSchema, name string) *BlockSchema {
+	for i := range blocks {
+		if blocks[i].Name == name {
+			return &blocks[i]
+		}
+	}
+	return nil
 }
 
 // wire turns an attribute that is nothing but wiring — a reference, a list of

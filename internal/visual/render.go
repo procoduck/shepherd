@@ -841,15 +841,19 @@ func Render(doc GraphDocument, schema SchemaPayload) RenderResult {
 		lw.writes("\n")
 		start := lw.currentLine()
 		lw.writef("%s %s {\n", n.Component, quote(labels[id]))
+		// A binding at a nested path (#426, bindingpath.go) renders inside its
+		// block, as the same {"$expr": ...} in props would; a top-level one
+		// keeps its place after the body.
+		props, topBindings := rd.applyNestedBindings(id, c, known, n.Props, bindings[id])
 		if known {
-			rd.writeBody(&lw, "  ", id, c.Attributes, orderBlocks(c.Blocks, n.BlockOrder), n.Props,
+			rd.writeBody(&lw, "  ", id, c.Attributes, orderBlocks(c.Blocks, n.BlockOrder), props,
 				nodeRefs(c, wires[id]))
 		} else {
 			// Without a schema there is no type or block information, so props
 			// are emitted by their JSON shape rather than dropped.
-			rd.writeUntypedProps(&lw, "  ", id, n.Props)
+			rd.writeUntypedProps(&lw, "  ", id, props)
 		}
-		for _, bind := range bindings[id] {
+		for _, bind := range topBindings {
 			expr := strings.TrimSpace(bind.Ref.Expr)
 			if expr == "" {
 				rd.diag("empty_binding_expr", sevError, id, fmt.Sprintf("binding for %q has an empty expression", clip(bind.Prop)))

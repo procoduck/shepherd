@@ -1,5 +1,4 @@
 import {
-  Handle,
   type Node,
   type NodeProps,
   Position,
@@ -11,6 +10,7 @@ import { currentTheme, type Theme } from '../../theme';
 import { getThemedCategoryColor, getThemedWireColor, portHandleId } from '../schemaAdapter';
 import { type SimHealthEntry, selectConnectionState, useVisualStore } from '../store';
 import type { ComponentDef, GraphNode, L1Diagnostic, PortDef } from '../types';
+import { PortHandle } from './PortHandle';
 
 // D8/W6-D: getThemedWireColor/getThemedCategoryColor read the theme back
 // from the DOM (`currentTheme()`, html.light/html.dark), which is invisible
@@ -484,10 +484,9 @@ export const PipelineNode = memo(function PipelineNode({
                 data-generic-port={p.generic ? 'true' : undefined}
                 title={p.generic ? p.label : undefined}
               >
-                <Handle
-                  type={p.rfType}
+                <PortHandle
+                  port={p}
                   position={Position.Left}
-                  id={p.handleId}
                   style={{
                     top: `${p.top}px`,
                     ...(highlight
@@ -532,10 +531,9 @@ export const PipelineNode = memo(function PipelineNode({
                   {isSnappedPort ? '✓ ' : ''}
                   {p.label}
                 </span>
-                <Handle
-                  type={p.rfType}
+                <PortHandle
+                  port={p}
                   position={Position.Right}
-                  id={p.handleId}
                   style={{
                     top: `${p.top}px`,
                     ...(highlight

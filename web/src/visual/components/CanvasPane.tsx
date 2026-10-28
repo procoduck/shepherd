@@ -43,9 +43,22 @@ import { type ConnectingFrom, useVisualStore } from '../store';
 import type { GraphEdge, GraphNode, L1Diagnostic } from '../types';
 import { orientConnection } from '../wireOrient';
 import { CanvasControls, CanvasMiniMap, FIT_PADDING } from './CanvasChrome';
+import { CanvasLiveRegion, CanvasShortcutsButton, CanvasShortcutsDialog } from './CanvasShortcuts';
 import { PipelineNode, useTheme } from './PipelineNode';
+import { useCanvasKeyboard } from './useCanvasKeyboard';
 
 const nodeTypes: NodeTypes = { pipeline: PipelineNode as NodeTypes[string] };
+
+// #426: what a screen reader reads after a node's or a wire's name — this
+// canvas's own keyboard model (useCanvasKeyboard), not React Flow's default
+// text, which describes arrow keys moving the node.
+const ARIA_LABEL_CONFIG = {
+  'node.a11yDescription.default':
+    'Arrow keys move between nodes. Enter goes to its ports. Shift plus arrow keys moves it. Delete removes it. Press question mark for all shortcuts.',
+  'node.a11yDescription.keyboardDisabled':
+    'Arrow keys move between nodes. Enter goes to its ports. Shift plus arrow keys moves it. Delete removes it. Press question mark for all shortcuts.',
+  'edge.a11yDescription.default': 'Delete removes this wire. Escape goes back to its source node.',
+};
 
 // Clipboard data is scoped to this canvas instance, preventing cross-pipeline pastes.
 type Clipboard = { nodes: GraphNode[]; edges: GraphEdge[] };
@@ -321,6 +334,9 @@ export function CanvasPane() {
     },
     [setSelected],
   );
+  // #426: node/port/wire keyboard navigation, keyboard wiring, the live
+  // region and the shortcut sheet.
+  const keyboard = useCanvasKeyboard(canvasWrapperRef, syncSetSelected);
 
   // --- View projection (see "The controlled-mode contract" above) ---
   // Only the per-node subset of diagnostics reaches a node, so a diagnostic on
@@ -765,6 +781,10 @@ export function CanvasPane() {
       data-testid='canvas'
       ref={canvasWrapperRef}
       tabIndex={0}
+      role='region'
+      aria-label='Pipeline canvas'
+      aria-keyshortcuts='?'
+      {...keyboard.handlers}
       onKeyDown={onKeyDown}
       onDragOver={(e) => e.preventDefault()}
       onDrop={onDrop}
@@ -821,6 +841,7 @@ export function CanvasPane() {
         // so the same modifier does both halves of "multi-select via drag-box
         // and shift-click".
         multiSelectionKeyCode='Shift'
+        ariaLabelConfig={ARIA_LABEL_CONFIG}
       >
         <FlowApiBridge screenToFlowRef={screenToFlowRef} />
         <FitOnFirstNodes userMovedRef={userMovedRef} isFitRef={isFitRef} />
@@ -829,6 +850,9 @@ export function CanvasPane() {
         <CanvasControls fitViewOptions={FIT_VIEW_OPTIONS} />
         <CanvasMiniMap />
       </ReactFlow>
+      <CanvasShortcutsButton onOpen={() => keyboard.setHelpOpen(true)} />
+      <CanvasLiveRegion text={keyboard.announcement.text} seq={keyboard.announcement.seq} />
+      {keyboard.helpOpen && <CanvasShortcutsDialog onClose={() => keyboard.setHelpOpen(false)} />}
     </div>
   );
 }

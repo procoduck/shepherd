@@ -660,13 +660,21 @@ In rough priority order; closed items stay in place, marked with the release tha
       `exhaustive` linter checks switches over it; a test keeps the constants and the CHECK
       constraint in step. (The role half: step 7a, #361, made `auth.Role` and `auth.Requirement`
       typed.)
-- [ ] **Canvas keyboard wiring is partial.** Delete/undo/redo/copy-paste and re-focus-on-drop work
-      (`web/src/visual/components/CanvasPane.tsx`); the a11y pass `docs/visual-builder-design-VB1.md`
-      §8 calls for — keyboard node navigation, a focus ring on ports — is not built.
-- [ ] **Nested `bindings[]` entries are unrenderable** — a known, accepted gap in
-      `web/src/visual/bindings.ts` (W5-01/W5-02): a binding at a nested block's prop path writes
-      correctly into `props` and renders, but the separate `GraphBinding`/`doc.bindings[]` channel
-      stays flat-top-level-prop-only by design, not yet extended.
+- [x] **Canvas keyboard wiring** — done (#426): node/port/wire navigation, keyboard wiring and
+      deletion, screen-reader names, a live region, the `?` shortcut sheet, a `--color-focus`
+      ring, and an axe scan in the mocked UI suite (`web/src/visual/components/useCanvasKeyboard.ts`,
+      `web/src/visual/canvasA11y.ts`, `web/tests/specs/visual-keyboard.spec.ts`,
+      `visual-a11y-axe.spec.ts`).
+- [x] **Nested `bindings[]` entries** — done (#426): `GraphBinding.prop` takes a binding path
+      (`endpoint[0].basic_auth.password`, `internal/visual/bindingpath.go`,
+      `web/src/visual/bindingPath.ts`); both renderers place it inside the block; the picker
+      writes it; the graph-view parse reports references at the same canonical path.
+- [ ] **axe `heading-order` (moderate) in the builder's inspector**: its sections are `h3`/`h4`
+      with no `h2` above them on the builder page. Non-blocking (the axe spec fails on serious and
+      critical only and prints the rest).
+- [ ] **Selection does not follow keyboard focus on the canvas** (Space selects): a store-first
+      selection racing React Flow's `onSelectionChange` echo looped under quick arrow presses.
+      A selection model that lets the two agree (RF as the one writer) would allow it.
 - [ ] **Kind suite, plan steps 3 and 5** (`docs/kind-test-environment-plan.md`): the full-values
       install, and the `NOTES.txt` CNI/NetworkPolicy warning. (The true previous-version Helm
       upgrade spec is written, #425, `e2e/k8s/helm_upgrade_test.go`.) (G10 shipped

@@ -395,7 +395,8 @@ export function Toolbar({
           data-testid='toolbar-validity'
           onClick={showProblems}
           className={`flex items-center gap-1 whitespace-nowrap text-xs px-2 py-1 rounded shrink-0 ${
-            errors > 0 ? 'text-red-400' : 'text-emerald-400'
+            // #426 (axe color-contrast): the status tone tokens, AA in both themes.
+            errors > 0 ? 'text-danger' : 'text-ok'
           }`}
         >
           {errors > 0 ? (

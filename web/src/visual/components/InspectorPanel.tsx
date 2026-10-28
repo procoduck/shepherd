@@ -8,6 +8,7 @@ import { CollapsiblePanel } from './CollapsiblePanel';
 import { AttributeField } from './inspector/AttributeField';
 import { BlockGroup } from './inspector/BlockGroup';
 import { nextBlockOrder, withAttr } from './inspector/blockOps';
+import { NodeBindings } from './inspector/NodeBindings';
 import { buildPortWireIndex, wireCountsFor, wireEdgesFor } from './inspector/portWiring';
 import { InspectorReadOnlyContext } from './inspector/readOnly';
 import type { AttrLike, BlockLike } from './inspector/schemaShapes';
@@ -261,6 +262,12 @@ export function InspectorPanel() {
             {attrs.length === 0 && blocks.length === 0 && (
               <p className='text-xs text-muted-2'>This component has no configurable fields.</p>
             )}
+          </div>
+        </InspectorReadOnlyContext>
+
+        <InspectorReadOnlyContext value={readOnly}>
+          <div className='px-4 pb-3'>
+            <NodeBindings nodeId={node.id} bindings={bindings} />
           </div>
         </InspectorReadOnlyContext>
 

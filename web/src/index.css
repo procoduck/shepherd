@@ -17,7 +17,15 @@
   --color-border: #27272a;
   --color-border-strong: #3f3f46;
   --color-muted: #a1a1aa;
-  --color-muted-2: #71717a;
+  /*
+   * #426 (axe color-contrast): #71717a gave 3.98:1 on --color-panel, under
+   * AA for the 10-12px captions it sets (panel titles, attribute types, block
+   * headers). #80808a is the darkest zinc grey that clears 4.5:1 on all
+   * three surfaces (4.53:1 on card), which keeps the most room below
+   * --color-muted: 1.53:1 between the two, where #8b8b94 left 1.32:1 and the
+   * tiers read alike in dense tables. theme.test.ts checks AA and the gap.
+   */
+  --color-muted-2: #80808a;
   /*
    * Added during B4 (design-token adoption in web/src/pages + components):
    * a third, quieter de-emphasis tier for tertiary captions/meta text
@@ -26,6 +34,20 @@
    */
   --color-muted-3: #52525b;
   --color-accent: #6366f1;
+  /*
+   * Keyboard focus ring (#426) on the canvas's nodes, ports and wires. A
+   * non-text indicator, so WCAG 1.4.11 asks 3:1 against what it sits on;
+   * theme.test.ts checks it against background, panel and card in both
+   * themes. Lighter than --color-accent so it reads apart from the selected
+   * node's accent border.
+   */
+  --color-focus: #818cf8;
+  /*
+   * Accent-coloured TEXT (#426): --color-accent itself is 3.95:1 on its own
+   * 10% tint in dark mode, under AA for text. Same values as --color-focus;
+   * theme.test.ts holds it to 4.5:1 on background, panel and card.
+   */
+  --color-accent-text: #818cf8;
   /*
    * Status tones (#253) for badges and pills: text colour + an OPAQUE tinted
    * surface, so the contrast is a fixed pair rather than a translucent
@@ -82,6 +104,8 @@
     --color-muted-2: #52525b;
     --color-muted-3: #71717a;
     --color-accent: #4f46e5;
+    --color-focus: #4338ca;
+    --color-accent-text: #4338ca;
     /* Status tones (#253): see the dark @theme block. */
     --color-ok: #065f46;
     --color-ok-surface: #ecfdf5;
@@ -122,6 +146,8 @@ html.light {
   --color-muted-2: #52525b;
   --color-muted-3: #71717a;
   --color-accent: #4f46e5;
+  --color-focus: #4338ca;
+  --color-accent-text: #4338ca;
   /* Status tones (#253): see the dark @theme block. */
   --color-ok: #065f46;
   --color-ok-surface: #ecfdf5;
@@ -145,4 +171,28 @@ code,
 pre,
 .mono {
   font-family: "JetBrains Mono Variable", monospace;
+}
+
+/*
+ * Canvas keyboard focus (#426). React Flow's nodes, wires and ports take focus
+ * (useCanvasKeyboard.ts); :focus-visible keeps the ring to keyboard focus, so a
+ * mouse click shows the selection styling only. The ring is an outline offset
+ * outside the node box, a different shape from the selected node's accent
+ * border, in the --color-focus token.
+ */
+.react-flow__node:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 3px;
+  border-radius: 0.6rem;
+}
+.react-flow__handle:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+.react-flow__edge:focus-visible {
+  outline: none;
+}
+.react-flow__edge:focus-visible .react-flow__edge-path {
+  stroke: var(--color-focus) !important;
+  stroke-width: 3;
 }

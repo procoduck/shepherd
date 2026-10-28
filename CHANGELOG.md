@@ -13,6 +13,36 @@ Categories used here:
 
 ## Unreleased
 
+### Added
+
+- **The visual builder's canvas works from the keyboard (#426).** Shipped. Tab into the canvas and
+  the arrow keys move to the nearest node in that direction (Home/End: first/last, left to right);
+  Space selects the focused node, I opens it in the Properties panel, Shift+arrows move it 8px,
+  Delete removes it with its wires. Enter goes into the node's ports: the arrows move between
+  them, Enter on a port starts a wire, and the arrows then visit only the ports it can connect to
+  (an incompatible, duplicate or cycle-closing target is skipped); Enter connects, Escape
+  cancels. Delete on a port removes its wires, and a focused wire (wires are Tab stops) deletes
+  with Delete. Every keyboard edit is the same single undo step as the mouse edit, and a viewer
+  stays read-only. `?` or the canvas's keyboard button opens the shortcut sheet. Nodes, ports and
+  wires carry screen-reader names (`prometheus.scrape "app", 1 input, 1 output`; `forward_to,
+  output, prom.metrics, 1 wire`; `Wire from prometheus.scrape "app" forward_to to
+  prometheus.remote_write "sink" receiver`), and every keyboard action is announced in a polite
+  live region. Keyboard focus draws a ring in a new `--color-focus` token (3:1 on every canvas
+  surface in both themes, held by `theme.test.ts`).
+- **Bindings into nested blocks (#426).** Shipped. A `doc.bindings[]` entry's `prop` may now be a
+  path into the component's nested blocks — `endpoint[0].basic_auth.password`,
+  `client.tls.ca_pem`, `stage.tenant[0].value` (an index picks a repeated block's instance) — and
+  both renderers write the expression inside that block. The inspector's binding picker writes
+  these entries at the field's path, shows them on the field (and, for a non-secret attribute, in
+  place of its input), and lists every binding a node holds in a new Bindings section with Unbind.
+  The read-only graph view reports references at the same canonical path. Additive: a prop with
+  no `.` and no `[` keeps its old meaning and byte-identical rendering (the corpus goldens pin
+  it), and no proto field was added — the path travels in `GraphBinding.prop`. The sandbox
+  transform substitutes or drops a nested binding to a removed secret source in place. A path
+  is capped at 32 segments and 256 bytes (`binding_path_invalid` past either; the deepest shipped
+  attribute needs 8 and 114), resolution is linear in its segments, and the overlay copies each
+  container once per node however many bindings it carries.
+
 ### Fixed
 
 - **The chart's install notes print each URL's real scheme.** Shipped. `NOTES.txt` printed
@@ -29,6 +59,12 @@ Categories used here:
 
 ### Changed
 
+- **Builder contrast (#426, axe).** The dark `--color-muted-2` caption tone moved from `#71717a`
+  (3.98:1 on the panel) to `#80808a`, the darkest grey that clears AA on background, panel and
+  card (4.53:1 on card), keeping a 1.53:1 step below `--color-muted`; the palette's
+  "Compatible with" chip uses a new AA `--color-accent-text` token; the toolbar validity chip and
+  the Problems tab use the `ok`/`danger` status tones; the binding picker's source select and key
+  input are labelled; the palette's "Show all components" button meets the 24px target size.
 - **`pipelines.source` is a Go type.** `pipelinesource.Source` (`ui`, `wizard`, `git`, `visual`)
   replaces the plain string in the sqlc models (a `sqlc.yaml` column override), the merge engine,
   served-config provenance, git sync, the wizard and pipeline services and the dev seed, so the
@@ -40,6 +76,14 @@ Categories used here:
 
 ### Tests
 
+- **An axe scan of the visual builder in the mocked UI suite** (`visual-a11y-axe.spec.ts`,
+  `@axe-core/playwright` 4.13.0, a new devDependency): an eight-node graph with fan-in, a disabled
+  node, a config node and a nested binding, in both themes, at rest, with a node selected and with
+  a port focused, plus the shortcut sheet. It fails on any serious or critical violation and
+  disables no rule. Keyboard specs (`visual-keyboard.spec.ts`) cover node navigation, creating,
+  cancelling and deleting a wire, moving and deleting a node, the focus ring and the shortcut
+  sheet. A `bindings-nested` corpus entry, validated by the real pinned `alloy validate`, and
+  render/parse round-trip specs pin nested bindings on both renderers.
 - **The kind suite upgrades from the previous published chart.** `e2e-k8s` gains a fifteenth
   feature, `TestHelmChartUpgradesFromPreviousRelease` (`e2e/k8s/helm_upgrade_test.go`): it
   installs the highest released chart below the tree's `Chart.yaml` version from
@@ -51,6 +95,7 @@ Categories used here:
   are unchanged, and the collector, polling on its pre-upgrade token, is still served the
   pipeline. It pulls from ghcr.io: offline it skips with the reason, in CI an unreachable
   registry fails it. The version choice is unit-tested on every `go test ./...`. (#425)
+
 
 ## v0.21.0-rc.1 (prerelease)
 

@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { bindingMatchesPath } from '../../bindingPath';
 import type { L1DiagnosticEx, ResolvedPort } from '../../l1';
 import type { GraphBinding, GraphEdge } from '../../types';
 import { AttributeField } from './AttributeField';
@@ -42,8 +43,11 @@ export interface BlockGroupProps {
 const diagAt = (diags: L1DiagnosticEx[], path: string[]): string | undefined =>
   diags.find((d) => d.path && d.path.join('.') === path.join('.'))?.message;
 
-const bindingAt = (bindings: GraphBinding[], nodeId: string, schemaPath: string[]) =>
-  bindings.find((b) => b.node === nodeId && b.prop === schemaPath.join('.'));
+/** The doc.bindings[] entry for the attribute at `instancePath` — matched by
+ *  its canonical nested path (`endpoint[1].basic_auth.password`, #426), so
+ *  each repeated block instance shows its own binding. */
+const bindingAt = (bindings: GraphBinding[], nodeId: string, instancePath: string[]) =>
+  bindings.find((b) => b.node === nodeId && bindingMatchesPath(b.prop, instancePath));
 
 const groupBorder = 'border border-border-strong rounded';
 const headerClass = 'flex items-center justify-between gap-2 px-2 py-1 bg-panel text-xs';
@@ -100,7 +104,7 @@ function InstanceFields({
             onChange={(v) => update((inst) => withAttr(inst, attr.name, v))}
             port={port}
             wireCount={port ? (wireCounts.get(port.id) ?? 0) : 0}
-            binding={bindingAt(bindings, nodeId, attrSchemaPath)}
+            binding={bindingAt(bindings, nodeId, [...instancePath, attr.name])}
             nodeId={nodeId}
             instancePath={[...instancePath, attr.name]}
             wireEdges={port ? wireEdgesFor(edges, nodeId, port.id) : undefined}

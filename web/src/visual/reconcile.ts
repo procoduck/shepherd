@@ -37,6 +37,7 @@ import type { Edge, Node } from '@xyflow/react';
 import deepEqual from 'fast-deep-equal';
 import { createElement } from 'react';
 import type { Theme } from '../theme';
+import { edgeAriaLabel, nodeAriaLabel } from './canvasA11y';
 import type { PipelineNodeData } from './components/PipelineNode';
 import { resolvePorts } from './l1';
 import { getThemedWireColor } from './schemaAdapter';
@@ -140,6 +141,7 @@ export function reconcileNodes(
     }
 
     changed = true;
+    const ports = resolvePorts(def);
     return {
       // `prev` first so React Flow's fields survive a document-driven rebuild.
       // Spreading `undefined` for a brand-new node is a no-op.
@@ -148,6 +150,16 @@ export function reconcileNodes(
       type: 'pipeline' as const,
       position: src.position,
       selected,
+      // #426: the name a screen reader announces when the node takes focus.
+      ariaLabel: nodeAriaLabel(
+        src,
+        ports.filter((p) => p.role === 'accepts').length,
+        ports.filter((p) => p.role === 'produces').length,
+        {
+          errors: diags.filter((d) => d.node_id === src.id && d.severity === 'error').length,
+          warnings: diags.filter((d) => d.node_id === src.id && d.severity === 'warning').length,
+        },
+      ),
       data: { ...src, schema: def, diagnostics: diags, health } as PipelineNodeData,
     };
   });
@@ -237,8 +249,10 @@ export function reconcileEdges(
       // #310: React Flow's default name is "Edge from <rf source id> to <rf
       // target id>" — internal ids, and reversed for a receiver-kind wire,
       // whose React Flow endpoints run export→argument. The stored edge runs
-      // produces→accepts, which is the dataflow; name it by the node labels.
-      ariaLabel: `Edge from ${fromLabel} to ${toLabel}`,
+      // produces→accepts, which is the dataflow; name it by the nodes and
+      // ports at each end (#426): `Wire from prometheus.scrape "app"
+      // forward_to to prometheus.remote_write "sink" receiver`.
+      ariaLabel: edgeAriaLabel(src, docNodes),
       style: wireType ? { stroke: getThemedWireColor(schema, wireType, theme) } : undefined,
       // `data` carries the wire's semantics rather than just its looks, so a
       // custom edge component (animated dataflow, live throughput from Alloy)

@@ -299,7 +299,7 @@ export function BottomDrawer() {
                 onClick={() => selectTab(t)}
                 className={`px-2 -mb-px border-b-2 ${
                   t === 'problems'
-                    ? `font-medium ${tabClass(selectedTab, errorCount ? 'text-red-400' : 'text-emerald-400')}`
+                    ? `font-medium ${tabClass(selectedTab, errorCount ? 'text-danger' : 'text-ok')}`
                     : tabClass(selectedTab)
                 }`}
               >
@@ -319,7 +319,7 @@ export function BottomDrawer() {
           })}
         </div>
         <kbd
-          className='ml-auto text-[10px] font-mono text-muted-2 border border-border-strong rounded px-1 py-0.5'
+          className='ml-auto text-[10px] font-mono text-muted border border-border-strong rounded px-1 py-0.5'
           title='Toggle drawer'
         >
           ⌃`

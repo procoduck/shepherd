@@ -145,7 +145,10 @@ test.describe('visual builder', () => {
   test('a wire is announced by its node labels, in dataflow order', async ({ page }) => {
     const wire = page.locator('[aria-roledescription="edge"]');
     await expect(wire).toHaveCount(1);
-    await expect(wire).toHaveAccessibleName('Edge from app to sink');
+    // #426: by component, label and port at each end.
+    await expect(wire).toHaveAccessibleName(
+      'Wire from prometheus.scrape "app" forward_to to prometheus.remote_write "sink" receiver',
+    );
   });
 
   test('palette groups are named', async ({ page }) => {

@@ -159,6 +159,7 @@ var corpusNames = []string{
 	"label-edgecases",
 	"otel-three-signals",
 	"kitchen-sink",
+	"bindings-nested",
 }
 
 var _ = Describe("Renderer", func() {
@@ -198,6 +199,7 @@ var _ = Describe("Renderer", func() {
 		Entry("otel-three-signals", "otel-three-signals"),
 		Entry("kitchen-sink", "kitchen-sink"),
 		Entry("diagnostics-mixed", "diagnostics-mixed"),
+		Entry("bindings-nested", "bindings-nested"),
 	)
 
 	// 7.2.2 — render is permutation-invariant

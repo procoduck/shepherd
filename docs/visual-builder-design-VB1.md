@@ -117,6 +117,22 @@ Anatomy (custom React Flow node, one component for all types):
 - Node width fixed 240px; height auto by port count. Selected: indigo ring. Disabled (§4.6): 50% opacity + dashed border. Error: red left border overrides category tint.
 - Multi-select (shift-drag / shift-click), drag-move with 8px grid snap, copy/paste (⌘C/⌘V — pasted nodes get new ids, labels suffixed `_copy`), delete (⌫ with edges cascade), ⌘Z/⇧⌘Z undo/redo (zustand + zundo, 100-step history over the graph document ONLY — viewport moves excluded), ⌘A, arrow-key nudge. ~~Auto-layout button (dagre, left-to-right) for pasted/imported messes~~ — **not built** (§2.0: `dagre` was never adopted); pasted/imported messes are arranged by hand.
 - Minimap bottom-right; zoom 0.25–2; space-drag pan; `?` opens the shortcut sheet.
+- **Keyboard (as built, #426 — `useCanvasKeyboard.ts`, `canvasA11y.ts`'s `CANVAS_SHORTCUTS` is the
+  sheet's content).** Focus lives on React Flow's own elements; the handler runs in the capture
+  phase on the canvas wrapper and stops the keys it handles, so React Flow's own node keys (arrows
+  move, Enter selects) never compete. Nodes: arrows focus the nearest node in that direction (an
+  off-axis node costs twice its offset), Home/End the first/last in reading order (x, then y);
+  Space selects (focus does NOT select — a store-first selection raced React Flow's
+  `onSelectionChange` echo into an update loop), I selects and focuses the inspector's first field,
+  Shift+arrows move 8px (the snap grid), Delete removes the node and its wires. Ports
+  (`PortHandle.tsx`, `tabIndex=-1`, reached with Enter on a node): arrows move between the node's
+  ports, Enter/Space starts a wire — the arrows then visit only `checkConnection`-valid targets
+  (role/type via `wireOrient`, no duplicate, no cycle), Enter connects through the store's
+  `addEdge` (scalar replace included), Escape cancels; Delete removes the port's wires as one undo
+  step. Wires are Tab stops; Delete removes the focused one. Names: node `prometheus.scrape "app",
+  1 input, 1 output` (+ disabled, error/warning counts), port `forward_to, output, prom.metrics,
+  1 wire`, wire `Wire from <component> "<label>" <port> to <component> "<label>" <port>`; outcomes
+  go to a polite live region. Focus ring: `--color-focus` outline (3:1 on every canvas surface).
 
 ## 2.4 Inspector (right)
 
@@ -159,7 +175,7 @@ Wire types (closed set, each with a fixed dot color): `targets` (violet) — `[]
 
 ## 3.4 Config nodes & bindings (the non-wire pattern)
 
-`remote.kubernetes.secret` and `local.file` are **config nodes**: they render on canvas (Config category tint, no stream ports) but connect via **bindings**, not wires — a secret-typed or expression-capable property in the inspector opens a picker listing on-canvas config nodes (+ "add secret node" shortcut). **As built** (`web/src/visual/bindings.ts`, W5-01/W5-02): selecting one does NOT write a `doc.bindings[]` entry — it stores `{"$expr": "<expr>"}` directly in `props`, AT THE PROP'S OWN INSTANCE PATH, top-level or nested inside a repeatable block instance at any depth (proven by the `bindings-secret` corpus fixture's `n4`, `endpoint[0].basic_auth.password`). Both renderers (`render.go`, `renderTS.ts`) already emit any props value shaped `{"$expr": ...}` verbatim at any depth, so writing it into `props` is sufficient — no separate plumbing. `GraphBinding`/`doc.bindings[]` is a separate, pre-existing channel, left deliberately untouched by the new UI: it is an **import-only** path for a flat, top-level prop binding (`internal/visual/parse.go`'s round-trip of an existing config) and cannot represent a nested path — pushing a nested path into it would emit invalid Alloy on both renderers, a known, accepted gap (see the workstream's RISKS list). The rendered dependency (e.g. `remote.kubernetes.secret.dest.data["url"]`) creates the Alloy-level edge. Destination presets (§2.2) are exactly: write component + secret config node + bindings, instantiated from the org destination record — the same rendering path the app-observability wizard templates use, now reified as graph fragments.
+`remote.kubernetes.secret` and `local.file` are **config nodes**: they render on canvas (Config category tint, no stream ports) but connect via **bindings**, not wires — a secret-typed or expression-capable property in the inspector opens a picker listing on-canvas config nodes (+ "add secret node" shortcut). **As built** (#426, `internal/visual/bindingpath.go` / `web/src/visual/bindingPath.ts`): the picker writes a `doc.bindings[]` entry whose `prop` is the field's **binding path** — a top-level attribute name, or `segment(.segment)*` with `segment = identifier[ "[" index "]" ]` into nested blocks: `endpoint[0].basic_auth.password`, `client.tls.ca_pem`, `stage.tenant[0].value`. The last segment is the attribute; the schema groups the others into block names longest-first (a block name may contain dots), only a block name's last segment takes the index, and an omitted index means instance 0 (the canonical form indexes exactly the repeatable blocks). A nested entry renders exactly as `{"$expr": expr}` at that place in props would (`applyNestedBindings`/`overlayBindings`, creating the block for instance 0 when absent; a literal already there loses, with `binding_overrides_prop`; an unresolvable path is `binding_path_invalid` and emits nothing; a path is capped at 32 segments / 256 bytes, resolution joins at most as many segments per level as that level's longest block name has parts, and the overlay copies each container once per node — all client input, bounded on every Render path); a top-level entry keeps its historic place after the body, byte-identical. L1 checks the overlaid props, so a bound nested required attribute is satisfied. The older channel — `{"$expr": ...}` written straight into props (W5-01, still what the read-only parse produces) — renders the same; the `bindings-secret` and `bindings-nested` corpus entries pin both. No proto change: the path travels in `GraphBinding.prop`. The graph-view parse reports each reference at its canonical path (repeated blocks included) in `ParseResult.Bindings`; the inspector shows a binding on its field and lists all of a node's bindings in its Bindings section. The rendered dependency (e.g. `remote.kubernetes.secret.dest.data["url"]`) creates the Alloy-level edge. Destination presets (§2.2) are exactly: write component + secret config node + bindings, instantiated from the org destination record — the same rendering path the app-observability wizard templates use, now reified as graph fragments.
 
 ---
 
@@ -432,6 +448,6 @@ Mutation-gate extension (the WSR 6.2 discipline): the 8-invariant PR-gate check 
 5. **S1 + S2**: flow overlay; relabel + log traces with fixtures; live-sample fetch behind its flag.
 6. **Upgrade machinery**: version stamps, upgrade-check, review UI, needs_upgrade filter, overlay migrations.
 7. **S3**: simulator service, transform, harness, run UI, containment, e2e profile.
-8. **Hardening**: perf at 100+ nodes (memoized node renders, edge virtualization if needed), a11y pass on canvas (keyboard node navigation, focus ring on ports, drawer landmarks), docs (user guide + a "graph vs text — when to use which" page), WSR-style feature-loop review.
+8. **Hardening**: perf at 100+ nodes (memoized node renders, edge virtualization if needed), a11y pass on canvas (keyboard node navigation, focus ring on ports, drawer landmarks — keyboard model, focus ring, names and the axe spec done in #426), docs (user guide + a "graph vs text — when to use which" page), WSR-style feature-loop review.
 
 Sequencing note: milestone 1 is independently valuable and safe to ship alone; 2–3 are the minimum lovable builder; 5–7 are separable follow-ons in any order (S2 before S3 — it's 10× cheaper and answers 80% of "what will this rule do").
