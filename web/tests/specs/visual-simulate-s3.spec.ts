@@ -96,6 +96,9 @@ test.describe('visual simulate S3 — sandbox run', () => {
       'TEST FIDELITY NOTE — S3 stubs discovery and drops all secrets.',
     );
 
+    // The run was not extended, so there is no run-window note (#424).
+    await expect(page.getByTestId('sandbox-run-window-note')).toHaveCount(0);
+
     // Tab labels carry the real counts from the seeded run.
     await expect(page.getByTestId('sim-results-tab-metrics')).toHaveText('Metrics captured (2)');
     await expect(page.getByTestId('sim-results-tab-logs')).toHaveText('Logs captured (0)');
@@ -221,6 +224,33 @@ test.describe('visual simulate S3 — sandbox run', () => {
     // Not healthy green (#22c55e) and not the unknown grey (#71717a).
     expect(color).not.toBe('rgb(34, 197, 94)');
     expect(color).not.toBe('rgb(113, 113, 122)');
+  });
+
+  // #424: a run extended to cover the pipeline's scrape interval says why it
+  // ran longer than the 30s the menu offered.
+  test('an extended run says why it ran longer than requested', async ({ page, api }) => {
+    await page.click('[data-component="prometheus.scrape"]');
+    await expect(page.locator('[data-testid="pipeline-node"]')).toHaveCount(1);
+    const note =
+      'Extended to 2m so the 60s scrape interval of prometheus.scrape "scrape" runs twice.';
+    api.seed({
+      simulateRunResult: {
+        status: 'completed',
+        requested_duration_seconds: 30,
+        effective_duration_seconds: 120,
+        duration_note: note,
+        rewrites: [],
+        captured_series: [],
+        captured_log_lines: [],
+        component_health: [],
+      },
+    });
+
+    await page.getByTestId('simulate-menu-trigger').click();
+    await page.getByTestId('simulate-menu-sandbox-run').click();
+
+    await expect(page.getByTestId('sandbox-run-results')).toBeVisible({ timeout: RESULTS_TIMEOUT });
+    await expect(page.getByTestId('sandbox-run-window-note')).toHaveText(note);
   });
 
   test('7.6.8.2 — failed run surfaces the error, not a fake success view', async ({

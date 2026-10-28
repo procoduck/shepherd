@@ -1,6 +1,12 @@
 -- name: CreateSimulateRun :one
-INSERT INTO simulate_runs (org_id, graph, requested_duration_seconds, created_by)
-VALUES ($1, $2, $3, $4)
+-- effective_duration_seconds is never below what was requested (#424): an
+-- unset (0) or shorter effective duration stores the requested one.
+INSERT INTO simulate_runs (org_id, graph, requested_duration_seconds, created_by, effective_duration_seconds, duration_note)
+VALUES (
+    sqlc.arg(org_id), sqlc.arg(graph), sqlc.arg(requested_duration_seconds), sqlc.arg(created_by),
+    GREATEST(sqlc.arg(effective_duration_seconds)::int, sqlc.arg(requested_duration_seconds)),
+    sqlc.arg(duration_note)
+)
 RETURNING *;
 
 -- name: GetSimulateRunByID :one

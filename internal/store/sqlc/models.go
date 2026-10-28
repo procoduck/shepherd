@@ -384,6 +384,8 @@ type SimulateRun struct {
 	StderrTail               string             `json:"stderr_tail"`
 	ErrorCode                string             `json:"error_code"`
 	ErrorMessage             string             `json:"error_message"`
+	EffectiveDurationSeconds int32              `json:"effective_duration_seconds"`
+	DurationNote             string             `json:"duration_note"`
 }
 
 type Team struct {

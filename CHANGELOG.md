@@ -110,6 +110,20 @@ additive; non-strict orgs are served the same bytes.
   `contributing`, `excluded` and `baseline_lines` (additive). Served bytes and hashes are
   unchanged; `serve.Format` 5 makes each row recompute once, to the same bytes, on its
   collector's next poll so the column fills in without a reload. (#423)
+- **Sandbox runs cover the pipeline's scrape interval.** Shipped. A sandbox run used to observe for
+  the 30 seconds the menu asks for, so a `prometheus.scrape` at its 60-second default could end
+  before it scraped at all. `CreateRun` now extends the run to two of the longest scrape or poll
+  intervals in the pipeline (scrape, poll, collection, sync, refresh and connector flush
+  intervals), capped at the existing maximum run length (120s, or `simulator.max_duration` when
+  lower), and never shortens what was asked for. Intervals come from the graph rendered to Alloy
+  and the schema: an unset attribute counts at its schema default, a non-literal one at the
+  default (the note says so), and a component the sandbox replaces with a stub not at all. Every
+  interval-shaped duration attribute of every shipped schema is classified as counted or
+  excluded, with a reason, and a repo test fails on one that is neither. The run dialog says why
+  the run is longer ("Extended to 2m so the 60s scrape interval of prometheus.scrape "x" runs
+  twice."), or that the slowest component was capped and may not run twice, and counts down from
+  the effective duration. `SimulateRun` gains `effective_duration_seconds` and `duration_note`
+  (additive; `requested_duration_seconds` keeps its meaning); migration `0050` stores them. (#424)
 
 ### Fixed
 

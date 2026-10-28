@@ -266,7 +266,7 @@ func (w *RunWorker) execute(ctx context.Context, q *sqlc.Queries, run sqlc.Simul
 	componentIndex, logFixtures := buildRunInputs(doc, result.Graph, policy, p2.NodeMap)
 
 	clientRun, err := w.client.Start(ctx, simulate.ClientStartRequest{
-		Config: p2.Content, DurationSeconds: int(run.RequestedDurationSeconds),
+		Config: p2.Content, DurationSeconds: int(run.EffectiveDurationSeconds),
 		LogFixtures: logFixtures, LogEmitInterval: 500, ComponentIndex: componentIndex,
 	})
 	if err != nil {

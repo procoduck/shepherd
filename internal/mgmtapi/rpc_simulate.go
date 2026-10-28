@@ -14,23 +14,28 @@ import (
 	mgmtv1 "shepherd/gen/shepherd/mgmt/v1"
 	"shepherd/gen/shepherd/mgmt/v1/mgmtv1connect"
 	"shepherd/internal/config"
+	"shepherd/internal/schema"
 	"shepherd/internal/simulate"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
+	"shepherd/internal/visual"
 )
 
 // SimulateService implements mgmtv1connect.SimulateServiceHandler.
 type SimulateService struct {
 	store  *store.Store
 	cfg    config.SimulatorConfig
+	schema *schema.Registry
 	logger *slog.Logger
 }
 
 // NewSimulateService constructs a SimulateService. store/cfg back CreateRun
 // and GetRun (S3 sandbox runs, VB-1 §6.4); SimulateRelabel/SimulateLogs
-// (S2) use neither.
-func NewSimulateService(st *store.Store, cfg config.SimulatorConfig, logger *slog.Logger) *SimulateService {
-	return &SimulateService{store: st, cfg: cfg, logger: logger}
+// (S2) use neither. schemaReg lets CreateRun extend a run to cover the
+// pipeline's scrape and poll intervals (#424); nil leaves every run at its
+// requested duration.
+func NewSimulateService(st *store.Store, cfg config.SimulatorConfig, schemaReg *schema.Registry, logger *slog.Logger) *SimulateService {
+	return &SimulateService{store: st, cfg: cfg, schema: schemaReg, logger: logger}
 }
 
 var _ mgmtv1connect.SimulateServiceHandler = (*SimulateService)(nil)
@@ -95,6 +100,7 @@ func (s *SimulateService) CreateRun(ctx context.Context, req *connect.Request[mg
 	duration := s.clampDuration(req.Msg.GetDurationSeconds())
 
 	doc := graphDocFromProto(graphMsg)
+	window := s.runWindow(doc, duration)
 	graphJSON, err := json.Marshal(doc)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("encoding graph"))
@@ -103,6 +109,8 @@ func (s *SimulateService) CreateRun(ctx context.Context, req *connect.Request[mg
 	actor := actorFromCtx(ctx)
 	run, err := s.store.Queries.CreateSimulateRun(ctx, sqlc.CreateSimulateRunParams{
 		OrgID: orgID, Graph: graphJSON, RequestedDurationSeconds: duration, CreatedBy: actor,
+		EffectiveDurationSeconds: int32(window.Duration / time.Second), //nolint:gosec // capped at runCeiling, at most 120
+		DurationNote:             window.Note,
 	})
 	if err != nil {
 		s.logger.Error("create simulate run", "err", err)
@@ -110,9 +118,10 @@ func (s *SimulateService) CreateRun(ctx context.Context, req *connect.Request[mg
 	}
 
 	auditLogDetail(ctx, s.store, actor, "user", orgID, "simulate.run.create", "simulate_run", run.ID.String(), map[string]any{
-		"node_count":       len(graphMsg.GetNodes()),
-		"edge_count":       len(graphMsg.GetEdges()),
-		"duration_seconds": duration,
+		"node_count":                 len(graphMsg.GetNodes()),
+		"edge_count":                 len(graphMsg.GetEdges()),
+		"duration_seconds":           duration,
+		"effective_duration_seconds": int32(window.Duration / time.Second), //nolint:gosec // capped at runCeiling, at most 120
 	})
 
 	return connect.NewResponse(&mgmtv1.CreateRunResponse{RunId: run.ID.String()}), nil
@@ -126,18 +135,51 @@ func (s *SimulateService) clampDuration(requested int32) int32 {
 	if s.cfg.Duration > 0 {
 		def = int32(s.cfg.Duration / time.Second) //nolint:gosec // config-bounded duration
 	}
-	ceiling := int64(maxRunDuration)
-	if cfgCeiling := int64(s.cfg.MaxDuration / time.Second); s.cfg.MaxDuration > 0 && cfgCeiling < ceiling {
-		ceiling = cfgCeiling
-	}
+	ceiling := s.runCeiling()
 	switch {
 	case requested <= 0:
 		return def
-	case int64(requested) > ceiling:
-		return int32(ceiling) // capped at maxRunDuration (120) above; always in int32 range
+	case requested > ceiling:
+		return ceiling
 	default:
 		return requested
 	}
+}
+
+// runCeiling is the maximum run length: cfg.MaxDuration, never above the
+// migrations' own 120s CHECK.
+func (s *SimulateService) runCeiling() int32 {
+	ceiling := maxRunDuration
+	if cfgCeiling := int64(s.cfg.MaxDuration / time.Second); s.cfg.MaxDuration > 0 && cfgCeiling < int64(ceiling) {
+		ceiling = int32(cfgCeiling) //nolint:gosec // below maxRunDuration (120)
+	}
+	return ceiling
+}
+
+// runWindow extends the (already clamped) requested duration to cover two of
+// the longest scrape or poll intervals in the pipeline, capped at runCeiling
+// (#424). Anything that stops the window being computed (no schema, an
+// unknown schema version, a graph that does not render) leaves the run at
+// what was requested: the worker reports a broken graph itself.
+func (s *SimulateService) runWindow(doc visual.GraphDocument, requested int32) simulate.RunWindow {
+	unchanged := simulate.RunWindow{Duration: time.Duration(requested) * time.Second}
+	if s.schema == nil {
+		return unchanged
+	}
+	version := doc.SchemaVersion
+	if version == "" {
+		version = s.schema.CurrentVersion()
+	}
+	merged, _, err := s.schema.Get(version)
+	if err != nil {
+		return unchanged
+	}
+	w, err := simulate.RunWindowFor(doc, merged, unchanged.Duration, time.Duration(s.runCeiling())*time.Second)
+	if err != nil {
+		s.logger.Warn("sandbox run window not computed; running for the requested duration", "err", err)
+		return unchanged
+	}
+	return w
 }
 
 // GetRun returns a run's current state, including results once terminal.
@@ -345,6 +387,8 @@ func simulateRunToProto(run sqlc.SimulateRun, queuePosition int32) (*mgmtv1.Simu
 		StartedAt:                timestampFromPg(run.StartedAt),
 		FinishedAt:               timestampFromPg(run.FinishedAt),
 		RequestedDurationSeconds: run.RequestedDurationSeconds,
+		EffectiveDurationSeconds: run.EffectiveDurationSeconds,
+		DurationNote:             run.DurationNote,
 		QueuePosition:            pos,
 		Rewrites:                 runRewritesToProto(rewrites),
 		CapturedSeries:           runSeriesToProto(series),

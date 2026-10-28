@@ -632,10 +632,11 @@ In rough priority order; closed items stay in place, marked with the release tha
 - [x] **`Chart.yaml` `kubeVersion` floor** (B3) — raised to 1.29 in v0.9.0 (#131).
 - [ ] **`NOTES.txt` prints `https://` for every `route.hostnames` entry** although a route may be
       plain http (the kind dev stack's is). Cosmetic; fix with the next chart release.
-- [ ] **A 30 s sandbox run against a 30 s scrape interval captures one scrape or none**, depending
-      on where the scrape jitter lands — the first `make dev-kind` run showed 0 series and the next
-      two 21. Containment and capture are fine; the run window versus the pipeline's own interval
-      is the product question (a minimum window, or a first-scrape trigger).
+- [x] **A 30 s sandbox run against a 30 s scrape interval captures one scrape or none**, depending
+      on where the scrape jitter lands. — shipped on main (#424, unreleased): a run is extended to
+      two of the longest scrape or poll intervals in the pipeline, capped at the 120 s maximum, and
+      the run dialog says why (`SimulateRun.effective_duration_seconds` / `duration_note`,
+      migration 0050).
 - [x] **Graph diff for visual pipelines** — shipped in v0.10.0 (#137).
 - [ ] **grpc held at v1.83.2.** v1.84.0 carries GO-2026-6443, which Shepherd's RPC code calls, so
       `make vulncheck` refuses it; the fix exists only in a `v1.85.0-dev` pseudo-version. Take the

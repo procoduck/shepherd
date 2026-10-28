@@ -176,6 +176,8 @@ type SimulateRunView struct {
 	StartedAt                string                     `json:"started_at,omitempty"`
 	FinishedAt               string                     `json:"finished_at,omitempty"`
 	RequestedDurationSeconds int32                      `json:"requested_duration_seconds"`
+	EffectiveDurationSeconds int32                      `json:"effective_duration_seconds,omitempty"`
+	DurationNote             string                     `json:"duration_note,omitempty"`
 	QueuePosition            int32                      `json:"queue_position,omitempty"`
 	CapturedSeriesCount      int                        `json:"captured_series_count"`
 	CapturedLogLineCount     int                        `json:"captured_log_line_count"`
@@ -210,6 +212,7 @@ func toSimulateRunView(r *mgmtv1.SimulateRun) SimulateRunView {
 		ID: r.GetId(), Status: r.GetStatus(), CreatedAt: ts(r.GetCreatedAt()),
 		StartedAt: ts(r.GetStartedAt()), FinishedAt: ts(r.GetFinishedAt()),
 		RequestedDurationSeconds: r.GetRequestedDurationSeconds(), QueuePosition: r.GetQueuePosition(),
+		EffectiveDurationSeconds: r.GetEffectiveDurationSeconds(), DurationNote: r.GetDurationNote(),
 		CapturedSeriesCount: len(r.GetCapturedSeries()), CapturedLogLineCount: len(r.GetCapturedLogLines()),
 		StderrTail: r.GetStderrTail(), ErrorCode: r.GetErrorCode(), ErrorMessage: r.GetErrorMessage(),
 		FidelityNote: r.GetFidelityNote(),

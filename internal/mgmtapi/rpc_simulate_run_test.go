@@ -115,6 +115,53 @@ var _ = Describe("shepherd.mgmt.v1.SimulateService — Run API (S3 sandbox runs)
 		Expect(run["fidelityNote"]).NotTo(BeEmpty(), "fidelity_note must always be populated")
 	})
 
+	// scrapeRunGraph is a run of one prometheus.scrape that renders, with
+	// scrape_interval set when interval is non-empty.
+	scrapeRunGraph := func(interval string, duration int) map[string]any {
+		props := map[string]any{"targets": []any{}, "forward_to": []any{}}
+		if interval != "" {
+			props["scrape_interval"] = interval
+		}
+		return map[string]any{
+			"org_id": orgID,
+			"graph": map[string]any{
+				"kind":  "alloy-graph/v1",
+				"nodes": []map[string]any{{"id": "n1", "component": "prometheus.scrape", "label": "x", "props": props}},
+			},
+			"duration_seconds": duration,
+		}
+	}
+	createAndGet := func(body map[string]any) map[string]any {
+		resp := createRun(adminCookie, body)
+		defer resp.Body.Close() //nolint:errcheck // test cleanup
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+		runID, _ := decodeBody(resp)["runId"].(string) //nolint:errcheck // map value may be absent in test; empty string is safe
+		getResp := getRun(adminCookie, runID)
+		defer getResp.Body.Close() //nolint:errcheck // test cleanup
+		Expect(getResp.StatusCode).To(Equal(http.StatusOK))
+		return decodeBody(getResp)
+	}
+
+	It("extends a run to cover two of the pipeline's longest scrape intervals, keeping what was requested (#424)", func() {
+		run := createAndGet(scrapeRunGraph("", 30))
+		Expect(run["requestedDurationSeconds"]).To(BeEquivalentTo(30))
+		Expect(run["effectiveDurationSeconds"]).To(BeEquivalentTo(120))
+		Expect(run["durationNote"]).To(Equal(`Extended to 2m so the 60s scrape interval of prometheus.scrape "x" runs twice.`))
+	})
+
+	It("caps the extension at the maximum run length and says the slowest component may not run twice (#424)", func() {
+		run := createAndGet(scrapeRunGraph("5m", 30))
+		Expect(run["effectiveDurationSeconds"]).To(BeEquivalentTo(120))
+		Expect(run["durationNote"]).To(ContainSubstring("the maximum run length"))
+		Expect(run["durationNote"]).To(ContainSubstring("may not run twice"))
+	})
+
+	It("leaves a run that already covers the intervals as requested, with no note (#424)", func() {
+		run := createAndGet(scrapeRunGraph("10s", 30))
+		Expect(run["effectiveDurationSeconds"]).To(BeEquivalentTo(30))
+		Expect(run).NotTo(HaveKey("durationNote"))
+	})
+
 	It("denies CreateRun and GetRun for a session without org admin access", func() {
 		resp := createRun(viewerCookie, minimalRunGraph(orgID))
 		defer resp.Body.Close() //nolint:errcheck // test cleanup

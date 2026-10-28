@@ -783,6 +783,8 @@ type CreateRunRequest struct {
 	OrgId string                 `protobuf:"bytes,1,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
 	Graph *GraphDocument         `protobuf:"bytes,2,opt,name=graph,proto3" json:"graph,omitempty"`
 	// duration_seconds: 0 selects the server default (30s), clamped to [1,120].
+	// The server may run longer to cover the pipeline's scrape or poll
+	// intervals (SimulateRun.effective_duration_seconds).
 	DurationSeconds int32 `protobuf:"varint,3,opt,name=duration_seconds,json=durationSeconds,proto3" json:"duration_seconds,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
@@ -1243,7 +1245,16 @@ type SimulateRun struct {
 	ErrorCode        string                  `protobuf:"bytes,15,opt,name=error_code,json=errorCode,proto3" json:"error_code,omitempty"`
 	ErrorMessage     string                  `protobuf:"bytes,16,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
 	// fidelity_note is the fixed §6.5 tier-S3 one-liner; always populated.
-	FidelityNote  string `protobuf:"bytes,17,opt,name=fidelity_note,json=fidelityNote,proto3" json:"fidelity_note,omitempty"`
+	FidelityNote string `protobuf:"bytes,17,opt,name=fidelity_note,json=fidelityNote,proto3" json:"fidelity_note,omitempty"`
+	// effective_duration_seconds is how long the run captures: the requested
+	// duration, extended to two of the longest scrape or poll intervals in the
+	// pipeline and capped at the maximum run length (#424). Never less than
+	// requested_duration_seconds.
+	EffectiveDurationSeconds int32 `protobuf:"varint,18,opt,name=effective_duration_seconds,json=effectiveDurationSeconds,proto3" json:"effective_duration_seconds,omitempty"`
+	// duration_note says why effective_duration_seconds differs from the
+	// request, or that the slowest component may not run twice within the
+	// maximum run length; empty otherwise.
+	DurationNote  string `protobuf:"bytes,19,opt,name=duration_note,json=durationNote,proto3" json:"duration_note,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1397,6 +1408,20 @@ func (x *SimulateRun) GetFidelityNote() string {
 	return ""
 }
 
+func (x *SimulateRun) GetEffectiveDurationSeconds() int32 {
+	if x != nil {
+		return x.EffectiveDurationSeconds
+	}
+	return 0
+}
+
+func (x *SimulateRun) GetDurationNote() string {
+	if x != nil {
+		return x.DurationNote
+	}
+	return ""
+}
+
 var File_shepherd_mgmt_v1_simulate_proto protoreflect.FileDescriptor
 
 const file_shepherd_mgmt_v1_simulate_proto_rawDesc = "" +
@@ -1530,7 +1555,7 @@ const file_shepherd_mgmt_v1_simulate_proto_rawDesc = "" +
 	"node_label\x18\x02 \x01(\tR\tnodeLabel\x12\x1c\n" +
 	"\tcomponent\x18\x03 \x01(\tR\tcomponent\x12!\n" +
 	"\fhealth_state\x18\x04 \x01(\tR\vhealthState\x12\x18\n" +
-	"\amessage\x18\x05 \x01(\tR\amessage\"\xea\x06\n" +
+	"\amessage\x18\x05 \x01(\tR\amessage\"\xcd\a\n" +
 	"\vSimulateRun\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x15\n" +
 	"\x06org_id\x18\x02 \x01(\tR\x05orgId\x12\x16\n" +
@@ -1554,7 +1579,9 @@ const file_shepherd_mgmt_v1_simulate_proto_rawDesc = "" +
 	"\n" +
 	"error_code\x18\x0f \x01(\tR\terrorCode\x12#\n" +
 	"\rerror_message\x18\x10 \x01(\tR\ferrorMessage\x12#\n" +
-	"\rfidelity_note\x18\x11 \x01(\tR\ffidelityNote2\x80\x03\n" +
+	"\rfidelity_note\x18\x11 \x01(\tR\ffidelityNote\x12<\n" +
+	"\x1aeffective_duration_seconds\x18\x12 \x01(\x05R\x18effectiveDurationSeconds\x12#\n" +
+	"\rduration_note\x18\x13 \x01(\tR\fdurationNote2\x80\x03\n" +
 	"\x0fSimulateService\x12h\n" +
 	"\x0fSimulateRelabel\x12(.shepherd.mgmt.v1.SimulateRelabelRequest\x1a).shepherd.mgmt.v1.SimulateRelabelResponse\"\x00\x12_\n" +
 	"\fSimulateLogs\x12%.shepherd.mgmt.v1.SimulateLogsRequest\x1a&.shepherd.mgmt.v1.SimulateLogsResponse\"\x00\x12V\n" +

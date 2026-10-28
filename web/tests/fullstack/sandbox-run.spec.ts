@@ -33,7 +33,7 @@ test.describe('sandbox-run', () => {
   );
 
   test('sandbox run on the demo-visual pipeline shows healthy components', async ({ page }) => {
-    test.setTimeout(150_000);
+    test.setTimeout(180_000);
     await loginAsAdmin(page);
 
     const me = await getMe(page);
@@ -64,9 +64,13 @@ test.describe('sandbox-run', () => {
     await page.getByTestId('simulate-menu-sandbox-run').click();
 
     await expect(page.getByTestId('sandbox-run-dialog')).toBeVisible();
-    // The run genuinely takes ~30s (SandboxRunPanel's REQUESTED_DURATION_SECONDS)
-    // plus queue/transform/collect time — no shortcut here, this is the real harness.
-    await expect(page.getByTestId('sandbox-run-results')).toBeVisible({ timeout: 90000 });
+    // The menu asks for 30s, but demo-visual scrapes every 30s, so the server
+    // extends the run to 60s to cover two scrapes (#424), plus
+    // queue/transform/collect time — no shortcut here, this is the real harness.
+    await expect(page.getByTestId('sandbox-run-results')).toBeVisible({ timeout: 120_000 });
+    await expect(page.getByTestId('sandbox-run-window-note')).toHaveText(
+      'Extended to 60s so the 30s scrape interval of prometheus.scrape "demo" runs twice.',
+    );
     await expect(page.getByTestId('sandbox-run-status-error')).toHaveCount(0);
 
     await page.getByTestId('sim-results-tab-health').click();

@@ -34,6 +34,7 @@ type fakeSimulator struct {
 	mu          sync.Mutex
 	runs        map[string]string // run id -> state
 	results     map[string]*simulate.ClientResults
+	durations   []int // duration_seconds of every start, in arrival order
 	current     int32
 	maxSeen     int32
 	release     chan struct{}
@@ -83,6 +84,7 @@ func (f *fakeSimulator) handler() http.Handler {
 			})
 		}
 		f.mu.Lock()
+		f.durations = append(f.durations, req.DurationSeconds)
 		f.runs[id] = "completed"
 		f.results[id] = results
 		f.mu.Unlock()
@@ -182,6 +184,24 @@ var _ = Describe("RunWorker", Label("integration"), func() {
 			RunTTL: 10 * time.Second, RetentionTTL: time.Hour,
 		}
 	}
+
+	It("sends the simulator the run's effective duration, not the requested one (#424)", func() {
+		graphJSON, err := json.Marshal(singleNodeGraph("prometheus.relabel"))
+		Expect(err).NotTo(HaveOccurred())
+		_, err = st.Queries.CreateSimulateRun(ctx, sqlc.CreateSimulateRunParams{
+			OrgID: orgID, Graph: graphJSON, RequestedDurationSeconds: 15, CreatedBy: "worker-test",
+			EffectiveDurationSeconds: 120, DurationNote: "Extended to 2m so the test runs twice.",
+		})
+		Expect(err).NotTo(HaveOccurred())
+		fakeSim.unblock()
+
+		worker.New(st, reg, v, workerCfg(), slog.Default()).Start(ctx)
+		Eventually(func() []int {
+			fakeSim.mu.Lock()
+			defer fakeSim.mu.Unlock()
+			return append([]int(nil), fakeSim.durations...)
+		}, 5*time.Second, 50*time.Millisecond).Should(Equal([]int{120}))
+	})
 
 	It("never lets two RunWorker instances run the sandbox concurrently, even with MaxConcurrentRuns=1 each sharing one DB", func() {
 		for i := 0; i < 3; i++ {

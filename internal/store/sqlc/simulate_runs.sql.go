@@ -22,7 +22,7 @@ WHERE id = (
     LIMIT 1
     FOR UPDATE SKIP LOCKED
 )
-RETURNING id, org_id, status, graph, requested_duration_seconds, created_by, created_at, started_at, finished_at, rewrites, captured_series, captured_log_lines, component_health, gate_diagnostics, stderr_tail, error_code, error_message
+RETURNING id, org_id, status, graph, requested_duration_seconds, created_by, created_at, started_at, finished_at, rewrites, captured_series, captured_log_lines, component_health, gate_diagnostics, stderr_tail, error_code, error_message, effective_duration_seconds, duration_note
 `
 
 // Claims the single oldest queued run for the caller's connection. Callers
@@ -50,6 +50,8 @@ func (q *Queries) ClaimQueuedSimulateRun(ctx context.Context) (SimulateRun, erro
 		&i.StderrTail,
 		&i.ErrorCode,
 		&i.ErrorMessage,
+		&i.EffectiveDurationSeconds,
+		&i.DurationNote,
 	)
 	return i, err
 }
@@ -67,7 +69,7 @@ SET status              = $2,
     error_code          = $9,
     error_message       = $10
 WHERE id = $1
-RETURNING id, org_id, status, graph, requested_duration_seconds, created_by, created_at, started_at, finished_at, rewrites, captured_series, captured_log_lines, component_health, gate_diagnostics, stderr_tail, error_code, error_message
+RETURNING id, org_id, status, graph, requested_duration_seconds, created_by, created_at, started_at, finished_at, rewrites, captured_series, captured_log_lines, component_health, gate_diagnostics, stderr_tail, error_code, error_message, effective_duration_seconds, duration_note
 `
 
 type CompleteSimulateRunParams struct {
@@ -115,6 +117,8 @@ func (q *Queries) CompleteSimulateRun(ctx context.Context, arg CompleteSimulateR
 		&i.StderrTail,
 		&i.ErrorCode,
 		&i.ErrorMessage,
+		&i.EffectiveDurationSeconds,
+		&i.DurationNote,
 	)
 	return i, err
 }
@@ -148,9 +152,13 @@ func (q *Queries) CountQueuedSimulateRunsBefore(ctx context.Context, id pgtype.U
 }
 
 const createSimulateRun = `-- name: CreateSimulateRun :one
-INSERT INTO simulate_runs (org_id, graph, requested_duration_seconds, created_by)
-VALUES ($1, $2, $3, $4)
-RETURNING id, org_id, status, graph, requested_duration_seconds, created_by, created_at, started_at, finished_at, rewrites, captured_series, captured_log_lines, component_health, gate_diagnostics, stderr_tail, error_code, error_message
+INSERT INTO simulate_runs (org_id, graph, requested_duration_seconds, created_by, effective_duration_seconds, duration_note)
+VALUES (
+    $1, $2, $3, $4,
+    GREATEST($5::int, $3),
+    $6
+)
+RETURNING id, org_id, status, graph, requested_duration_seconds, created_by, created_at, started_at, finished_at, rewrites, captured_series, captured_log_lines, component_health, gate_diagnostics, stderr_tail, error_code, error_message, effective_duration_seconds, duration_note
 `
 
 type CreateSimulateRunParams struct {
@@ -158,14 +166,20 @@ type CreateSimulateRunParams struct {
 	Graph                    json.RawMessage `json:"graph"`
 	RequestedDurationSeconds int32           `json:"requested_duration_seconds"`
 	CreatedBy                string          `json:"created_by"`
+	EffectiveDurationSeconds int32           `json:"effective_duration_seconds"`
+	DurationNote             string          `json:"duration_note"`
 }
 
+// effective_duration_seconds is never below what was requested (#424): an
+// unset (0) or shorter effective duration stores the requested one.
 func (q *Queries) CreateSimulateRun(ctx context.Context, arg CreateSimulateRunParams) (SimulateRun, error) {
 	row := q.db.QueryRow(ctx, createSimulateRun,
 		arg.OrgID,
 		arg.Graph,
 		arg.RequestedDurationSeconds,
 		arg.CreatedBy,
+		arg.EffectiveDurationSeconds,
+		arg.DurationNote,
 	)
 	var i SimulateRun
 	err := row.Scan(
@@ -186,6 +200,8 @@ func (q *Queries) CreateSimulateRun(ctx context.Context, arg CreateSimulateRunPa
 		&i.StderrTail,
 		&i.ErrorCode,
 		&i.ErrorMessage,
+		&i.EffectiveDurationSeconds,
+		&i.DurationNote,
 	)
 	return i, err
 }
@@ -239,7 +255,7 @@ func (q *Queries) ExpireStaleSimulateRuns(ctx context.Context, ttlSeconds int32)
 }
 
 const getSimulateRunByID = `-- name: GetSimulateRunByID :one
-SELECT id, org_id, status, graph, requested_duration_seconds, created_by, created_at, started_at, finished_at, rewrites, captured_series, captured_log_lines, component_health, gate_diagnostics, stderr_tail, error_code, error_message FROM simulate_runs WHERE id = $1
+SELECT id, org_id, status, graph, requested_duration_seconds, created_by, created_at, started_at, finished_at, rewrites, captured_series, captured_log_lines, component_health, gate_diagnostics, stderr_tail, error_code, error_message, effective_duration_seconds, duration_note FROM simulate_runs WHERE id = $1
 `
 
 // No org_id filter, matching GetPipelineByID: the caller (loadRun in
@@ -266,6 +282,8 @@ func (q *Queries) GetSimulateRunByID(ctx context.Context, id pgtype.UUID) (Simul
 		&i.StderrTail,
 		&i.ErrorCode,
 		&i.ErrorMessage,
+		&i.EffectiveDurationSeconds,
+		&i.DurationNote,
 	)
 	return i, err
 }

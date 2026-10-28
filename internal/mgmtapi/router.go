@@ -209,7 +209,7 @@ func MountRPC(r chi.Router, st *store.Store, cfg *config.Config, enc *crypto.Enc
 			return mgmtv1connect.NewVisualServiceHandler(NewVisualService(st, v, schemaReg, logger, WithVisualRequireOwnedTenants(requireOwned), WithVisualPinnedImports(imports)), authz...)
 		},
 		func() (string, http.Handler) {
-			return mgmtv1connect.NewSimulateServiceHandler(NewSimulateService(st, cfg.Simulator, logger), authz...)
+			return mgmtv1connect.NewSimulateServiceHandler(NewSimulateService(st, cfg.Simulator, schemaReg, logger), authz...)
 		},
 		func() (string, http.Handler) {
 			return mgmtv1connect.NewAuditServiceHandler(NewAuditService(st, logger), authz...)

@@ -443,6 +443,13 @@ export interface SimulateRunResult {
   started_at?: string;
   finished_at?: string;
   requested_duration_seconds: number;
+  /** How long the run captures: the request, extended to cover two of the
+   * pipeline's longest scrape or poll intervals and capped at the maximum
+   * run length (#424). */
+  effective_duration_seconds: number;
+  /** Why the run is longer than requested, or that the slowest component may
+   * not run twice; empty otherwise. */
+  duration_note: string;
   queue_position: number;
   rewrites: SimRewrite[];
   captured_series: CapturedSeriesItem[];
@@ -485,6 +492,8 @@ export async function getSandboxRun(orgId: string, id: string): Promise<Simulate
     started_at: tsToIso(res.startedAt),
     finished_at: tsToIso(res.finishedAt),
     requested_duration_seconds: res.requestedDurationSeconds,
+    effective_duration_seconds: res.effectiveDurationSeconds,
+    duration_note: res.durationNote,
     queue_position: res.queuePosition,
     rewrites: res.rewrites.map((r) => ({
       node_id: r.nodeId,
