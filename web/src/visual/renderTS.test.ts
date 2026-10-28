@@ -65,6 +65,7 @@ const labelEdgecasesGraph = readGraph('label-edgecases');
 const otelThreeSignalsGraph = readGraph('otel-three-signals');
 const kitchenSinkGraph = readGraph('kitchen-sink');
 const diagnosticsMixedGraph = readGraph('diagnostics-mixed');
+const bindingsNestedGraph = readGraph('bindings-nested');
 
 const minimalScrapeGolden = readGolden('minimal-scrape');
 const fanInFanOutGolden = readGolden('fanin-fanout');
@@ -76,6 +77,7 @@ const labelEdgecasesGolden = readGolden('label-edgecases');
 const otelThreeSignalsGolden = readGolden('otel-three-signals');
 const kitchenSinkGolden = readGolden('kitchen-sink');
 const diagnosticsMixedGolden = readGolden('diagnostics-mixed');
+const bindingsNestedGolden = readGolden('bindings-nested');
 
 // Seeded shuffle for deterministic permutation tests (matches Go test seed 42)
 function seededShuffle<T>(arr: T[], seed: number): T[] {
@@ -158,6 +160,14 @@ const corpus: Array<{
     graph: diagnosticsMixedGraph,
     golden: diagnosticsMixedGolden,
     diagnostics: readDiagnostics('diagnostics-mixed'),
+  },
+  {
+    // #426: doc.bindings[] entries at nested paths — a repeated block's
+    // index, deeper nesting, a dotted block name (`stage.tenant`).
+    name: 'bindings-nested',
+    graph: bindingsNestedGraph,
+    golden: bindingsNestedGolden,
+    diagnostics: readDiagnostics('bindings-nested'),
   },
 ];
 

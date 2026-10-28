@@ -1,24 +1,25 @@
 /**
  * bindings.ts — W5-01: the authored-binding model.
  *
- * A binding created through the UI (the SecretField picker, W5-02) is stored
- * as `{"$expr": expr}` in `props`, AT THE PROP'S OWN INSTANCE PATH — top-level
- * or nested inside a repeatable block instance, any depth. Both renderers
- * (render.go, renderTS.ts) already emit a props value shaped this way
- * verbatim, at any depth — the `bindings-secret` corpus fixture's n4
- * (`endpoint[0].basic_auth.password`) proves it — so writing it into `props`
- * is enough to make it render; no other plumbing is needed.
+ * A binding has two channels, and both render at the prop's own place, any
+ * depth:
  *
- * `GraphBinding` / `doc.bindings[]` is a SEPARATE, pre-existing channel and is
- * deliberately left untouched by `setBinding`/`removeBinding`: it is the
- * import channel for a flat, TOP-LEVEL prop binding (see l1.ts's `bound()` and
- * renderTS.ts's `doc.bindings.filter(b => b.node === id)`, which emits
- * `${binding.prop} = ${expr}` verbatim with no path parsing — correct only
- * for an un-nested prop name). Pushing a nested path into it would emit
- * invalid Alloy (`endpoint.0.basic_auth.password = ...` as a top-level
- * statement) on both renderers; that nested `bindings[]` entries are
- * unrenderable is a known, accepted gap (see the workstream's RISKS list),
- * not something this module works around.
+ * - `doc.bindings[]` (`GraphBinding`): what the inspector's picker writes now
+ *   (`store.ts`'s `setBinding` with the source's `ref`). Its `prop` is a top-
+ *   level attribute name or, since #426, a nested binding path —
+ *   `endpoint[0].basic_auth.password`, `client.tls.ca_pem`,
+ *   `stage.tenant[0].value` (`bindingPath.ts`). The entry records the source
+ *   node, so L1 can report it dangling when the source goes.
+ * - `{"$expr": expr}` written into `props` at the prop's instance path —
+ *   W5-01's original channel, still written by `setBinding` without a `ref`,
+ *   and the shape the read-only parse produces for every expression. The
+ *   `bindings-secret` corpus fixture's n4 (`endpoint[0].basic_auth.password`)
+ *   pins it.
+ *
+ * Both renderers place a nested `doc.bindings[]` entry exactly where the same
+ * `$expr` in props would go (`overlayBindings`), so the two are
+ * interchangeable on output; a top-level entry keeps its historic place after
+ * the node's body.
  */
 import type { ComponentDef, GraphDocument, GraphNode, SchemaPayload } from './types';
 

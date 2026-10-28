@@ -91,6 +91,43 @@ var _ = Describe("shepherd.mgmt.v1.VisualService", Label("integration"), func() 
 		Expect(result["content"]).To(ContainSubstring(`prometheus.exporter.unix "unix"`))
 	})
 
+	// #426: a nested-path binding crosses the wire in GraphBinding.prop as is
+	// (no proto field), and the server renders it inside its block.
+	It("renders a doc.bindings[] entry at a nested path inside its block", func() {
+		graph := map[string]any{
+			"kind":           "alloy-graph/v1",
+			"schema_version": version.AlloySchemaVersion,
+			"nodes": []map[string]any{
+				{
+					"id": "s1", "component": "remote.kubernetes.secret", "label": "creds",
+					"position": map[string]any{"x": 0, "y": 0},
+					"props":    map[string]any{"namespace": "mon", "name": "creds"},
+				},
+				{
+					"id": "w1", "component": "prometheus.remote_write", "label": "sink",
+					"position": map[string]any{"x": 0, "y": 0},
+					"props": map[string]any{"endpoint": []any{
+						map[string]any{"url": "https://a/api/v1/write"},
+						map[string]any{"url": "https://b/api/v1/write"},
+					}},
+				},
+			},
+			"edges": []any{},
+			"bindings": []any{map[string]any{
+				"node": "w1", "prop": "endpoint[1].basic_auth.password",
+				"ref": map[string]any{"node": "s1", "export": "data", "expr": `remote.kubernetes.secret.creds.data["password"]`},
+			}},
+		}
+		resp := postConnectJSON(server, "/shepherd.mgmt.v1.VisualService/Render", adminCookie, map[string]any{"org_id": orgID, "graph": graph})
+		defer resp.Body.Close() //nolint:errcheck // test cleanup
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+		var result map[string]any
+		Expect(json.NewDecoder(resp.Body).Decode(&result)).To(Succeed())
+		Expect(result["content"]).To(ContainSubstring("  endpoint {\n    url = \"https://b/api/v1/write\"\n    basic_auth {\n" +
+			"      password = remote.kubernetes.secret.creds.data[\"password\"]\n    }\n  }\n"))
+		Expect(result["content"]).NotTo(ContainSubstring("endpoint[1]"))
+	})
+
 	// #391: a graph under capGraph's 1 MiB whose text is several MiB — every
 	// one of 100 scrapes forwards to every one of 100 remote_writes, each
 	// remote_write label near the label cap. Render and Validate refuse it
@@ -349,7 +386,8 @@ prometheus.remote_write "sink" {
 		Expect(result.Graph.Bindings).To(HaveLen(1))
 		b := result.Graph.Bindings[0]
 		Expect(b.Node).To(Equal(ids["prometheus.remote_write"]))
-		Expect(b.Prop).To(Equal("endpoint.basic_auth.password"))
+		// The canonical binding path: endpoint is repeatable (#426).
+		Expect(b.Prop).To(Equal("endpoint[0].basic_auth.password"))
 		Expect(b.Ref.Node).To(Equal(ids["remote.kubernetes.secret"]))
 		Expect(b.Ref.Export).To(Equal("data"))
 		Expect(b.Ref.Expr).To(Equal(`remote.kubernetes.secret.creds.data["password"]`))

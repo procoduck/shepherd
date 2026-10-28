@@ -11,6 +11,54 @@ Categories used here:
 - **RPC only** — the API exists and is callable; there is no UI.
 - **Built, not wired** — the code and tests exist, nothing calls them in production yet.
 
+## Unreleased
+
+### Added
+
+- **The visual builder's canvas works from the keyboard (#426).** Shipped. Tab into the canvas and
+  the arrow keys move to the nearest node in that direction (Home/End: first/last, left to right);
+  Space selects the focused node, I opens it in the Properties panel, Shift+arrows move it 8px,
+  Delete removes it with its wires. Enter goes into the node's ports: the arrows move between
+  them, Enter on a port starts a wire, and the arrows then visit only the ports it can connect to
+  (an incompatible, duplicate or cycle-closing target is skipped); Enter connects, Escape
+  cancels. Delete on a port removes its wires, and a focused wire (wires are Tab stops) deletes
+  with Delete. Every keyboard edit is the same single undo step as the mouse edit, and a viewer
+  stays read-only. `?` or the canvas's keyboard button opens the shortcut sheet. Nodes, ports and
+  wires carry screen-reader names (`prometheus.scrape "app", 1 input, 1 output`; `forward_to,
+  output, prom.metrics, 1 wire`; `Wire from prometheus.scrape "app" forward_to to
+  prometheus.remote_write "sink" receiver`), and every keyboard action is announced in a polite
+  live region. Keyboard focus draws a ring in a new `--color-focus` token (3:1 on every canvas
+  surface in both themes, held by `theme.test.ts`).
+- **Bindings into nested blocks (#426).** Shipped. A `doc.bindings[]` entry's `prop` may now be a
+  path into the component's nested blocks — `endpoint[0].basic_auth.password`,
+  `client.tls.ca_pem`, `stage.tenant[0].value` (an index picks a repeated block's instance) — and
+  both renderers write the expression inside that block. The inspector's binding picker writes
+  these entries at the field's path, shows them on the field (and, for a non-secret attribute, in
+  place of its input), and lists every binding a node holds in a new Bindings section with Unbind.
+  The read-only graph view reports references at the same canonical path. Additive: a prop with
+  no `.` and no `[` keeps its old meaning and byte-identical rendering (the corpus goldens pin
+  it), and no proto field was added — the path travels in `GraphBinding.prop`. The sandbox
+  transform substitutes or drops a nested binding to a removed secret source in place.
+
+### Changed
+
+- **Builder contrast (#426, axe).** The dark `--color-muted-2` caption tone moved from `#71717a`
+  (3.98:1 on the panel) to `#8b8b94` (AA on background, panel and card); the palette's
+  "Compatible with" chip uses a new AA `--color-accent-text` token; the toolbar validity chip and
+  the Problems tab use the `ok`/`danger` status tones; the binding picker's source select and key
+  input are labelled; the palette's "Show all components" button meets the 24px target size.
+
+### Tests
+
+- **An axe scan of the visual builder in the mocked UI suite** (`visual-a11y-axe.spec.ts`,
+  `@axe-core/playwright` 4.13.0, a new devDependency): an eight-node graph with fan-in, a disabled
+  node, a config node and a nested binding, in both themes, at rest, with a node selected and with
+  a port focused, plus the shortcut sheet. It fails on any serious or critical violation and
+  disables no rule. Keyboard specs (`visual-keyboard.spec.ts`) cover node navigation, creating,
+  cancelling and deleting a wire, moving and deleting a node, the focus ring and the shortcut
+  sheet. A `bindings-nested` corpus entry, validated by the real pinned `alloy validate`, and
+  render/parse round-trip specs pin nested bindings on both renderers.
+
 ## v0.21.0-rc.1 (prerelease)
 
 Chart 0.25.0-rc.1, a **release candidate** for v0.21.0. It is published as a GitHub prerelease:

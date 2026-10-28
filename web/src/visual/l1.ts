@@ -1,3 +1,4 @@
+import { overlayBindings } from './bindingPath';
 import { portHandleId } from './schemaAdapter';
 import type { GraphDocument, GraphNode, L1Diagnostic, SchemaPayload } from './types';
 
@@ -407,7 +408,16 @@ export function validateGraph(
     const def = compDef(node.component);
     const index = indexOf(def);
     if (!def || !index) continue;
-    const props = node.props ?? {};
+    // A nested-path binding (#426) counts as the value it renders as: the
+    // same {"$expr": ...} at its place in props (bindingPath.ts), so a bound
+    // `client.endpoint` satisfies the required attribute, and a block the
+    // binding creates is not "missing". An unplaceable one is renderTS's
+    // binding_path_invalid, not repeated here.
+    const props = overlayBindings(
+      def,
+      node.props ?? {},
+      doc.bindings.filter((b) => b.node === node.id),
+    ).props;
     /** Ports already covered by an error, so the node-level warnings below do
      *  not repeat them. Keyed by role as well as id: a component may reuse one
      *  name on both sides (`database_observability.*` accepts and re-exports
@@ -578,11 +588,10 @@ export function validateGraph(
       });
   }
 
-  // --- Bindings (W5-01): a `doc.bindings[]` entry (the top-level import
-  // channel — see types.ts's GraphBinding doc; the canvas's own binding
-  // picker never writes here) whose source node was since deleted or renamed
-  // can no longer resolve. A binding owned by a disabled node is skipped: it
-  // is not emitted either, the same rule labels/edges/attrs already follow.
+  // --- Bindings (W5-01, #426): a `doc.bindings[]` entry — top-level or at a
+  // nested path, what the inspector's picker writes — whose source node was
+  // since deleted can no longer resolve. A binding owned by a disabled node is
+  // skipped: it is not emitted either, the same rule labels/edges/attrs follow.
   for (const b of doc.bindings) {
     const owner = nodeById.get(b.node);
     if (!owner || !activeIds.has(b.node)) continue;

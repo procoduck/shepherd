@@ -90,7 +90,7 @@ export function CollapsiblePanel({
       data-collapsed='false'
     >
       <div className='h-8 px-2 flex items-center justify-between border-b border-border shrink-0'>
-        <span className='text-[10px] font-semibold uppercase tracking-wider text-muted-2'>
+        <span className='text-[10px] font-semibold uppercase tracking-wider text-muted'>
           {title}
         </span>
         <button

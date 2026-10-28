@@ -78,6 +78,8 @@ var _ = Describe("ParseAlloy on a chart-generated pipeline (graph view)", func()
 		Expect(raw).To(ContainSubstring(`forward_to = argument.logs_destinations.value`))
 	})
 
+	// Each prop is the canonical binding path (bindingpath.go): endpoint is a
+	// repeatable block, so its instance index is spelled out (#426).
 	It("reports secret references inside calls and index expressions as bindings, not edges", func() {
 		Expect(result.Bindings).To(HaveLen(4))
 		type b struct{ consumer, prop, source, export, expr string }
@@ -90,19 +92,19 @@ var _ = Describe("ParseAlloy on a chart-generated pipeline (graph view)", func()
 		}
 		Expect(got).To(ConsistOf(
 			b{
-				"loki.write.loki", "endpoint.basic_auth.username", "remote.kubernetes.secret.loki", "data",
+				"loki.write.loki", "endpoint[0].basic_auth.username", "remote.kubernetes.secret.loki", "data",
 				`convert.nonsensitive(remote.kubernetes.secret.loki.data["username"])`,
 			},
 			b{
-				"loki.write.loki", "endpoint.basic_auth.password", "remote.kubernetes.secret.loki", "data",
+				"loki.write.loki", "endpoint[0].basic_auth.password", "remote.kubernetes.secret.loki", "data",
 				`remote.kubernetes.secret.loki.data["password"]`,
 			},
 			b{
-				"prometheus.remote_write.prometheus", "endpoint.basic_auth.username", "remote.kubernetes.secret.prometheus", "data",
+				"prometheus.remote_write.prometheus", "endpoint[0].basic_auth.username", "remote.kubernetes.secret.prometheus", "data",
 				`convert.nonsensitive(remote.kubernetes.secret.prometheus.data["username"])`,
 			},
 			b{
-				"prometheus.remote_write.prometheus", "endpoint.basic_auth.password", "remote.kubernetes.secret.prometheus", "data",
+				"prometheus.remote_write.prometheus", "endpoint[0].basic_auth.password", "remote.kubernetes.secret.prometheus", "data",
 				`remote.kubernetes.secret.prometheus.data["password"]`,
 			},
 		))

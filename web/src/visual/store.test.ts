@@ -656,6 +656,76 @@ describe('setBinding / removeBinding (W5-01)', () => {
 
     expect(store.getState().doc.nodes[0].props).toEqual({ endpoint: [{ url: 'http://x' }] });
   });
+
+  // #426: with the source node named, the binding goes into doc.bindings[]
+  // at its canonical nested path, replacing whatever props held there.
+  it('writes a doc.bindings[] entry at the canonical nested path when given the source', () => {
+    const store = useVisualStore;
+    store.getState().addNode('test.sink', { x: 0, y: 0 });
+    const id = store.getState().doc.nodes[0].id;
+    store.getState().updateNode(id, {
+      props: { endpoint: [{}, { password: 'a literal secret' }] },
+    });
+    const before = store.temporal.getState().pastStates.length;
+    store.getState().setBinding(id, ['endpoint', '1', 'password'], 'local.file.creds.content', {
+      node: 'src',
+      export: 'content',
+    });
+    const { doc, diagnostics } = store.getState();
+    expect(doc.bindings).toEqual([
+      {
+        node: id,
+        prop: 'endpoint[1].password',
+        ref: { node: 'src', export: 'content', expr: 'local.file.creds.content' },
+      },
+    ]);
+    expect(doc.nodes[0].props).toEqual({ endpoint: [{}, {}] });
+    expect(diagnostics.map((d) => d.code)).not.toContain('secret_by_value');
+    expect(store.temporal.getState().pastStates.length).toBe(before + 1);
+
+    // Rebinding the same path replaces the entry rather than adding one.
+    store.getState().setBinding(id, ['endpoint', '1', 'password'], 'local.file.other.content', {
+      node: 'src2',
+      export: 'content',
+    });
+    expect(store.getState().doc.bindings.map((b) => b.ref.expr)).toEqual([
+      'local.file.other.content',
+    ]);
+
+    store.getState().removeBinding(id, ['endpoint', '1', 'password']);
+    expect(store.getState().doc.bindings).toEqual([]);
+  });
+
+  it('removeBinding also clears a doc.bindings[] entry written without the index', () => {
+    const store = useVisualStore;
+    store.getState().addNode('test.sink', { x: 0, y: 0 });
+    const id = store.getState().doc.nodes[0].id;
+    useVisualStore.setState((s) => ({
+      doc: {
+        ...s.doc,
+        bindings: [
+          {
+            node: id,
+            prop: 'endpoint.password',
+            ref: { node: 'x', export: 'content', expr: 'a.b' },
+          },
+        ],
+      },
+    }));
+    store.getState().removeBinding(id, ['endpoint', '0', 'password']);
+    expect(store.getState().doc.bindings).toEqual([]);
+  });
+
+  it("removeNode drops the removed node's own bindings", () => {
+    const store = useVisualStore;
+    store.getState().addNode('test.sink', { x: 0, y: 0 });
+    const id = store.getState().doc.nodes[0].id;
+    store
+      .getState()
+      .setBinding(id, ['endpoint', '0', 'password'], 'a.b', { node: 'x', export: 'content' });
+    store.getState().removeNode(id);
+    expect(store.getState().doc.bindings).toEqual([]);
+  });
 });
 
 describe('selectSelectedNode (W5-10 narrow selector)', () => {

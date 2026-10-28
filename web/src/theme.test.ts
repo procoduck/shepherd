@@ -43,9 +43,12 @@ const EXPECTED_TOKENS_DARK: Record<string, string> = {
   '--color-border': '#27272a',
   '--color-border-strong': '#3f3f46',
   '--color-muted': '#a1a1aa',
-  '--color-muted-2': '#71717a',
+  '--color-muted-2': '#8b8b94',
   '--color-muted-3': '#52525b',
   '--color-accent': '#6366f1',
+  // #426 canvas keyboard focus ring (see FOCUS_SURFACES below).
+  '--color-focus': '#818cf8',
+  '--color-accent-text': '#818cf8',
   // #253 status tones (see STATUS_PAIRS below for the contrast check).
   '--color-ok': '#6ee7b7',
   '--color-ok-surface': '#052e22',
@@ -78,6 +81,8 @@ const EXPECTED_TOKENS_LIGHT: Record<string, string> = {
   '--color-muted-2': '#52525b',
   '--color-muted-3': '#71717a',
   '--color-accent': '#4f46e5',
+  '--color-focus': '#4338ca',
+  '--color-accent-text': '#4338ca',
   '--color-ok': '#065f46',
   '--color-ok-surface': '#ecfdf5',
   '--color-warn': '#92400e',
@@ -457,4 +462,42 @@ describe('theme resolution helpers (src/theme.ts)', () => {
     expect(classList.contains('dark')).toBe(false);
     expect(currentTheme()).toBe('light');
   });
+});
+
+// #426: the canvas focus ring is a non-text indicator — WCAG 1.4.11 asks 3:1
+// against every surface it can sit on (the canvas background, the panels, and
+// a node's card), in both themes.
+const FOCUS_SURFACES = ['--color-background', '--color-panel', '--color-card'];
+
+describe.each([
+  ['dark', EXPECTED_TOKENS_DARK],
+  ['light', EXPECTED_TOKENS_LIGHT],
+] as const)('the canvas focus ring meets WCAG 1.4.11 (%s)', (_theme, tokens) => {
+  const t = { ...EXPECTED_TOKENS_DARK, ...tokens };
+  it.each(FOCUS_SURFACES)('--color-focus on %s is >= 3:1', (surface) => {
+    expect(contrastRatio(t['--color-focus'], t[surface])).toBeGreaterThanOrEqual(3);
+  });
+  it('index.css draws the canvas focus rings in --color-focus', () => {
+    const css = readCss();
+    for (const sel of ['.react-flow__node:focus-visible', '.react-flow__handle:focus-visible'])
+      expect(extractBlockAfter(css, sel, sel)).toMatch(/var\(--color-focus\)/);
+  });
+});
+
+// #426 (axe color-contrast over the visual builder): the text tokens the
+// builder's captions and accent text use must clear AA (4.5:1) on every
+// surface, in both themes — dark --color-muted-2 used to give 3.98:1 on the
+// panel.
+describe.each([
+  ['dark', EXPECTED_TOKENS_DARK],
+  ['light', EXPECTED_TOKENS_LIGHT],
+] as const)('caption and accent text tokens meet WCAG AA (%s)', (_theme, tokens) => {
+  const t = { ...EXPECTED_TOKENS_DARK, ...tokens };
+  it.each(['--color-muted', '--color-muted-2', '--color-accent-text'])(
+    '%s on background, panel and card is >= 4.5:1',
+    (fg) => {
+      for (const surface of FOCUS_SURFACES)
+        expect(contrastRatio(t[fg], t[surface]), `${fg} on ${surface}`).toBeGreaterThanOrEqual(4.5);
+    },
+  );
 });

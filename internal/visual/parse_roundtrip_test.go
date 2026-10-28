@@ -62,6 +62,7 @@ func roundTripShapes() map[string]visual.GraphDocument {
 var roundTripCorpus = []string{
 	"minimal-scrape", "fanin-fanout", "nested-blocks", "bindings-secret",
 	"logs-chain", "label-edgecases", "otel-three-signals", "diagnostics-mixed",
+	"bindings-nested",
 }
 
 type roundTripCase struct {

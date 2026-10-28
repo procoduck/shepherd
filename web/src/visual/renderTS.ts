@@ -1,3 +1,4 @@
+import { overlayBindings } from './bindingPath';
 import type { GraphDocument, GraphEdge, GraphNode, SchemaPayload } from './types';
 
 /**
@@ -859,7 +860,12 @@ export function renderTS(doc: GraphDocument, schema: SchemaPayload): RenderTSRes
     lw.write('\n');
     const startLine = lw.currentLine();
     lw.write(`${node.component} ${quote(labels.get(id) as string)} {\n`);
-    const props = node.props ?? {};
+    // A binding at a nested path (#426, bindingPath.ts) renders inside its
+    // block, as the same {"$expr": ...} in props would; a top-level one keeps
+    // its place after the body.
+    const overlay = overlayBindings(component, node.props ?? {}, bindings.get(id) ?? [], clip);
+    for (const issue of overlay.issues) rd.diag(issue.code, issue.severity, id, issue.message);
+    const props = overlay.props;
     if (component)
       rd.body(
         lw,
@@ -871,7 +877,7 @@ export function renderTS(doc: GraphDocument, schema: SchemaPayload): RenderTSRes
         nodeRefs(component, wires.get(id)),
       );
     else rd.untypedProps(lw, '  ', id, props);
-    for (const binding of bindings.get(id) ?? []) {
+    for (const binding of overlay.top) {
       const expr = binding.ref.expr.trim();
       if (expr === '') {
         rd.diag(

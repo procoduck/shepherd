@@ -162,12 +162,13 @@ export function Palette() {
         </div>
         {filterBySelected && selectedNode && (
           <div className='px-3 py-1.5 bg-accent/10 border-b border-border flex items-center justify-between gap-2 text-xs'>
-            <span className='text-accent truncate'>
+            <span className='text-accent-text truncate'>
               Compatible with <span className='font-mono'>{selectedNode.component}</span>
             </span>
             <button
               onClick={() => setShowAllOverride(true)}
-              className='text-accent hover:text-zinc-100 shrink-0'
+              type='button'
+              className='text-accent-text hover:text-zinc-100 shrink-0 min-w-6 min-h-6'
               aria-label='Show all components'
             >
               ✕
@@ -180,7 +181,7 @@ export function Palette() {
             if (catItems.length === 0) return null;
             return (
               <details key={cat} open aria-label={LABELS[cat]} className='border-b border-border'>
-                <summary className='px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-2 cursor-pointer select-none'>
+                <summary className='px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted cursor-pointer select-none'>
                   {LABELS[cat]}
                 </summary>
                 {catItems.map(({ name, def }) => (

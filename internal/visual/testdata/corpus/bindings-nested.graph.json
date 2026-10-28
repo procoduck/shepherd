@@ -1,0 +1,138 @@
+{
+  "kind": "alloy-graph/v1",
+  "schema_version": "alloy-v1.21.2",
+  "nodes": [
+    {
+      "id": "n1",
+      "component": "remote.kubernetes.secret",
+      "label": "creds",
+      "position": { "x": 40, "y": 360 },
+      "props": { "namespace": "monitoring", "name": "shepherd-creds" },
+      "disabled": false,
+      "notes": "credentials for both remote_write endpoints"
+    },
+    {
+      "id": "n2",
+      "component": "local.file",
+      "label": "otel_ca",
+      "position": { "x": 40, "y": 520 },
+      "props": { "filename": "/etc/otel/ca.pem" },
+      "disabled": false,
+      "notes": ""
+    },
+    {
+      "id": "n3",
+      "component": "discovery.kubernetes",
+      "label": "k8s",
+      "position": { "x": 40, "y": 80 },
+      "props": { "role": "pod" },
+      "disabled": false,
+      "notes": ""
+    },
+    {
+      "id": "n4",
+      "component": "prometheus.scrape",
+      "label": "app",
+      "position": { "x": 420, "y": 80 },
+      "props": { "job_name": "app" },
+      "disabled": false,
+      "notes": ""
+    },
+    {
+      "id": "n5",
+      "component": "prometheus.remote_write",
+      "label": "sink",
+      "position": { "x": 800, "y": 80 },
+      "props": {
+        "endpoint": [
+          {
+            "url": "https://primary.example.com/api/v1/write",
+            "basic_auth": { "username": "shepherd" }
+          },
+          { "url": "https://secondary.example.com/api/v1/write" }
+        ]
+      },
+      "disabled": false,
+      "notes": ""
+    },
+    {
+      "id": "n6",
+      "component": "otelcol.receiver.otlp",
+      "label": "ingest",
+      "position": { "x": 40, "y": 680 },
+      "props": { "grpc": { "endpoint": "0.0.0.0:4317" } },
+      "disabled": false,
+      "notes": ""
+    },
+    {
+      "id": "n7",
+      "component": "otelcol.exporter.otlp",
+      "label": "gateway",
+      "position": { "x": 420, "y": 680 },
+      "props": { "client": { "compression": "gzip" } },
+      "disabled": false,
+      "notes": ""
+    },
+    {
+      "id": "n8",
+      "component": "loki.process",
+      "label": "tenant",
+      "position": { "x": 420, "y": 960 },
+      "props": { "stage.tenant": [{}] },
+      "disabled": false,
+      "notes": ""
+    },
+    {
+      "id": "n9",
+      "component": "loki.write",
+      "label": "logs",
+      "position": { "x": 800, "y": 960 },
+      "props": { "endpoint": [{ "url": "https://loki.example.com/loki/api/v1/push" }] },
+      "disabled": false,
+      "notes": ""
+    }
+  ],
+  "edges": [
+    { "id": "e1", "from": { "node": "n3", "port": "targets" }, "to": { "node": "n4", "port": "targets" } },
+    { "id": "e2", "from": { "node": "n4", "port": "forward_to" }, "to": { "node": "n5", "port": "receiver" } },
+    { "id": "e3", "from": { "node": "n6", "port": "output.traces" }, "to": { "node": "n7", "port": "input" } },
+    { "id": "e4", "from": { "node": "n8", "port": "forward_to" }, "to": { "node": "n9", "port": "receiver" } }
+  ],
+  "bindings": [
+    {
+      "node": "n5",
+      "prop": "endpoint[0].basic_auth.password",
+      "ref": { "node": "n1", "export": "data", "expr": "remote.kubernetes.secret.creds.data[\"password\"]" }
+    },
+    {
+      "node": "n5",
+      "prop": "endpoint[1].bearer_token",
+      "ref": { "node": "n1", "export": "data", "expr": "remote.kubernetes.secret.creds.data[\"token\"]" }
+    },
+    {
+      "node": "n7",
+      "prop": "client.endpoint",
+      "ref": {
+        "node": "n1",
+        "export": "data",
+        "expr": "convert.nonsensitive(remote.kubernetes.secret.creds.data[\"otlp_endpoint\"])"
+      }
+    },
+    {
+      "node": "n7",
+      "prop": "client.tls.ca_pem",
+      "ref": { "node": "n2", "export": "content", "expr": "local.file.otel_ca.content" }
+    },
+    {
+      "node": "n8",
+      "prop": "stage.tenant[0].value",
+      "ref": {
+        "node": "n1",
+        "export": "data",
+        "expr": "convert.nonsensitive(remote.kubernetes.secret.creds.data[\"tenant\"])"
+      }
+    }
+  ],
+  "viewport": { "x": 0, "y": 0, "zoom": 1 },
+  "meta": { "created_with": "test" }
+}

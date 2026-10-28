@@ -26,6 +26,7 @@ import {
   setMapRow,
   widgetFor,
 } from './attributeOps';
+import { BoundField } from './BoundField';
 import { useInspectorReadOnly } from './readOnly';
 import type { AttrLike } from './schemaShapes';
 
@@ -209,13 +210,16 @@ function BindingPicker({
   const bind = () => {
     if (!selected) return;
     const expr = buildBindingExpr(selected as SecretSourceNode, key);
-    if (expr) setBinding(nodeId, instancePath, expr);
+    const field = SECRET_EXPORT_FIELD[selected.component]?.field;
+    // A doc.bindings[] entry at the prop's canonical path (#426), any depth.
+    if (expr && field) setBinding(nodeId, instancePath, expr, { node: selected.id, export: field });
   };
 
   return (
     <div className='space-y-1'>
       <select
         data-testid={`attr-binding-source-${attr.name}`}
+        aria-label={`Binding source for ${attr.name}`}
         className={inputClass}
         value={sourceId}
         onChange={(e) => selectSource(e.target.value)}
@@ -231,6 +235,7 @@ function BindingPicker({
       {needsKey && (
         <input
           data-testid={`attr-binding-key-${attr.name}`}
+          aria-label={`Key in the source for ${attr.name}`}
           className={inputClass}
           placeholder='key, e.g. password'
           value={key}
@@ -254,11 +259,9 @@ function BindingPicker({
  * Secrets never store a literal (task item 3): the field offers a picker
  * (W5-02) instead of a text box, and shows a unified "Bound: <expr>" display
  * whichever of the two binding channels the value actually came from — a
- * `{"$expr": ...}` written directly into this prop by `setBinding` (W5-01,
- * any depth), or a legacy top-level `doc.bindings[]` entry (see
- * `bindings.ts`'s module doc for why the two channels exist). Only the
- * former can be unbound here: it is the one this module's own
- * `removeBinding` actually manages. A literal already present in `props`
+ * `{"$expr": ...}` in this prop (W5-01's original channel, any depth), or a
+ * `doc.bindings[]` entry at this prop's path, top-level or nested (#426; what
+ * the picker writes now). Unbind clears both. A literal already present in `props`
  * (e.g. from hand-authored graph JSON) is surfaced with a one-click way to
  * clear it, rather than silently kept.
  */
@@ -296,7 +299,7 @@ function SecretField({
           <span>
             Bound: <span className='font-mono'>{boundExpr}</span>
           </span>
-          {propExpr && nodeId && instancePath && !readOnly && (
+          {nodeId && instancePath && !readOnly && (
             <button
               type='button'
               data-testid={`attr-binding-unbind-${attr.name}`}
@@ -641,6 +644,16 @@ export function AttributeField({
 
   const widget = widgetFor(attr);
   const hasError = Boolean(error);
+  if (binding && widget !== 'secret')
+    return (
+      <BoundField
+        attr={attr}
+        fieldId={fieldId(schemaPath)}
+        binding={binding}
+        nodeId={nodeId}
+        instancePath={instancePath}
+      />
+    );
 
   if (widget === 'secret')
     return (

@@ -169,7 +169,8 @@ describe('getSourceReachableEdges', () => {
 // #310: React Flow's default edge name is "Edge from <rf source id> to <rf
 // target id>" — internal node ids, and for a receiver-kind wire (whose React
 // Flow endpoints are swapped back to export→argument, wireOrient.ts) the
-// reverse of the dataflow. The name is the nodes' labels, in dataflow order.
+// reverse of the dataflow. The name is the nodes and ports at each end, in
+// dataflow order (#426, canvasA11y.ts's edgeAriaLabel).
 describe('reconcileEdges accessible names', () => {
   it('names a data-kind wire by its node labels, source first', () => {
     const n1 = node('n1', 'test.source', { label: 'pods' });
@@ -184,7 +185,9 @@ describe('reconcileEdges accessible names', () => {
       new Map(),
       'dark',
     );
-    expect(out[0].ariaLabel).toBe('Edge from pods to relabel');
+    expect(out[0].ariaLabel).toBe(
+      'Wire from test.source "pods" output to test.sink "relabel" input',
+    );
   });
 
   it('names a receiver-kind wire in dataflow order although React Flow draws it reversed', () => {
@@ -209,7 +212,9 @@ describe('reconcileEdges accessible names', () => {
     expect(out[0].source).toBe('n2');
     expect(out[0].target).toBe('n3');
     // …but the name follows the data.
-    expect(out[0].ariaLabel).toBe('Edge from app to sink');
+    expect(out[0].ariaLabel).toBe(
+      'Wire from prometheus.scrape "app" forward_to to prometheus.remote_write "sink" receiver',
+    );
   });
 
   it('renames the wire when a node is relabelled', () => {
@@ -229,6 +234,8 @@ describe('reconcileEdges accessible names', () => {
       inputs,
       'dark',
     );
-    expect(second[0].ariaLabel).toBe('Edge from pods to keep-prod');
+    expect(second[0].ariaLabel).toBe(
+      'Wire from test.source "pods" output to test.sink "keep-prod" input',
+    );
   });
 });

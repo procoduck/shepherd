@@ -58,15 +58,14 @@ export interface GraphEdge {
 }
 
 /**
- * A TOP-LEVEL prop binding — the pre-existing import channel (e.g. from a
- * hand-authored or imported graph), not what the UI's binding picker writes.
- * `render.go`/`renderTS.ts` emit `${prop} = ${ref.expr}` verbatim with no path
- * parsing, so `prop` must name an un-nested attribute. A binding authored
- * through the canvas (`store.ts`'s `setBinding`/`removeBinding`, W5-01) is
- * stored a different way instead — as `{"$expr": expr}` in `props`, at the
- * prop's own instance path, however deep — because both renderers already
- * emit a props value shaped that way correctly at any depth (see
- * `bindings.ts`'s module doc). This array is left untouched by that path.
+ * A config-node binding (design §3.4): the expression `ref.expr` supplies the
+ * attribute `prop` names. `prop` is a top-level attribute name — rendered as
+ * `${prop} = ${ref.expr}` after the node's body, as it always was — or a
+ * nested binding path into the component's blocks (#426, `bindingPath.ts`):
+ * `endpoint[0].basic_auth.password`, `client.tls.ca_pem`,
+ * `stage.tenant[0].value`, rendered inside that block instance. The inspector's
+ * binding picker writes these (`store.ts`'s `setBinding`); see `bindings.ts`
+ * for the `{"$expr": ...}`-in-props channel that renders the same way.
  */
 export interface GraphBinding {
   node: string;

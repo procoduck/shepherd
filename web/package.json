@@ -55,6 +55,7 @@
     "zustand": "^5.0.15"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
     "@biomejs/biome": "2.5.14",
     "@bufbuild/protoc-gen-es": "^2.16.0",
     "@playwright/test": "^1.63.0",

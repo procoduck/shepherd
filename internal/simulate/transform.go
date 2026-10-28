@@ -705,10 +705,14 @@ func rewriteDestinations(doc *visual.GraphDocument, req TransformRequest, writte
 		}
 
 		// A binding whose prop names the last segment of a mapped endpoint path
-		// points the destination somewhere real. The renderer emits bindings at
-		// the node's top level only, so such a binding renders as a bogus
+		// points the destination somewhere real. A top-level binding renders
+		// at the node's top level, so such a binding renders as a bogus
 		// top-level attribute — the transform still has to remove it, and must
-		// not assume bindings are well-placed.
+		// not assume bindings are well-placed. A nested-path binding
+		// (`endpoint[0].url`, #426) renders inside its block and would win over
+		// the capture URL written above; it is not matched here, and rule K
+		// drops it with every other surviving binding (transform_secrets_test.go
+		// pins the capture URL winning).
 		tails := map[string]bool{}
 		for _, path := range spec.EndpointPaths {
 			tails[path[len(path)-1]] = true
@@ -922,6 +926,28 @@ func substituteRemovedRefs(doc *visual.GraphDocument, req TransformRequest) ([]R
 			continue
 		}
 		owner := nodeByID[b.Node]
+		if visual.IsNestedBindingProp(b.Prop) {
+			// A binding at a nested path (#426) is substituted where it
+			// points, inside its block, never as a top-level prop named
+			// after the path.
+			if next, ok := substituteNested(req.Schema, owner, b.Prop, rs.mode); ok {
+				owner.Props = next
+				nodeByID[b.Node] = owner
+				setNodeProps(doc, b.Node, next)
+				rewrites = append(rewrites, Rewrite{
+					Kind: RewriteSecretRefSubstituted, NodeID: b.Node, NodeLabel: owner.Label, Component: owner.Component,
+					Path: []string{b.Prop}, To: substitutedValue,
+					Detail: fmt.Sprintf("binding to the removed %s was replaced by a placeholder", rs.component),
+				})
+				continue
+			}
+			rewrites = append(rewrites, Rewrite{
+				Kind: RewriteSecretDropped, NodeID: b.Node, NodeLabel: owner.Label, Component: owner.Component,
+				Path:   []string{b.Prop},
+				Detail: fmt.Sprintf("binding to the removed %s was dropped", rs.component),
+			})
+			continue
+		}
 		declared := topLevelType(req.Schema, owner.Component, b.Prop)
 		if canSubstitute(rs.mode, declared) {
 			if owner.Props == nil {
@@ -1964,6 +1990,25 @@ func walkPropsTyped(attrs []visual.AttributeSchema, blocks []visual.BlockSchema,
 // topLevelType returns the declared type of a component's top-level attribute,
 // or "" when the schema does not declare it. Bindings are emitted at the node's
 // top level, so this is the type a binding actually lands on.
+// substituteNested returns the owner's props with the placeholder written at a
+// nested binding path, when the path resolves and its attribute may take a
+// literal string; ok is false when the binding must be dropped instead.
+func substituteNested(schema visual.SchemaPayload, owner visual.GraphNode, prop, mode string) (map[string]interface{}, bool) {
+	comp, known := schema.Components[owner.Component]
+	if !known {
+		return nil, false
+	}
+	_, leaf, err := visual.ResolveBindingPath(comp, prop)
+	if err != nil || !canSubstitute(mode, leaf.Type) {
+		return nil, false
+	}
+	next, err := visual.ApplyBindingPath(comp, owner.Props, prop, substitutedValue)
+	if err != nil {
+		return nil, false
+	}
+	return next, true
+}
+
 func topLevelType(schema visual.SchemaPayload, component, prop string) string {
 	comp, ok := schema.Components[component]
 	if !ok {
