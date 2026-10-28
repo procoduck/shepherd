@@ -1,4 +1,7 @@
 -- name: CreateSimulateRun :one
+-- effective_duration_seconds is NULL on a row a v0.20 server inserted during
+-- a rolling upgrade or after a rollback (0051); such a run runs for what it
+-- requested, so every reader selects the coalesced value, never the column.
 -- effective_duration_seconds is never below what was requested (#424): an
 -- unset (0) or shorter effective duration stores the requested one.
 INSERT INTO simulate_runs (org_id, graph, requested_duration_seconds, created_by, effective_duration_seconds, duration_note)
@@ -7,13 +10,25 @@ VALUES (
     GREATEST(sqlc.arg(effective_duration_seconds)::int, sqlc.arg(requested_duration_seconds)),
     sqlc.arg(duration_note)
 )
-RETURNING *;
+RETURNING id, org_id, status, graph, requested_duration_seconds, created_by,
+    created_at, started_at, finished_at, rewrites, captured_series,
+    captured_log_lines, component_health, gate_diagnostics, stderr_tail,
+    error_code, error_message,
+    COALESCE(effective_duration_seconds, requested_duration_seconds)::int AS effective_duration_seconds,
+    duration_note;
 
 -- name: GetSimulateRunByID :one
 -- No org_id filter, matching GetPipelineByID: the caller (loadRun in
 -- rpc_simulate.go) does the org-ownership check in Go and returns NotFound
 -- on mismatch, mirroring loadPipeline's tenant-isolation shape exactly.
-SELECT * FROM simulate_runs WHERE id = $1;
+-- Coalesces effective_duration_seconds (see CreateSimulateRun).
+SELECT id, org_id, status, graph, requested_duration_seconds, created_by,
+    created_at, started_at, finished_at, rewrites, captured_series,
+    captured_log_lines, component_health, gate_diagnostics, stderr_tail,
+    error_code, error_message,
+    COALESCE(effective_duration_seconds, requested_duration_seconds)::int AS effective_duration_seconds,
+    duration_note
+FROM simulate_runs WHERE id = $1;
 
 -- name: CountNonTerminalSimulateRunsByOrg :one
 SELECT count(*) FROM simulate_runs
@@ -31,7 +46,8 @@ WHERE sr.status = 'queued'
 -- Claims the single oldest queued run for the caller's connection. Callers
 -- must hold a cluster-wide advisory lock (pg_try_advisory_lock) before
 -- calling this so MaxConcurrentRuns is enforced regardless of replica count
--- — see internal/simulate/worker.RunWorker.
+-- — see internal/simulate/worker.RunWorker. Coalesces
+-- effective_duration_seconds: the worker sends it to the simulator.
 UPDATE simulate_runs
 SET status = 'running', started_at = now()
 WHERE id = (
@@ -41,7 +57,12 @@ WHERE id = (
     LIMIT 1
     FOR UPDATE SKIP LOCKED
 )
-RETURNING *;
+RETURNING id, org_id, status, graph, requested_duration_seconds, created_by,
+    created_at, started_at, finished_at, rewrites, captured_series,
+    captured_log_lines, component_health, gate_diagnostics, stderr_tail,
+    error_code, error_message,
+    COALESCE(effective_duration_seconds, requested_duration_seconds)::int AS effective_duration_seconds,
+    duration_note;
 
 -- name: CompleteSimulateRun :one
 UPDATE simulate_runs
@@ -56,7 +77,7 @@ SET status              = $2,
     error_code          = $9,
     error_message       = $10
 WHERE id = $1
-RETURNING *;
+RETURNING id, org_id;
 
 -- name: ExpireStaleSimulateRuns :many
 -- Force-transitions any run still queued/running past its TTL to expired.

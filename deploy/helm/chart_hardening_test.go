@@ -481,6 +481,17 @@ var _ = Describe("chart hardening", func() {
 			})
 		})
 
+		// The Deployment's selector is shared with the simulator and receiver
+		// pods (it cannot change), so `kubectl exec deploy/...` may land on a
+		// pod with no database access. The server Service selects only server
+		// pods.
+		It("execs the token command through the server Service, never the Deployment", func() {
+			out := renderNotes("fleet", "simulator:\n  enabled: true\n")
+			Expect(out).To(ContainSubstring("kubectl exec -n default svc/fleet-shepherd -- shepherd token create --name my-cluster --org <org-slug>"))
+			Expect(out).NotTo(ContainSubstring("deploy/"))
+			Expect(out).NotTo(ContainSubstring("exec -it"))
+		})
+
 		It("says how to read the password it just generated", func() {
 			out := renderNotes("fleet", "externalSecrets:\n  enabled: true\ncnpg:\n  enabled: true\n")
 			Expect(out).To(ContainSubstring("SHEPHERD_BOOTSTRAP_ADMIN_PASSWORD"))

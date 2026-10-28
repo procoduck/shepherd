@@ -22,16 +22,44 @@ WHERE id = (
     LIMIT 1
     FOR UPDATE SKIP LOCKED
 )
-RETURNING id, org_id, status, graph, requested_duration_seconds, created_by, created_at, started_at, finished_at, rewrites, captured_series, captured_log_lines, component_health, gate_diagnostics, stderr_tail, error_code, error_message, effective_duration_seconds, duration_note
+RETURNING id, org_id, status, graph, requested_duration_seconds, created_by,
+    created_at, started_at, finished_at, rewrites, captured_series,
+    captured_log_lines, component_health, gate_diagnostics, stderr_tail,
+    error_code, error_message,
+    COALESCE(effective_duration_seconds, requested_duration_seconds)::int AS effective_duration_seconds,
+    duration_note
 `
+
+type ClaimQueuedSimulateRunRow struct {
+	ID                       pgtype.UUID        `json:"id"`
+	OrgID                    pgtype.UUID        `json:"org_id"`
+	Status                   string             `json:"status"`
+	Graph                    json.RawMessage    `json:"graph"`
+	RequestedDurationSeconds int32              `json:"requested_duration_seconds"`
+	CreatedBy                string             `json:"created_by"`
+	CreatedAt                pgtype.Timestamptz `json:"created_at"`
+	StartedAt                pgtype.Timestamptz `json:"started_at"`
+	FinishedAt               pgtype.Timestamptz `json:"finished_at"`
+	Rewrites                 json.RawMessage    `json:"rewrites"`
+	CapturedSeries           json.RawMessage    `json:"captured_series"`
+	CapturedLogLines         json.RawMessage    `json:"captured_log_lines"`
+	ComponentHealth          json.RawMessage    `json:"component_health"`
+	GateDiagnostics          json.RawMessage    `json:"gate_diagnostics"`
+	StderrTail               string             `json:"stderr_tail"`
+	ErrorCode                string             `json:"error_code"`
+	ErrorMessage             string             `json:"error_message"`
+	EffectiveDurationSeconds int32              `json:"effective_duration_seconds"`
+	DurationNote             string             `json:"duration_note"`
+}
 
 // Claims the single oldest queued run for the caller's connection. Callers
 // must hold a cluster-wide advisory lock (pg_try_advisory_lock) before
 // calling this so MaxConcurrentRuns is enforced regardless of replica count
-// — see internal/simulate/worker.RunWorker.
-func (q *Queries) ClaimQueuedSimulateRun(ctx context.Context) (SimulateRun, error) {
+// — see internal/simulate/worker.RunWorker. Coalesces
+// effective_duration_seconds: the worker sends it to the simulator.
+func (q *Queries) ClaimQueuedSimulateRun(ctx context.Context) (ClaimQueuedSimulateRunRow, error) {
 	row := q.db.QueryRow(ctx, claimQueuedSimulateRun)
-	var i SimulateRun
+	var i ClaimQueuedSimulateRunRow
 	err := row.Scan(
 		&i.ID,
 		&i.OrgID,
@@ -69,7 +97,7 @@ SET status              = $2,
     error_code          = $9,
     error_message       = $10
 WHERE id = $1
-RETURNING id, org_id, status, graph, requested_duration_seconds, created_by, created_at, started_at, finished_at, rewrites, captured_series, captured_log_lines, component_health, gate_diagnostics, stderr_tail, error_code, error_message, effective_duration_seconds, duration_note
+RETURNING id, org_id
 `
 
 type CompleteSimulateRunParams struct {
@@ -85,7 +113,12 @@ type CompleteSimulateRunParams struct {
 	ErrorMessage     string          `json:"error_message"`
 }
 
-func (q *Queries) CompleteSimulateRun(ctx context.Context, arg CompleteSimulateRunParams) (SimulateRun, error) {
+type CompleteSimulateRunRow struct {
+	ID    pgtype.UUID `json:"id"`
+	OrgID pgtype.UUID `json:"org_id"`
+}
+
+func (q *Queries) CompleteSimulateRun(ctx context.Context, arg CompleteSimulateRunParams) (CompleteSimulateRunRow, error) {
 	row := q.db.QueryRow(ctx, completeSimulateRun,
 		arg.ID,
 		arg.Status,
@@ -98,28 +131,8 @@ func (q *Queries) CompleteSimulateRun(ctx context.Context, arg CompleteSimulateR
 		arg.ErrorCode,
 		arg.ErrorMessage,
 	)
-	var i SimulateRun
-	err := row.Scan(
-		&i.ID,
-		&i.OrgID,
-		&i.Status,
-		&i.Graph,
-		&i.RequestedDurationSeconds,
-		&i.CreatedBy,
-		&i.CreatedAt,
-		&i.StartedAt,
-		&i.FinishedAt,
-		&i.Rewrites,
-		&i.CapturedSeries,
-		&i.CapturedLogLines,
-		&i.ComponentHealth,
-		&i.GateDiagnostics,
-		&i.StderrTail,
-		&i.ErrorCode,
-		&i.ErrorMessage,
-		&i.EffectiveDurationSeconds,
-		&i.DurationNote,
-	)
+	var i CompleteSimulateRunRow
+	err := row.Scan(&i.ID, &i.OrgID)
 	return i, err
 }
 
@@ -158,7 +171,12 @@ VALUES (
     GREATEST($5::int, $3),
     $6
 )
-RETURNING id, org_id, status, graph, requested_duration_seconds, created_by, created_at, started_at, finished_at, rewrites, captured_series, captured_log_lines, component_health, gate_diagnostics, stderr_tail, error_code, error_message, effective_duration_seconds, duration_note
+RETURNING id, org_id, status, graph, requested_duration_seconds, created_by,
+    created_at, started_at, finished_at, rewrites, captured_series,
+    captured_log_lines, component_health, gate_diagnostics, stderr_tail,
+    error_code, error_message,
+    COALESCE(effective_duration_seconds, requested_duration_seconds)::int AS effective_duration_seconds,
+    duration_note
 `
 
 type CreateSimulateRunParams struct {
@@ -170,9 +188,34 @@ type CreateSimulateRunParams struct {
 	DurationNote             string          `json:"duration_note"`
 }
 
+type CreateSimulateRunRow struct {
+	ID                       pgtype.UUID        `json:"id"`
+	OrgID                    pgtype.UUID        `json:"org_id"`
+	Status                   string             `json:"status"`
+	Graph                    json.RawMessage    `json:"graph"`
+	RequestedDurationSeconds int32              `json:"requested_duration_seconds"`
+	CreatedBy                string             `json:"created_by"`
+	CreatedAt                pgtype.Timestamptz `json:"created_at"`
+	StartedAt                pgtype.Timestamptz `json:"started_at"`
+	FinishedAt               pgtype.Timestamptz `json:"finished_at"`
+	Rewrites                 json.RawMessage    `json:"rewrites"`
+	CapturedSeries           json.RawMessage    `json:"captured_series"`
+	CapturedLogLines         json.RawMessage    `json:"captured_log_lines"`
+	ComponentHealth          json.RawMessage    `json:"component_health"`
+	GateDiagnostics          json.RawMessage    `json:"gate_diagnostics"`
+	StderrTail               string             `json:"stderr_tail"`
+	ErrorCode                string             `json:"error_code"`
+	ErrorMessage             string             `json:"error_message"`
+	EffectiveDurationSeconds int32              `json:"effective_duration_seconds"`
+	DurationNote             string             `json:"duration_note"`
+}
+
+// effective_duration_seconds is NULL on a row a v0.20 server inserted during
+// a rolling upgrade or after a rollback (0051); such a run runs for what it
+// requested, so every reader selects the coalesced value, never the column.
 // effective_duration_seconds is never below what was requested (#424): an
 // unset (0) or shorter effective duration stores the requested one.
-func (q *Queries) CreateSimulateRun(ctx context.Context, arg CreateSimulateRunParams) (SimulateRun, error) {
+func (q *Queries) CreateSimulateRun(ctx context.Context, arg CreateSimulateRunParams) (CreateSimulateRunRow, error) {
 	row := q.db.QueryRow(ctx, createSimulateRun,
 		arg.OrgID,
 		arg.Graph,
@@ -181,7 +224,7 @@ func (q *Queries) CreateSimulateRun(ctx context.Context, arg CreateSimulateRunPa
 		arg.EffectiveDurationSeconds,
 		arg.DurationNote,
 	)
-	var i SimulateRun
+	var i CreateSimulateRunRow
 	err := row.Scan(
 		&i.ID,
 		&i.OrgID,
@@ -255,15 +298,44 @@ func (q *Queries) ExpireStaleSimulateRuns(ctx context.Context, ttlSeconds int32)
 }
 
 const getSimulateRunByID = `-- name: GetSimulateRunByID :one
-SELECT id, org_id, status, graph, requested_duration_seconds, created_by, created_at, started_at, finished_at, rewrites, captured_series, captured_log_lines, component_health, gate_diagnostics, stderr_tail, error_code, error_message, effective_duration_seconds, duration_note FROM simulate_runs WHERE id = $1
+SELECT id, org_id, status, graph, requested_duration_seconds, created_by,
+    created_at, started_at, finished_at, rewrites, captured_series,
+    captured_log_lines, component_health, gate_diagnostics, stderr_tail,
+    error_code, error_message,
+    COALESCE(effective_duration_seconds, requested_duration_seconds)::int AS effective_duration_seconds,
+    duration_note
+FROM simulate_runs WHERE id = $1
 `
+
+type GetSimulateRunByIDRow struct {
+	ID                       pgtype.UUID        `json:"id"`
+	OrgID                    pgtype.UUID        `json:"org_id"`
+	Status                   string             `json:"status"`
+	Graph                    json.RawMessage    `json:"graph"`
+	RequestedDurationSeconds int32              `json:"requested_duration_seconds"`
+	CreatedBy                string             `json:"created_by"`
+	CreatedAt                pgtype.Timestamptz `json:"created_at"`
+	StartedAt                pgtype.Timestamptz `json:"started_at"`
+	FinishedAt               pgtype.Timestamptz `json:"finished_at"`
+	Rewrites                 json.RawMessage    `json:"rewrites"`
+	CapturedSeries           json.RawMessage    `json:"captured_series"`
+	CapturedLogLines         json.RawMessage    `json:"captured_log_lines"`
+	ComponentHealth          json.RawMessage    `json:"component_health"`
+	GateDiagnostics          json.RawMessage    `json:"gate_diagnostics"`
+	StderrTail               string             `json:"stderr_tail"`
+	ErrorCode                string             `json:"error_code"`
+	ErrorMessage             string             `json:"error_message"`
+	EffectiveDurationSeconds int32              `json:"effective_duration_seconds"`
+	DurationNote             string             `json:"duration_note"`
+}
 
 // No org_id filter, matching GetPipelineByID: the caller (loadRun in
 // rpc_simulate.go) does the org-ownership check in Go and returns NotFound
 // on mismatch, mirroring loadPipeline's tenant-isolation shape exactly.
-func (q *Queries) GetSimulateRunByID(ctx context.Context, id pgtype.UUID) (SimulateRun, error) {
+// Coalesces effective_duration_seconds (see CreateSimulateRun).
+func (q *Queries) GetSimulateRunByID(ctx context.Context, id pgtype.UUID) (GetSimulateRunByIDRow, error) {
 	row := q.db.QueryRow(ctx, getSimulateRunByID, id)
-	var i SimulateRun
+	var i GetSimulateRunByIDRow
 	err := row.Scan(
 		&i.ID,
 		&i.OrgID,

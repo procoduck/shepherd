@@ -192,7 +192,7 @@ func advisoryUnlock(ctx context.Context, conn *pgxpool.Conn, slot int) {
 // the worker gives up on silently would sit at status=running until the
 // janitor's TTL sweep, unnecessarily holding one of the org's
 // MaxNonTerminalPerOrg slots for up to RunTTL.
-func (w *RunWorker) execute(ctx context.Context, q *sqlc.Queries, run sqlc.SimulateRun) {
+func (w *RunWorker) execute(ctx context.Context, q *sqlc.Queries, run sqlc.ClaimQueuedSimulateRunRow) {
 	logger := w.logger.With("run_id", run.ID.String(), "org_id", run.OrgID.String())
 
 	var doc visual.GraphDocument
@@ -346,7 +346,7 @@ const maxCapturedSeries = 500
 
 const maxCapturedLogLines = 500
 
-func (w *RunWorker) finish(ctx context.Context, q *sqlc.Queries, run sqlc.SimulateRun, o runOutcome) {
+func (w *RunWorker) finish(ctx context.Context, q *sqlc.Queries, run sqlc.ClaimQueuedSimulateRunRow, o runOutcome) {
 	status := simulate.RunStatusCompleted
 	if o.errorCode != "" {
 		status = simulate.RunStatusFailed

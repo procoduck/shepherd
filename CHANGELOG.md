@@ -15,7 +15,7 @@ Categories used here:
 
 ### Security
 
-Dependency updates for v0.21.1. No code, migration, chart value or served config format changes.
+Dependency updates for v0.21.1. These change no code, migration, chart value or served config format.
 
 - **`github.com/go-jose/go-jose/v4` 4.1.6** (from 4.1.4): GHSA-mgcc-cww5-fp2q. Indirect
   dependency. (#430)
@@ -31,6 +31,30 @@ Dependency updates for v0.21.1. No code, migration, chart value or served config
   `jsdom`), `source-map-js` 1.2.2 (from 1.2.1), with `rolldown` 1.2.15, `postcss` 8.5.32 and
   `nanoid` 3.3.20 following vite. These are build and test dependencies; none of them is shipped
   in the SPA bundle.
+
+### Fixed
+
+- **Shipped — v0.20 pods can start sandbox runs on the v0.21 schema again.** Migration `0050`
+  made `simulate_runs.effective_duration_seconds` `NOT NULL` with no default, and a v0.20
+  server's run insert does not set it, so during a rolling upgrade from chart 0.24.x, or after
+  `helm rollback` to it, a v0.20 pod's `CreateRun` failed. New migration
+  `0051_simulate_run_effective_nullable` allows the column to be empty (the 1–120 range check
+  stays); every reader takes the requested duration for such a run, so the worker runs it for
+  what was requested and `SimulateRun.effective_duration_seconds` never reads 0. Its down
+  migration fills the empty values from the requested duration and makes the column required
+  again. Upgrade from chart 0.24.x straight to 0.25.1. `UPGRADING.md` (0.24.x → 0.25.0, step 6
+  and Rolling back) now says what chart 0.25.0 does and what 0.25.1 changes.
+- **Install notes:** the token command in `NOTES.txt` now runs through the server Service
+  (`kubectl exec -n <namespace> svc/<fullname> -- shepherd token create …`). `deploy/<fullname>`
+  could land on a simulator or receiver pod, which shares the Deployment's selector.
+- **Docs:** the Kubernetes page's 0.25 and 0.24 upgrade notes say to run the new image's
+  `shepherd admin tenant-preflight` against a database copy migrated with that image, or from a
+  server pod right after the upgrade (the previous binary lacks the new checks), and that strict
+  organisations' served text changes in two documented cases. The README, the site's quick start,
+  the Collectors page and the Connect a cluster dialog now describe org-bound agent tokens: create
+  the organisation, mint its token at **Access → Agent Tokens**; an app admin's token claims the
+  cluster on the first poll, an organisation admin's is served only for a cluster an app admin
+  has claimed.
 
 ## v0.21.0
 

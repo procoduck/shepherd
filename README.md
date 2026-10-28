@@ -109,8 +109,9 @@ chart values. For trying Shepherd or working on it, not for running it.
 
 ## Connect a collector
 
-Mint an agent token at **Admin → Agent Tokens** (the secret is shown once), then
-add a `remotecfg` block to your Alloy configuration:
+Create an organisation first (**Admin → Organisations**), then mint an agent token
+for it at **Access → Agent Tokens** (the secret is shown once) and add a `remotecfg`
+block to your Alloy configuration:
 
 ```alloy
 remotecfg {
@@ -128,9 +129,11 @@ remotecfg {
 ```
 
 Those `attributes` are what pipeline matchers select on, so choose them
-deliberately. Within one poll its cluster appears, unclaimed, under
-**Admin → Clusters**; claim it into an organisation (create one first at
-**Admin → Organisations**) and its collectors appear under **Collectors**.
+deliberately. Every token is bound to its organisation. A token an app admin
+created claims the cluster for that organisation on the collector's first poll,
+and its collectors appear under **Collectors**. A token an organisation admin
+created is served only for clusters an app admin has already claimed for the
+organisation (**Admin → Clusters**); until then its collectors are refused.
 
 ## How it works
 

@@ -14,12 +14,14 @@ const ROLES = [
   { id: 'receiver', label: 'Receiver', hint: 'alloy-receiver (OTLP from apps)' },
 ];
 
-// What the cluster needs from an app admin before its collectors land in
-// this org's fleet, by the status the server reported.
+// What the cluster needs before its collectors land in this org's fleet, by
+// the status the server reported. Agent tokens are org-bound: one an app admin
+// created claims an unclaimed cluster on the collectors' first poll; one an
+// org admin created is served only once an app admin has claimed the cluster.
 const CLUSTER_STATUS: Record<string, string> = {
-  new: 'Shepherd has not seen this cluster yet. Once its collectors register, an app admin claims it for this organisation on Admin → Clusters.',
+  new: 'Shepherd has not seen this cluster yet. An agent token an app admin created claims this cluster for this organisation on the collectors’ first poll; with a token an organisation admin created, an app admin claims it first on Admin → Clusters.',
   unclaimed:
-    'This cluster has registered but is not claimed yet. An app admin claims it for this organisation on Admin → Clusters.',
+    'This cluster has registered but is not claimed yet. An agent token an app admin created claims this cluster for this organisation on the collectors’ next poll; with a token an organisation admin created, an app admin claims it first on Admin → Clusters.',
   claimed: 'This cluster already belongs to this organisation.',
 };
 
@@ -152,7 +154,7 @@ export function ConnectClusterDialog({ orgId, onClose }: { orgId: string; onClos
               data-testid='connect-cluster-status'
             >
               {CLUSTER_STATUS[result.clusterStatus] ?? result.clusterStatus} Collectors authenticate
-              with an agent token, which an app admin creates on Admin → Agent Tokens.
+              with an agent token for this organisation, created on Access → Agent Tokens.
             </p>
             <Block
               title='1. Store the agent token'
