@@ -19,6 +19,7 @@ import (
 	"shepherd/internal/auth"
 	"shepherd/internal/config"
 	"shepherd/internal/mgmtapi"
+	"shepherd/internal/pipelinesource"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
 )
@@ -139,6 +140,24 @@ var _ = Describe("PipelineService Connect RPC", Label("integration"), func() {
 		// simply lack the "enabled" key rather than carrying false.
 		Expect(result["enabled"]).To(Or(BeNil(), BeFalse()))
 		Expect(result["source"]).To(Equal("ui"))
+	})
+
+	It("refuses an unknown source as an invalid argument instead of a database error", func() {
+		// pipelines.source has a CHECK constraint; a value outside
+		// pipelinesource.All() used to reach it and come back as internal.
+		cookie := sessionCookie(true)
+		resp := postConnect("/shepherd.mgmt.v1.PipelineService/CreatePipeline", map[string]any{
+			"org_id": orgID, "name": "bad-source-pipe", "contents": `// valid alloy comment`,
+			"matchers": []string{`cluster="prod"`}, "source": "api",
+		}, cookie)
+		var payload struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		}
+		decodeBody(resp, &payload)
+		Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
+		Expect(payload.Code).To(Equal("invalid_argument"))
+		Expect(payload.Message).To(ContainSubstring("unknown pipeline source"))
 	})
 
 	It("rejects a pipeline name that carries a control character, on create and on update", func() {
@@ -293,7 +312,7 @@ var _ = Describe("PipelineService Connect RPC", Label("integration"), func() {
 
 		stored, err := st.Queries.GetPipelineByID(ctx, p.ID)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(stored.Source).To(Equal("visual")) // UpdatePipeline never mutates source
+		Expect(stored.Source).To(Equal(pipelinesource.Visual)) // UpdatePipeline never mutates source
 		newGraphJSON, err := json.Marshal(newGraph)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(string(stored.WizardState)).To(MatchJSON(newGraphJSON))

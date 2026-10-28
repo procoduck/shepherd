@@ -26,6 +26,7 @@ import (
 	"shepherd/internal/merge"
 	"shepherd/internal/metrics"
 	"shepherd/internal/pinnedimport"
+	"shepherd/internal/pipelinesource"
 	"shepherd/internal/schema"
 	"shepherd/internal/serve"
 	"shepherd/internal/store"
@@ -256,7 +257,7 @@ var _ = Describe("Reconciler.reconcileLink", Label("integration"), func() {
 		pipeline, err := st.Queries.GetPipelineByOrgAndName(ctx, sqlc.GetPipelineByOrgAndNameParams{OrgID: link.OrgID, Name: pipelineName})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(pipeline.Contents).To(Equal("// original content"))
-		Expect(pipeline.Source).To(Equal("git"))
+		Expect(pipeline.Source).To(Equal(pipelinesource.Git))
 		Expect(pipeline.CreatedBy).To(Equal("gitsync"))
 
 		updatedLink, err := st.Queries.GetRepoLinkByID(ctx, link.ID)
@@ -1069,7 +1070,7 @@ prometheus.remote_write "demo" {
 			Expect(err).To(HaveOccurred(), "the old name's pipeline must go")
 			after, err := pipelineNamed("after")
 			Expect(err).NotTo(HaveOccurred())
-			Expect(after.Source).To(Equal("git"))
+			Expect(after.Source).To(Equal(pipelinesource.Git))
 			Expect(after.GitPath.String).To(Equal("after.alloy"))
 			Expect(after.Contents).To(Equal("// renamed"))
 

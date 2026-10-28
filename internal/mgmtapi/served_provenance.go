@@ -31,7 +31,7 @@ func provenanceToProto(resp *mgmtv1.GetServedConfigResponse, raw []byte, hash st
 			PipelineId: c.PipelineID,
 			Name:       c.Name,
 			Revision:   int32(c.Revision), //nolint:gosec // a pipeline's revision count never approaches int32 overflow
-			Source:     c.Source,
+			Source:     c.Source.String(),
 			RepoLink:   c.RepoLink,
 			Lines:      lineSpanToProto(c.Lines),
 			BlockName:  c.Block,

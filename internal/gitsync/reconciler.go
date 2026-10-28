@@ -30,6 +30,7 @@ import (
 	"shepherd/internal/merge"
 	"shepherd/internal/metrics"
 	"shepherd/internal/pinnedimport"
+	"shepherd/internal/pipelinesource"
 	"shepherd/internal/reconcile"
 	"shepherd/internal/schema"
 	"shepherd/internal/serve"
@@ -666,7 +667,7 @@ func (r *Reconciler) apply(ctx context.Context, link sqlc.RepoLink, commit strin
 				Contents:   plan.contents,
 				Matchers:   json.RawMessage("[]"),
 				Enabled:    true,
-				Source:     "git",
+				Source:     pipelinesource.Git,
 				CreatedBy:  "gitsync",
 				UpdatedBy:  "gitsync",
 				RepoLinkID: link.ID,
@@ -898,7 +899,7 @@ func (r *Reconciler) planFile(ctx context.Context, link sqlc.RepoLink, file gitr
 	// collector" rule entirely -- on a Stage-1-only check, and attributes it to
 	// "gitsync". The API blocks the reverse direction explicitly
 	// (errGitSourceReadOnly), so this direction being open was an oversight.
-	if err == nil && (existing.Source != "git" || existing.RepoLinkID != link.ID) {
+	if err == nil && (existing.Source != pipelinesource.Git || existing.RepoLinkID != link.ID) {
 		return nil, fmt.Errorf(
 			"pipeline %q already exists in this org from a different source (%s); "+
 				"rename the file or the existing pipeline", name, existing.Source)
@@ -999,7 +1000,7 @@ func (r *Reconciler) stage3DryRun(ctx context.Context, link sqlc.RepoLink, plans
 			ID:                  "gitsync-candidate:" + p.path,
 			Name:                p.name,
 			Contents:            p.contents,
-			Source:              "git",
+			Source:              pipelinesource.Git,
 			RepoLinkCollectorID: link.CollectorID.String(),
 		}
 		if p.existing == nil {

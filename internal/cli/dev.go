@@ -32,6 +32,7 @@ import (
 	"shepherd/internal/config"
 	"shepherd/internal/crypto"
 	"shepherd/internal/pinnedimport"
+	"shepherd/internal/pipelinesource"
 	"shepherd/internal/schema"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
@@ -421,9 +422,10 @@ func seedLocalUser(ctx context.Context, st *store.Store, login, password string)
 
 // seedPipelineItem describes one pipeline to seed.
 type seedPipelineItem struct {
-	name, contents, source string
-	matchers               []string
-	enabled                bool
+	name, contents string
+	source         pipelinesource.Source
+	matchers       []string
+	enabled        bool
 	// wizardState is the raw JSON wizard_state document (non-empty only for
 	// source="visual"/"wizard" items). Empty means NULL wizard_state.
 	wizardState string
@@ -448,7 +450,7 @@ func platformPipelineItems() ([]seedPipelineItem, error) {
 		{
 			name:     "base-metrics",
 			contents: fmt.Sprintf(baseMetricsTemplate, seedClusterPlatformName, seedDestProdPromURL),
-			source:   "ui",
+			source:   pipelinesource.UI,
 			matchers: []string{fmt.Sprintf("cluster=%q", seedClusterPlatformName), `role="metrics"`},
 			enabled:  true,
 		},
@@ -471,7 +473,7 @@ func platformPipelineItems() ([]seedPipelineItem, error) {
 			// the kind stack (`make dev-kind`) enable it from /pipelines.
 			name:        "demo-visual",
 			contents:    demoVisual,
-			source:      "visual",
+			source:      pipelinesource.Visual,
 			matchers:    []string{fmt.Sprintf("cluster=%q", seedClusterPlatformName), `role="metrics"`},
 			enabled:     false,
 			wizardState: demoVisualGraph,
@@ -479,7 +481,7 @@ func platformPipelineItems() ([]seedPipelineItem, error) {
 		{
 			name:     "loki-logs",
 			contents: "loki.source.file \"seed\" {\n  targets    = []\n  forward_to = []\n}\n",
-			source:   "ui",
+			source:   pipelinesource.UI,
 			// Matches the alloy-logs collector, but left disabled since the
 			// contents are a placeholder stub (no real forward_to target).
 			matchers: []string{fmt.Sprintf("cluster=%q", seedClusterPlatformName), `role="logs"`},
@@ -488,7 +490,7 @@ func platformPipelineItems() ([]seedPipelineItem, error) {
 		{
 			name:     "app-obs-wizard",
 			contents: `// wizard-generated`,
-			source:   "wizard",
+			source:   pipelinesource.Wizard,
 			// No matchers: this is a stub demonstrating a wizard-sourced
 			// pipeline in the UI, not something meant to actually match a
 			// collector. Left disabled; producing real contents requires
@@ -506,7 +508,7 @@ func dataEngPipelineItems() []seedPipelineItem {
 		{
 			name:     "example-metrics",
 			contents: `prometheus.exporter.self "seed" { }`,
-			source:   "ui",
+			source:   pipelinesource.UI,
 			matchers: []string{fmt.Sprintf("cluster=%q", seedClusterDataEngName), `role="metrics"`},
 			enabled:  false,
 		},

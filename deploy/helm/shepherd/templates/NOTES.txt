@@ -1,15 +1,75 @@
 {{- $fullName := include "shepherd.fullname" . -}}
 {{- $port := .Values.service.port -}}
 {{- /*
-  The external URL, if there is one. Both branches take the FIRST hostname:
-  ranging over them concatenated the lot into one unusable string
-  ("https://a.example.comhttps://b.example.com").
+  The external URLs, one per hostname, each with the scheme that exposure
+  really serves (#425 -- this printed https:// for every Ingress and
+  HTTPRoute, TLS or not):
+
+    Ingress    https when an ingress.tls entry covers the host (an exact name,
+               a "*.parent" wildcard one label above it, or an entry with no
+               hosts, which Kubernetes applies to every host); http otherwise.
+    HTTPRoute  the Gateway listener decides, and the chart cannot read it
+               without a lookup that a namespace-scoped deployer may not be
+               allowed. route.scheme when set; otherwise http when the first
+               parentRef names port 80, https when it names 443, and https
+               assumed (with a hint saying so) when it names neither.
+
+  The spoke URL collectors are told to use is the first https one that is not
+  a wildcard (a wildcard is a pattern, not an address; collectors send their
+  token over it, so TLS is preferred), else the first non-wildcard one; with
+  none it is the in-cluster URL. Ranging over the hosts into one string once
+  printed "https://a.example.comhttps://b.example.com".
 */ -}}
+{{- $externalURLs := list -}}
 {{- $externalURL := "" -}}
+{{- $schemeAssumed := false -}}
 {{- if and .Values.route.enabled .Values.route.hostnames -}}
-{{- $externalURL = printf "https://%s" (first .Values.route.hostnames) -}}
+{{- $scheme := .Values.route.scheme | default "" -}}
+{{- if not $scheme -}}
+{{- $scheme = "https" -}}
+{{- $schemeAssumed = true -}}
+{{- with .Values.route.parentRefs -}}
+{{- $refPort := toString ((first .).port | default "") -}}
+{{- if eq $refPort "80" -}}
+{{- $scheme = "http" -}}
+{{- $schemeAssumed = false -}}
+{{- else if eq $refPort "443" -}}
+{{- $schemeAssumed = false -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- range .Values.route.hostnames -}}
+{{- $externalURLs = append $externalURLs (printf "%s://%s" $scheme .) -}}
+{{- end -}}
 {{- else if and .Values.ingress.enabled .Values.ingress.hosts -}}
-{{- $externalURL = printf "https://%s" (first .Values.ingress.hosts).host -}}
+{{- range .Values.ingress.hosts -}}
+{{- $host := .host -}}
+{{- $scheme := "http" -}}
+{{- range $.Values.ingress.tls -}}
+{{- if not .hosts -}}
+{{- $scheme = "https" -}}
+{{- end -}}
+{{- range .hosts -}}
+{{- $suffix := trimPrefix "*" . -}}
+{{- if eq . $host -}}
+{{- $scheme = "https" -}}
+{{- else if and (hasPrefix "*." .) (hasSuffix $suffix $host) (not (contains "." (trimSuffix $suffix $host))) -}}
+{{- $scheme = "https" -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- $externalURLs = append $externalURLs (printf "%s://%s" $scheme $host) -}}
+{{- end -}}
+{{- end -}}
+{{- range $externalURLs -}}
+{{- if and (not $externalURL) (hasPrefix "https://" .) (not (contains "://*" .)) -}}
+{{- $externalURL = . -}}
+{{- end -}}
+{{- end -}}
+{{- range $externalURLs -}}
+{{- if and (not $externalURL) (not (contains "://*" .)) -}}
+{{- $externalURL = . -}}
+{{- end -}}
 {{- end -}}
 {{- /*
   The in-cluster URL. Templated from the release name, the namespace and the
@@ -20,16 +80,39 @@
 {{- $clusterURL := printf "http://%s.%s.svc:%v" $fullName .Release.Namespace $port -}}
 {{- $spokeURL := $externalURL | default $clusterURL -}}
 Shepherd has been deployed!
-{{ if $externalURL }}
-Access URL: {{ $externalURL }}
+{{ if $externalURLs }}
+{{- if eq (len $externalURLs) 1 }}
+Access URL: {{ first $externalURLs }}
+{{- else }}
+Access URLs:
+{{- range $externalURLs }}
+  {{ . }}
+{{- end }}
+{{- end }}
+{{- if $schemeAssumed }}
+(https is assumed: the HTTPRoute's Gateway listener decides the scheme. If it
+is an HTTP listener, set route.scheme: http so these URLs are right.)
+{{- end }}
 {{- else if eq .Values.service.type "NodePort" }}
-Access it on any node's address, at the NodePort Kubernetes assigned:
+Shepherd serves plain HTTP; a NodePort exposes it as is. Access it on any
+node's address, at the NodePort Kubernetes assigned:
+
+{{- if .Values.service.nodePort }}
+
+  http://<node-address>:{{ .Values.service.nodePort }}
+{{- else }}
 
   kubectl get svc {{ $fullName }} -n {{ .Release.Namespace }} -o jsonpath='{.spec.ports[0].nodePort}'
+
+Then open http://<node-address>:<node-port>
+{{- end }}
 {{- else if eq .Values.service.type "LoadBalancer" }}
-Access it at the load balancer's address, once the cloud provider assigns one:
+Shepherd serves plain HTTP; a LoadBalancer Service exposes it as is. Access it
+at the load balancer's address, once the cloud provider assigns one:
 
   kubectl get svc {{ $fullName }} -n {{ .Release.Namespace }} -w
+
+Then open http://<external-address>:{{ $port }}
 {{- else }}
 No Ingress or HTTPRoute is enabled, so reach it by forwarding a local port:
 
@@ -58,7 +141,10 @@ Add a collector spoke (Alloy remotecfg block):
     }
     poll_frequency = "60s"
   }
-{{ if not $externalURL }}
+{{ if and (not $externalURL) $externalURLs }}
+That url only resolves from inside the cluster: every host above is a
+wildcard. Collectors outside it use one name the wildcard matches instead.
+{{ else if not $externalURL }}
 That url only resolves from inside the cluster. Collectors outside it need an
 Ingress or an HTTPRoute -- see `ingress` and `route` in values.yaml.
 {{ end }}

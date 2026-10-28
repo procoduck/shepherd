@@ -36,6 +36,7 @@ React 19 / TypeScript 7 / Vite 8 SPA embedded via go:embed, PostgreSQL 16. Spec:
 - `internal/graph/`, `internal/ado/`, `internal/gitsync/`, `internal/gitrepo/` — Entra Graph, ADO auth, repo sync, git transport
 - `internal/visual/`, `internal/schema/` — graph→Alloy renderer (+ `CheckPortShapes`, the list-shape wiring check Stage 2 runs), component schema artifact + overlay
 - `internal/simulate/`, `internal/simsvc/`, `internal/netshape/` — S2/S3 simulation transform (DB-free), sandbox simulator service, host-literal analysis; `cmd/shepherd-simulator` is the simulator binary
+- `internal/pipelinesource/` — `Source`, the typed `pipelines.source` (ui/wizard/git/visual) the sqlc models use via a `sqlc.yaml` column override; a leaf so `internal/store/sqlc` can import it
 - `internal/signals/` — derives a pipeline's signal set from Alloy syntax + the schema; holds the role→allowed-signals policy `internal/merge` enforces
 - `internal/gateway/` — Gateway API contract (version/channel), HTTPRoute rendering, route segments, tenant-id rule, in-cluster apply with attachment verification
 - `internal/receiver/` — receiver-tier Alloy pipelines (OTLP/Faro), including D10 pass-through tenancy

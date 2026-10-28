@@ -8,9 +8,11 @@ make e2e-k8s          # build images, create cluster, run, destroy
 make e2e-k8s-clean    # remove clusters a killed run left behind
 ```
 
-The suite is fourteen `func Test*` entries today (`grep -h '^func Test' e2e/k8s/*_test.go | grep -vc TestMain`:
+The suite is fifteen features today (`grep -c 'testenv.Test(' e2e/k8s/*_test.go`; the untagged
+`previous_chart_test.go` holds plain unit tests of the upgrade spec's version choice, which also run
+under `go test ./...`):
 CNI negative control, Helm install with defaults, Helm install with the simulator on, repeatable
-install, chart-provisioned CNPG/ESO dependencies, simulator containment probes, simulator
+install, upgrade from the previous published chart (`helm_upgrade_test.go`, #425 — see below), chart-provisioned CNPG/ESO dependencies, simulator containment probes, simulator
 containment kill probe, Gateway operator-owned attachment, Gateway route conformance/tenant
 isolation, receiver-tier pass-through tenancy through a real Alloy (R3, `receiver_tenancy_test.go`), tenant-route apply — a route created through the Connect API applied by Shepherd's reconciler under the chart's RBAC (`tenant_route_apply_test.go`), chart-values G10 — generated values installed with the real k8s-monitoring chart register a collector that is served a pipeline (`chart_values_test.go`), destination Secret auth — a `basic_secret` destination's Secret, read by a real Alloy with namespace-scoped RBAC, authenticates its remote-write requests (`destination_auth_test.go`, #229), destination tenant and TLS — a real Alloy trusts a private CA from a ConfigMap and a Secret, presents a client certificate from a `kubernetes.io/tls` Secret to a sink that requires one, honours `server_name`, and sends each destination's tenant on remote-write and Loki pushes, while a wrong-CA destination delivers nothing (`destination_tls_test.go`, #261)). Measured 2026-09-15 on CI run 34973037471 (the v0.7.0 release PR): the `make e2e-k8s`
 step took 14 min including both image builds, cluster create and destroy; the whole job 16 min.
@@ -114,8 +116,18 @@ silently pulling something else from a registry.
   itself is still not a runtime parameter.
 - **No LGTM layer yet.** Until it exists, "the pipeline is correct" still does not mean "the data
   arrived" — see `docs/kind-test-environment-plan.md` §5 Layer C.
-- **Chart upgrade coverage installs the same version twice.** A true previous-version upgrade spec
-  is still unwritten, although released charts to upgrade *from* now exist (0.9.0 through 0.11.0).
+- **The previous-version upgrade needs network.** `TestHelmChartUpgradesFromPreviousRelease`
+  installs the highest released chart below `Chart.yaml`'s version from
+  `oci://ghcr.io/procoduck/charts/shepherd` (listed anonymously through the registry API; an
+  `-rc.N` tree upgrades from the last release, never its own earlier rc), with that release's own
+  image pulled by the kind nodes, seeds an org, an agent token, a claimed collector and an enabled
+  pipeline, then upgrades to the tree's chart and `shepherd:local`. It asserts the release reports
+  the tree's chart, `schema_migrations` is at the tree's latest migration and clean, `/readyz` is
+  ok, the org and pipeline are unchanged and the collector, on its pre-upgrade token, is still
+  served the pipeline. Offline it **skips** with the reason (`SKIP previous-release upgrade`);
+  with `CI=true` an unreachable registry fails instead, so CI cannot quietly stop running it.
+  `E2E_K8S_PREVIOUS_CHART=<version>` pins the starting version. It upgrades from one version only,
+  not every supported one.
 - **The dependency operators are pinned exactly, and only the current pin is tested.** A newer
   CloudNativePG or External Secrets could change a CRD field or a generated secret's key names
   without this suite noticing until the pin is bumped. That is the trade for testing a fixed,

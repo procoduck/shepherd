@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 
 	"github.com/jackc/pgx/v5/pgtype"
+	"shepherd/internal/pipelinesource"
 )
 
 const createPipeline = `-- name: CreatePipeline :one
@@ -19,20 +20,20 @@ RETURNING id, org_id, name, contents, matchers, enabled, source, wizard_kind, wi
 `
 
 type CreatePipelineParams struct {
-	OrgID              pgtype.UUID     `json:"org_id"`
-	Name               string          `json:"name"`
-	Contents           string          `json:"contents"`
-	Matchers           json.RawMessage `json:"matchers"`
-	Enabled            bool            `json:"enabled"`
-	Source             string          `json:"source"`
-	WizardKind         pgtype.Text     `json:"wizard_kind"`
-	WizardState        json.RawMessage `json:"wizard_state"`
-	CreatedBy          string          `json:"created_by"`
-	UpdatedBy          string          `json:"updated_by"`
-	RepoLinkID         pgtype.UUID     `json:"repo_link_id"`
-	GitPath            pgtype.Text     `json:"git_path"`
-	OwnerTeamID        pgtype.UUID     `json:"owner_team_id"`
-	WizardRenderSha256 pgtype.Text     `json:"wizard_render_sha256"`
+	OrgID              pgtype.UUID           `json:"org_id"`
+	Name               string                `json:"name"`
+	Contents           string                `json:"contents"`
+	Matchers           json.RawMessage       `json:"matchers"`
+	Enabled            bool                  `json:"enabled"`
+	Source             pipelinesource.Source `json:"source"`
+	WizardKind         pgtype.Text           `json:"wizard_kind"`
+	WizardState        json.RawMessage       `json:"wizard_state"`
+	CreatedBy          string                `json:"created_by"`
+	UpdatedBy          string                `json:"updated_by"`
+	RepoLinkID         pgtype.UUID           `json:"repo_link_id"`
+	GitPath            pgtype.Text           `json:"git_path"`
+	OwnerTeamID        pgtype.UUID           `json:"owner_team_id"`
+	WizardRenderSha256 pgtype.Text           `json:"wizard_render_sha256"`
 }
 
 // wizard_render_sha256 ($14): sha256 of contents when a wizard wrote them
@@ -407,26 +408,26 @@ ORDER BY p.name
 `
 
 type ListEnabledPipelinesForMergeRow struct {
-	ID                  pgtype.UUID        `json:"id"`
-	OrgID               pgtype.UUID        `json:"org_id"`
-	Name                string             `json:"name"`
-	Contents            string             `json:"contents"`
-	Matchers            json.RawMessage    `json:"matchers"`
-	Enabled             bool               `json:"enabled"`
-	Source              string             `json:"source"`
-	WizardKind          pgtype.Text        `json:"wizard_kind"`
-	WizardState         json.RawMessage    `json:"wizard_state"`
-	RepoLinkID          pgtype.UUID        `json:"repo_link_id"`
-	GitPath             pgtype.Text        `json:"git_path"`
-	CreatedBy           string             `json:"created_by"`
-	UpdatedBy           string             `json:"updated_by"`
-	CreatedAt           pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
-	SanitizedName       pgtype.Text        `json:"sanitized_name"`
-	OwnerTeamID         pgtype.UUID        `json:"owner_team_id"`
-	WizardRenderSha256  pgtype.Text        `json:"wizard_render_sha256"`
-	RepoLinkCollectorID pgtype.UUID        `json:"repo_link_collector_id"`
-	CurrentRevision     int32              `json:"current_revision"`
+	ID                  pgtype.UUID           `json:"id"`
+	OrgID               pgtype.UUID           `json:"org_id"`
+	Name                string                `json:"name"`
+	Contents            string                `json:"contents"`
+	Matchers            json.RawMessage       `json:"matchers"`
+	Enabled             bool                  `json:"enabled"`
+	Source              pipelinesource.Source `json:"source"`
+	WizardKind          pgtype.Text           `json:"wizard_kind"`
+	WizardState         json.RawMessage       `json:"wizard_state"`
+	RepoLinkID          pgtype.UUID           `json:"repo_link_id"`
+	GitPath             pgtype.Text           `json:"git_path"`
+	CreatedBy           string                `json:"created_by"`
+	UpdatedBy           string                `json:"updated_by"`
+	CreatedAt           pgtype.Timestamptz    `json:"created_at"`
+	UpdatedAt           pgtype.Timestamptz    `json:"updated_at"`
+	SanitizedName       pgtype.Text           `json:"sanitized_name"`
+	OwnerTeamID         pgtype.UUID           `json:"owner_team_id"`
+	WizardRenderSha256  pgtype.Text           `json:"wizard_render_sha256"`
+	RepoLinkCollectorID pgtype.UUID           `json:"repo_link_collector_id"`
+	CurrentRevision     int32                 `json:"current_revision"`
 }
 
 // ListEnabledPipelinesForMerge returns the org's enabled pipelines together with the
@@ -526,11 +527,11 @@ WHERE org_id = $1
 `
 
 type ListPipelineSanitizedNamesByOrgRow struct {
-	ID            pgtype.UUID `json:"id"`
-	Name          string      `json:"name"`
-	SanitizedName pgtype.Text `json:"sanitized_name"`
-	Source        string      `json:"source"`
-	RepoLinkID    pgtype.UUID `json:"repo_link_id"`
+	ID            pgtype.UUID           `json:"id"`
+	Name          string                `json:"name"`
+	SanitizedName pgtype.Text           `json:"sanitized_name"`
+	Source        pipelinesource.Source `json:"source"`
+	RepoLinkID    pgtype.UUID           `json:"repo_link_id"`
 }
 
 // Every pipeline of an org with its sanitised name (the column the unique

@@ -21,6 +21,7 @@ import (
 
 	"shepherd/internal/auth"
 	"shepherd/internal/config"
+	"shepherd/internal/pipelinesource"
 	"shepherd/internal/store"
 	"shepherd/internal/store/sqlc"
 )
@@ -700,7 +701,7 @@ var _ = Describe("Destination changes reach wizard pipelines (#262)", Label("int
 				"contents": edited, "matchers": []string{`role="singleton"`},
 			})
 			Expect(code).To(Equal(http.StatusOK), "%v", out)
-			Expect(pipeline(used.ID).Source).To(Equal("wizard"), "an editor save keeps the pipeline a wizard pipeline")
+			Expect(pipeline(used.ID).Source).To(Equal(pipelinesource.Wizard), "an editor save keeps the pipeline a wizard pipeline")
 			Expect(pipeline(used.ID).WizardRenderSha256.Valid).To(BeFalse(), "an editor edit clears the render fingerprint")
 
 			code, out = updateDest(mimir, map[string]any{"url": newURL})

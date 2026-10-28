@@ -691,6 +691,15 @@
           "items": {
             "type": "object"
           }
+        },
+        "scheme": {
+          "description": "The scheme the Gateway listener serves the hostnames on, for the URLs NOTES prints. Empty infers it from the first parentRef's port (80 is http, otherwise https).",
+          "type": "string",
+          "enum": [
+            "",
+            "http",
+            "https"
+          ]
         }
       }
     },

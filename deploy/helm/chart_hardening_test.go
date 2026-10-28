@@ -365,15 +365,15 @@ var _ = Describe("chart hardening", func() {
 
 		It("points collectors at the ingress when there is one", func() {
 			out := renderNotes("fleet", "ingress:\n  enabled: true\n  hosts:\n    - host: shep.example.com\n      paths:\n        - path: /\n")
-			Expect(out).To(ContainSubstring("https://shep.example.com"))
-			Expect(out).NotTo(ContainSubstring("shep.example.comhttps://"))
+			Expect(out).To(ContainSubstring("://shep.example.com"))
+			Expect(out).NotTo(ContainSubstring("shep.example.comhttp"))
 			Expect(out).NotTo(ContainSubstring("http://fleet-shepherd."),
 				"an ingress is configured but collectors are still sent to the in-cluster name")
 		})
 
 		It("uses one hostname when several are configured", func() {
 			out := renderNotes("fleet", "route:\n  enabled: true\n  hostnames:\n    - a.example.com\n    - b.example.com\n")
-			Expect(out).To(ContainSubstring("https://a.example.com"))
+			Expect(out).To(ContainSubstring(`url = "https://a.example.com"`))
 			Expect(out).NotTo(ContainSubstring("a.example.comhttps://b.example.com"))
 		})
 
@@ -381,6 +381,104 @@ var _ = Describe("chart hardening", func() {
 			out := renderNotes("fleet", "service:\n  type: NodePort\n")
 			Expect(out).To(ContainSubstring("nodePort"))
 			Expect(out).NotTo(ContainSubstring("port-forward"))
+		})
+
+		// #425: every URL NOTES prints carries the scheme the exposure really
+		// serves. It used to print https:// for every Ingress and HTTPRoute,
+		// TLS or not, so a collector pasted from it failed its first poll.
+		Describe("URL schemes", func() {
+			ingress := func(tls string) string {
+				return "ingress:\n  enabled: true\n  hosts:\n" +
+					"    - host: a.example.com\n      paths: [{path: /}]\n" +
+					"    - host: b.example.com\n      paths: [{path: /}]\n" + tls
+			}
+
+			It("prints http for an Ingress host no TLS entry covers", func() {
+				out := renderNotes("fleet", ingress(""))
+				Expect(out).To(ContainSubstring("http://a.example.com"))
+				Expect(out).To(ContainSubstring("http://b.example.com"))
+				Expect(out).NotTo(ContainSubstring("https://"))
+				Expect(out).To(ContainSubstring(`url = "http://a.example.com"`))
+			})
+
+			It("prints https only for the Ingress hosts a TLS entry lists", func() {
+				out := renderNotes("fleet", ingress("  tls:\n    - secretName: b-tls\n      hosts: [b.example.com]\n"))
+				Expect(out).To(ContainSubstring("http://a.example.com"))
+				Expect(out).To(ContainSubstring("https://b.example.com"))
+				Expect(out).NotTo(ContainSubstring("https://a.example.com"))
+				// Collectors send their token to the spoke URL, so it is the
+				// first TLS host's, not merely the first host's.
+				Expect(out).To(ContainSubstring(`url = "https://b.example.com"`))
+			})
+
+			It("counts a TLS wildcard as covering the names one label under it", func() {
+				out := renderNotes("fleet", ingress("  tls:\n    - secretName: w\n      hosts: [\"*.example.com\"]\n"))
+				Expect(out).To(ContainSubstring("https://a.example.com"))
+				Expect(out).To(ContainSubstring("https://b.example.com"))
+				deeper := renderNotes("fleet", "ingress:\n  enabled: true\n  hosts:\n    - host: x.a.example.com\n      paths: [{path: /}]\n"+
+					"  tls:\n    - secretName: w\n      hosts: [\"*.example.com\"]\n")
+				Expect(deeper).To(ContainSubstring("http://x.a.example.com"))
+				Expect(deeper).NotTo(ContainSubstring("https://"))
+			})
+
+			It("treats a TLS entry with no hosts as covering every host", func() {
+				// Kubernetes: an empty tls.hosts defaults to the controller's
+				// wildcard certificate.
+				out := renderNotes("fleet", ingress("  tls:\n    - secretName: default-tls\n"))
+				Expect(out).To(ContainSubstring("https://a.example.com"))
+				Expect(out).To(ContainSubstring("https://b.example.com"))
+			})
+
+			It("does not send collectors to a wildcard host", func() {
+				out := renderNotes("fleet", "ingress:\n  enabled: true\n  hosts:\n    - host: \"*.example.com\"\n      paths: [{path: /}]\n"+
+					"    - host: c.example.com\n      paths: [{path: /}]\n")
+				Expect(out).To(ContainSubstring(`url = "http://c.example.com"`))
+				only := renderNotes("fleet", "ingress:\n  enabled: true\n  hosts:\n    - host: \"*.example.com\"\n      paths: [{path: /}]\n")
+				Expect(only).To(ContainSubstring(`url = "http://fleet-shepherd.`))
+			})
+
+			It("prints https for an HTTPRoute by default, and says it assumed it", func() {
+				out := renderNotes("fleet", "route:\n  enabled: true\n  hostnames: [a.example.com]\n  parentRefs: [{name: gw}]\n")
+				Expect(out).To(ContainSubstring("https://a.example.com"))
+				Expect(out).To(ContainSubstring("route.scheme"))
+			})
+
+			It("prints http for an HTTPRoute attached to port 80", func() {
+				out := renderNotes("fleet", "route:\n  enabled: true\n  hostnames: [a.example.com]\n  parentRefs: [{name: gw, port: 80}]\n")
+				Expect(out).To(ContainSubstring(`url = "http://a.example.com"`))
+				Expect(out).NotTo(ContainSubstring("https://"))
+			})
+
+			It("prints https for an HTTPRoute attached to port 443 without a hint", func() {
+				out := renderNotes("fleet", "route:\n  enabled: true\n  hostnames: [a.example.com]\n  parentRefs: [{name: gw, port: 443}]\n")
+				Expect(out).To(ContainSubstring(`url = "https://a.example.com"`))
+				Expect(out).NotTo(ContainSubstring("route.scheme"))
+			})
+
+			It("lets route.scheme override the inference", func() {
+				out := renderNotes("fleet", "route:\n  enabled: true\n  scheme: http\n  hostnames: [a.example.com]\n  parentRefs: [{name: gw, port: 443}]\n")
+				Expect(out).To(ContainSubstring(`url = "http://a.example.com"`))
+				Expect(out).NotTo(ContainSubstring("https://"))
+			})
+
+			It("prints http for NodePort and LoadBalancer, which reach Shepherd's plain-HTTP port", func() {
+				np := renderNotes("fleet", "service:\n  type: NodePort\n  nodePort: 30080\n")
+				Expect(np).To(ContainSubstring("http://<node-address>:30080"))
+				npAuto := renderNotes("fleet", "service:\n  type: NodePort\n")
+				Expect(npAuto).To(ContainSubstring("http://<node-address>:<node-port>"))
+				lb := renderNotes("fleet", "service:\n  type: LoadBalancer\n  port: 9000\n")
+				Expect(lb).To(ContainSubstring("http://<external-address>:9000"))
+				for _, out := range []string{np, npAuto, lb} {
+					Expect(out).NotTo(ContainSubstring("https://"))
+				}
+			})
+
+			It("prints http for port-forward and the in-cluster URL", func() {
+				out := renderNotes("fleet", "")
+				Expect(out).To(ContainSubstring("http://127.0.0.1:8080"))
+				Expect(out).To(ContainSubstring(`url = "http://fleet-shepherd.`))
+				Expect(out).NotTo(ContainSubstring("https://"))
+			})
 		})
 
 		It("says how to read the password it just generated", func() {

@@ -7,6 +7,7 @@ import (
 	"connectrpc.com/connect"
 
 	mgmtv1 "shepherd/gen/shepherd/mgmt/v1"
+	"shepherd/internal/pipelinesource"
 	"shepherd/internal/store/sqlc"
 )
 
@@ -44,7 +45,7 @@ func (s *PipelineService) DetachFromWizard(ctx context.Context, req *connect.Req
 	if err := s.authorizeOwnership(ctx, req.Msg.GetOrgId(), pipelineOwnerTeamID(p)); err != nil {
 		return nil, err
 	}
-	if p.Source != "wizard" || !p.WizardKind.Valid {
+	if p.Source != pipelinesource.Wizard || !p.WizardKind.Valid {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, errNotWizardPipeline)
 	}
 

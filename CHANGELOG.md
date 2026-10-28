@@ -43,6 +43,20 @@ Categories used here:
   attribute needs 8 and 114), resolution is linear in its segments, and the overlay copies each
   container once per node however many bindings it carries.
 
+### Fixed
+
+- **The chart's install notes print each URL's real scheme.** Shipped. `NOTES.txt` printed
+  `https://` for every Ingress host and HTTPRoute hostname whether or not anything terminated TLS,
+  so a remotecfg block pasted from it failed its first poll. An Ingress host is now `https` only
+  when an `ingress.tls` entry covers it (its exact name, a `*.parent` wildcard one label above it,
+  or an entry with no `hosts`, which Kubernetes applies to every host) and `http` otherwise. An
+  HTTPRoute's scheme is the new `route.scheme` value (`http` or `https`); left empty it is `http`
+  when the first `parentRef` names port 80, `https` when it names 443, and otherwise `https` with
+  a line saying it was assumed. Every hostname is listed with its scheme, and the collector spoke
+  URL is the first TLS host that is not a wildcard, else the first non-wildcard host, else the
+  in-cluster URL. NodePort, LoadBalancer and port-forward instructions now spell out the `http://`
+  URL to open. Chart notes only: no rendered object changes. (#425)
+
 ### Changed
 
 - **Builder contrast (#426, axe).** The dark `--color-muted-2` caption tone moved from `#71717a`
@@ -51,6 +65,14 @@ Categories used here:
   "Compatible with" chip uses a new AA `--color-accent-text` token; the toolbar validity chip and
   the Problems tab use the `ok`/`danger` status tones; the binding picker's source select and key
   input are labelled; the palette's "Show all components" button meets the 24px target size.
+- **`pipelines.source` is a Go type.** `pipelinesource.Source` (`ui`, `wizard`, `git`, `visual`)
+  replaces the plain string in the sqlc models (a `sqlc.yaml` column override), the merge engine,
+  served-config provenance, git sync, the wizard and pipeline services and the dev seed, so the
+  `exhaustive` linter checks every switch over it; a test fails when the constants and the
+  column's CHECK constraint disagree. The one behaviour change: `CreatePipeline` and
+  `UpdatePipeline` refuse a `source` outside those four as `invalid_argument` instead of a
+  constraint violation answered as `internal`. No migration, no proto change, and served configs
+  are byte-identical. (#425)
 
 ### Tests
 
@@ -62,6 +84,18 @@ Categories used here:
   cancelling and deleting a wire, moving and deleting a node, the focus ring and the shortcut
   sheet. A `bindings-nested` corpus entry, validated by the real pinned `alloy validate`, and
   render/parse round-trip specs pin nested bindings on both renderers.
+- **The kind suite upgrades from the previous published chart.** `e2e-k8s` gains a fifteenth
+  feature, `TestHelmChartUpgradesFromPreviousRelease` (`e2e/k8s/helm_upgrade_test.go`): it
+  installs the highest released chart below the tree's `Chart.yaml` version from
+  `oci://ghcr.io/procoduck/charts/shepherd` (an `-rc.N` tree upgrades from the last release, never
+  its own earlier rc; `E2E_K8S_PREVIOUS_CHART` overrides it) with that release's own images, seeds
+  an org, an agent token, a claimed collector and an enabled pipeline through it, then `helm
+  upgrade`s to the tree's chart and images and checks the release reports the tree's chart, the
+  schema is at the tree's latest migration and not dirty, `/readyz` is ok, the org and pipeline
+  are unchanged, and the collector, polling on its pre-upgrade token, is still served the
+  pipeline. It pulls from ghcr.io: offline it skips with the reason, in CI an unreachable
+  registry fails it. The version choice is unit-tested on every `go test ./...`. (#425)
+
 
 ## v0.21.0-rc.1 (prerelease)
 
