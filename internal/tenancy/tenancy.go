@@ -74,6 +74,34 @@ func (p Policy) OwnsRoute(kind, segment string) bool {
 	return routeOwner(p.Routes, p.Owns)(kind, segment)
 }
 
+// routeUnusable says why the org's own route of kind with segment does not
+// route for it (revoked, or on a tenant it no longer owns), or "" when it
+// does, or when segment is not one of the org's routes (another org's, or
+// none: the answer reveals nothing about which).
+func routeUnusable(routes []Route, ownsTenant func(string) bool) func(kind, segment string) string {
+	return func(kind, segment string) string {
+		for _, r := range routes {
+			if r.Kind != kind || r.Segment != segment {
+				continue
+			}
+			st, err := gateway.ParseRouteStatus(r.Status)
+			if err != nil {
+				return ""
+			}
+			switch st {
+			case gateway.RouteRevoked:
+				return "it is revoked"
+			case gateway.RouteActive, gateway.RouteDeprecated:
+				if !ownsTenant(r.Tenant) {
+					return fmt.Sprintf("its tenant %q is no longer one the organisation owns", r.Tenant)
+				}
+			}
+			return ""
+		}
+		return ""
+	}
+}
+
 func routeOwner(routes []Route, ownsTenant func(string) bool) func(kind, segment string) bool {
 	return func(kind, segment string) bool {
 		for _, r := range routes {
@@ -272,7 +300,9 @@ func (p Policy) Validation(q *sqlc.Queries, src pinnedimport.Source) validate.Te
 	return validate.TenantPolicy{
 		Strict: true, Owns: p.Owns, Git: src.Modules(q, p.OrgID, p.ImportRepos), Inline: inliner(q, p.OrgID, p.ImportRepos),
 		AllowedComponents: componentSet(p.AllowedComponents),
-		Gateway:           validate.GatewayRoutes{Hosts: p.GatewayHosts, Owns: p.OwnsRoute, RoutesInUse: p.RoutesInUse},
+		Gateway: validate.GatewayRoutes{
+			Hosts: p.GatewayHosts, Owns: p.OwnsRoute, Unusable: routeUnusable(p.Routes, p.Owns), RoutesInUse: p.RoutesInUse,
+		},
 	}
 }
 
@@ -598,7 +628,10 @@ func OrphanedPipelines(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, 
 		Git: pinnedimport.Cached.Modules(q, orgID, repos), Inline: inliner(q, orgID, repos),
 		AllowedComponents: componentSet(components),
 		// A route whose tenant is removed is no longer one of the org's.
-		Gateway: validate.GatewayRoutes{Hosts: GatewayHosts(), Owns: routeOwner(routes, ownsTenant), RoutesInUse: inUse},
+		Gateway: validate.GatewayRoutes{
+			Hosts: GatewayHosts(), Owns: routeOwner(routes, ownsTenant), Unusable: routeUnusable(routes, ownsTenant),
+			RoutesInUse: inUse,
+		},
 	}
 	var out []string
 	for i := range pipelines {

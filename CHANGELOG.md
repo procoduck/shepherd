@@ -159,6 +159,14 @@ additive; non-strict orgs are served the same bytes.
   also notes that an allowed public-preview or experimental component still needs the
   collector's `--stability.level` (Alloy refuses it and keeps the previous config; Shepherd records
   a `collector.version_warning` naming the flag).
+- **A refusal for the organisation's own unusable route says why.** Shipped. An endpoint under
+  one of the organisation's own route segments that no longer routes for it was refused as "not
+  one of this organisation's tenant routes". It now says "…which is this organisation's route,
+  but it is revoked" or "…but its tenant "x" is no longer one the organisation owns". Another
+  organisation's segment keeps the neutral wording and names no owner. The reason is also printed
+  in the served header's strict tenant exclusions, so the served text changes only for a strict
+  org's collectors with such an exclusion (they reload once). The message is new in 0.21 and was
+  never released; hashing and `serve.Format` are unchanged.
 - **A served-config highlight can be linked to.** Shipped. The collector page keeps its tab and
   the Pipelines tab's "Lines N–M" highlight in the URL (`?tab=config&lines=31-36`); opening such a
   link highlights the block and scrolls to it.

@@ -58,6 +58,11 @@ type GatewayRoutes struct {
 	// Owns reports whether the org owns the route of kind ("otlp" or
 	// "faro") with this segment. A nil Owns owns none.
 	Owns func(kind, segment string) bool
+	// Unusable, for a route of the org's own that Owns refuses, says why
+	// ("it is revoked"); "" for a segment that is not one of the org's
+	// routes, which says nothing about whose it is. A nil Unusable knows
+	// none.
+	Unusable func(kind, segment string) string
 	// RoutesInUse is whether the installation has a live (not revoked)
 	// tenant route: an endpoint the lint cannot read is then refused.
 	RoutesInUse bool
@@ -515,6 +520,12 @@ func (g GatewayRoutes) foreignRoute(p string) string {
 		}
 		kind, seg := strings.ToLower(segs[0]), strings.ToLower(segs[1])
 		if routeKinds[kind] && IsRouteSegmentShape(seg) && !g.owns(kind, seg) {
+			if g.Unusable != nil {
+				if why := g.Unusable(kind, seg); why != "" {
+					return fmt.Sprintf("its path is under the %s route segment %q, which is this organisation's "+
+						"route, but %s", kind, seg, why)
+				}
+			}
 			return fmt.Sprintf("its path is under the %s route segment %q, which is not one of this organisation's "+
 				"tenant routes", kind, seg)
 		}
