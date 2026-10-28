@@ -138,6 +138,12 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 		}
 	}
 
+	// Strict tenant mode checks gateway route endpoints against the hosts
+	// the tenant-route gateway answers to: set them for every policy this
+	// process loads, before anything checks a pipeline.
+	if err := tenancy.ConfigureGateway(cfg.Gateway.Routes); err != nil {
+		return nil, fmt.Errorf("configuration errors:\n  - %w", err)
+	}
 	st, err := store.New(context.Background(), &cfg.Database, logger)
 	if err != nil {
 		return nil, fmt.Errorf("connecting to database: %w", err)

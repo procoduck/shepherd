@@ -8,9 +8,18 @@
 //
 //	POST /loki/api/v1/push  Loki push (PushRequest), one label set per stream
 //	POST /api/v1/push       remote write (WriteRequest), one per series
+//	POST /routes            register a tenant route: {"kind", "segment", "tenant"}
+//	POST /{kind}/{segment}/…  a push through a registered route (below)
 //	POST anything else      recorded with no label sets
 //	GET  /records           every record so far, as JSON
 //	GET  /healthz           200
+//
+// It also plays Shepherd's tenant-route gateway (internal/gateway
+// RenderHTTPRoute), so the suite can point a collector at "the gateway": a
+// push under /{kind}/{segment} of a registered route is recorded under that
+// route's tenant, whatever X-Scope-OrgID it carried (the gateway sets the
+// header), and decoded with the prefix stripped (its URL rewrite). A push
+// under /otlp/… or /faro/… of no registered route is not found.
 package main
 
 import (
@@ -42,6 +51,43 @@ type Record struct {
 type sink struct {
 	mu      sync.Mutex
 	records []Record
+	// routes are the registered tenant routes, "kind/segment" -> tenant.
+	routes map[string]string
+}
+
+// addRoute registers a tenant route.
+func (s *sink) addRoute(w http.ResponseWriter, r *http.Request) {
+	var rt struct{ Kind, Segment, Tenant string }
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&rt); err != nil ||
+		(rt.Kind != "otlp" && rt.Kind != "faro") || rt.Segment == "" || rt.Tenant == "" {
+		http.Error(w, "want {kind: otlp|faro, segment, tenant}", http.StatusBadRequest)
+		return
+	}
+	s.mu.Lock()
+	if s.routes == nil {
+		s.routes = map[string]string{}
+	}
+	s.routes[rt.Kind+"/"+rt.Segment] = rt.Tenant
+	s.mu.Unlock()
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// route is the tenant of the registered route path is under and the path
+// with its prefix stripped; routed is false for a path under no route
+// prefix, known is false for one under an unregistered route.
+func (s *sink) route(path string) (tenant, rest string, routed, known bool) {
+	parts := strings.SplitN(strings.TrimPrefix(path, "/"), "/", 3)
+	if len(parts) < 2 || (parts[0] != "otlp" && parts[0] != "faro") {
+		return "", path, false, false
+	}
+	s.mu.Lock()
+	tenant, known = s.routes[parts[0]+"/"+parts[1]]
+	s.mu.Unlock()
+	rest = "/"
+	if len(parts) == 3 {
+		rest += parts[2]
+	}
+	return tenant, rest, true, known
 }
 
 func (s *sink) push(w http.ResponseWriter, r *http.Request) {
@@ -55,8 +101,16 @@ func (s *sink) push(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rec := Record{Path: r.URL.Path, Tenant: r.Header.Get("X-Scope-OrgID")}
+	path := r.URL.Path
+	if tenant, rest, routed, known := s.route(path); routed {
+		if !known {
+			http.Error(w, "no such route", http.StatusNotFound)
+			return
+		}
+		rec.Tenant, path = tenant, rest
+	}
 	var decode func([]byte) ([]map[string]string, error)
-	switch r.URL.Path {
+	switch path {
 	case "/loki/api/v1/push":
 		decode = lokiLabels
 	case "/api/v1/push":
@@ -104,6 +158,7 @@ func main() {
 	s := &sink{}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/records", s.list)
+	mux.HandleFunc("/routes", s.addRoute)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 	mux.HandleFunc("/", s.push)
 	srv := &http.Server{Addr: *listen, Handler: mux, ReadHeaderTimeout: 10 * time.Second}

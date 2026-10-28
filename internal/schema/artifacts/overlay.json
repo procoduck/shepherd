@@ -47,8 +47,11 @@
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
       },
       "strict": {
-        "class": "allowed",
-        "reason": "eBPF instrumentation emitting OTLP metrics and traces and sending nothing itself; OTLP attributes carry no tenant: a Loki label is made from them only by otelcol.exporter.loki, which the strict served form routes through a __tenant_id__ drop"
+        "class": "checked",
+        "reason": "eBPF instrumentation emitting OTLP metrics and traces; its injector tells instrumented applications where to send (exporter_otlp_endpoint); OTLP attributes carry no tenant: a Loki label is made from them only by otelcol.exporter.loki, which the strict served form routes through a __tenant_id__ drop; its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes",
+        "checks": [
+          "gateway_endpoints"
+        ]
       },
       "terminal_ok": false
     },
@@ -107,10 +110,11 @@
       "icon": "cloud",
       "strict": {
         "checks": [
+          "gateway_endpoints",
           "headers"
         ],
         "class": "checked",
-        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); the headers of its API requests are checked"
+        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); the headers of its API requests are checked; its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes"
       },
       "terminal_ok": false
     },
@@ -124,10 +128,11 @@
       "icon": "cloud",
       "strict": {
         "checks": [
+          "gateway_endpoints",
           "headers"
         ],
         "class": "checked",
-        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); the headers of its API requests are checked"
+        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); the headers of its API requests are checked; its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes"
       },
       "terminal_ok": false
     },
@@ -141,10 +146,11 @@
       "icon": "server",
       "strict": {
         "checks": [
+          "gateway_endpoints",
           "headers"
         ],
         "class": "checked",
-        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); the headers of its API requests are checked"
+        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); the headers of its API requests are checked; its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes"
       },
       "terminal_ok": false
     },
@@ -157,8 +163,11 @@
       "doc": "Discovers services from the local Consul agent.",
       "icon": "server",
       "strict": {
-        "class": "allowed",
-        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); it sends no data"
+        "class": "checked",
+        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); it sends no data; its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes",
+        "checks": [
+          "gateway_endpoints"
+        ]
       },
       "terminal_ok": false
     },
@@ -172,10 +181,11 @@
       "icon": "cloud",
       "strict": {
         "checks": [
+          "gateway_endpoints",
           "headers"
         ],
         "class": "checked",
-        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); the headers of its API requests are checked"
+        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); the headers of its API requests are checked; its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes"
       },
       "terminal_ok": false
     },
@@ -206,10 +216,11 @@
       ],
       "strict": {
         "checks": [
+          "gateway_endpoints",
           "headers"
         ],
         "class": "checked",
-        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); the headers of its API requests are checked"
+        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); the headers of its API requests are checked; its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes"
       },
       "terminal_ok": false
     },
@@ -223,10 +234,11 @@
       "icon": "docker",
       "strict": {
         "checks": [
+          "gateway_endpoints",
           "headers"
         ],
         "class": "checked",
-        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); the headers of its API requests are checked"
+        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); the headers of its API requests are checked; its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes"
       },
       "terminal_ok": false
     },
@@ -243,10 +255,11 @@
       ],
       "strict": {
         "checks": [
+          "gateway_endpoints",
           "headers"
         ],
         "class": "checked",
-        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); the headers of its API requests are checked"
+        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); the headers of its API requests are checked; its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes"
       },
       "terminal_ok": false
     },
@@ -260,10 +273,11 @@
       "icon": "server",
       "strict": {
         "checks": [
+          "gateway_endpoints",
           "headers"
         ],
         "class": "checked",
-        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); the headers of its API requests are checked"
+        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); the headers of its API requests are checked; its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes"
       },
       "terminal_ok": false
     },
@@ -305,10 +319,11 @@
       "icon": "cloud",
       "strict": {
         "checks": [
+          "gateway_endpoints",
           "headers"
         ],
         "class": "checked",
-        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); the headers of its API requests are checked"
+        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); the headers of its API requests are checked; its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes"
       },
       "terminal_ok": false
     },
@@ -322,10 +337,11 @@
       "icon": "server",
       "strict": {
         "checks": [
+          "gateway_endpoints",
           "headers"
         ],
         "class": "checked",
-        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); the headers of its API requests are checked"
+        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); the headers of its API requests are checked; its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes"
       },
       "terminal_ok": false
     },
@@ -339,10 +355,11 @@
       "icon": "cloud",
       "strict": {
         "checks": [
+          "gateway_endpoints",
           "headers"
         ],
         "class": "checked",
-        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); the headers of its API requests are checked"
+        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); the headers of its API requests are checked; its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes"
       },
       "terminal_ok": false
     },
@@ -356,10 +373,11 @@
       "icon": "k8s",
       "strict": {
         "checks": [
+          "gateway_endpoints",
           "headers"
         ],
         "class": "checked",
-        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); the headers of its API requests are checked"
+        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); the headers of its API requests are checked; its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes"
       },
       "terminal_ok": false
     },
@@ -448,10 +466,11 @@
       ],
       "strict": {
         "checks": [
+          "gateway_endpoints",
           "headers"
         ],
         "class": "checked",
-        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); the headers of its API requests are checked"
+        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); the headers of its API requests are checked; its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes"
       },
       "terminal_ok": false
     },
@@ -465,10 +484,11 @@
       "icon": "server",
       "strict": {
         "checks": [
+          "gateway_endpoints",
           "headers"
         ],
         "class": "checked",
-        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); the headers of its API requests are checked"
+        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); the headers of its API requests are checked; its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes"
       },
       "terminal_ok": false
     },
@@ -482,10 +502,11 @@
       "icon": "cloud",
       "strict": {
         "checks": [
+          "gateway_endpoints",
           "headers"
         ],
         "class": "checked",
-        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); the headers of its API requests are checked"
+        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); the headers of its API requests are checked; its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes"
       },
       "terminal_ok": false
     },
@@ -499,10 +520,11 @@
       "icon": "cloud",
       "strict": {
         "checks": [
+          "gateway_endpoints",
           "headers"
         ],
         "class": "checked",
-        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); the headers of its API requests are checked"
+        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); the headers of its API requests are checked; its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes"
       },
       "terminal_ok": false
     },
@@ -516,10 +538,11 @@
       "icon": "server",
       "strict": {
         "checks": [
+          "gateway_endpoints",
           "headers"
         ],
         "class": "checked",
-        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); the headers of its API requests are checked"
+        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); the headers of its API requests are checked; its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes"
       },
       "terminal_ok": false
     },
@@ -532,8 +555,11 @@
       "doc": "Discovers Nerve services via Zookeeper.",
       "icon": "server",
       "strict": {
-        "class": "allowed",
-        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); it sends no data"
+        "class": "checked",
+        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); it sends no data; its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes",
+        "checks": [
+          "gateway_endpoints"
+        ]
       },
       "terminal_ok": false
     },
@@ -547,10 +573,11 @@
       "icon": "server",
       "strict": {
         "checks": [
+          "gateway_endpoints",
           "headers"
         ],
         "class": "checked",
-        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); the headers of its API requests are checked"
+        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); the headers of its API requests are checked; its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes"
       },
       "terminal_ok": false
     },
@@ -563,8 +590,11 @@
       "doc": "Discovers OpenStack instances.",
       "icon": "cloud",
       "strict": {
-        "class": "allowed",
-        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); it sends no data"
+        "class": "checked",
+        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); it sends no data; its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes",
+        "checks": [
+          "gateway_endpoints"
+        ]
       },
       "terminal_ok": false
     },
@@ -577,8 +607,11 @@
       "doc": "Discovers OVHcloud VPS and dedicated servers.",
       "icon": "cloud",
       "strict": {
-        "class": "allowed",
-        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); it sends no data"
+        "class": "checked",
+        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); it sends no data; its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes",
+        "checks": [
+          "gateway_endpoints"
+        ]
       },
       "terminal_ok": false
     },
@@ -610,10 +643,11 @@
       "icon": "server",
       "strict": {
         "checks": [
+          "gateway_endpoints",
           "headers"
         ],
         "class": "checked",
-        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); the headers of its API requests are checked"
+        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); the headers of its API requests are checked; its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes"
       },
       "terminal_ok": false
     },
@@ -667,10 +701,11 @@
       "icon": "cloud",
       "strict": {
         "checks": [
+          "gateway_endpoints",
           "headers"
         ],
         "class": "checked",
-        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); the headers of its API requests are checked"
+        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); the headers of its API requests are checked; its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes"
       },
       "terminal_ok": false
     },
@@ -683,8 +718,11 @@
       "doc": "Discovers Finagle Serversets via Zookeeper.",
       "icon": "server",
       "strict": {
-        "class": "allowed",
-        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); it sends no data"
+        "class": "checked",
+        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); it sends no data; its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes",
+        "checks": [
+          "gateway_endpoints"
+        ]
       },
       "terminal_ok": false
     },
@@ -697,8 +735,11 @@
       "doc": "Discovers Triton container targets.",
       "icon": "cloud",
       "strict": {
-        "class": "allowed",
-        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); it sends no data"
+        "class": "checked",
+        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); it sends no data; its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes",
+        "checks": [
+          "gateway_endpoints"
+        ]
       },
       "terminal_ok": false
     },
@@ -712,10 +753,11 @@
       "icon": "server",
       "strict": {
         "checks": [
+          "gateway_endpoints",
           "headers"
         ],
         "class": "checked",
-        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); the headers of its API requests are checked"
+        "reason": "discovers targets, whose labels reach data only where a component takes them (that component's targets classification); the headers of its API requests are checked; its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes"
       },
       "terminal_ok": false
     },
@@ -870,12 +912,13 @@
       "sim_unsupported": "reconciles PrometheusRule objects from a live Kubernetes API into a real Loki ruler; the sandbox has neither, and its required address attribute names a production host",
       "strict": {
         "checks": [
+          "gateway_endpoints",
           "headers",
           "label_maps",
           "tenant_attributes"
         ],
         "class": "checked",
-        "reason": "syncs PrometheusRule objects to the Loki ruler under its tenant_id and headers, both checked"
+        "reason": "syncs PrometheusRule objects to the Loki ruler under its tenant_id and headers, both checked; its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes"
       },
       "terminal_ok": true
     },
@@ -961,10 +1004,11 @@
       },
       "strict": {
         "checks": [
+          "gateway_endpoints",
           "label_maps"
         ],
         "class": "checked",
-        "reason": "labels entries only with its labels map, which is checked; the log fields go into the line"
+        "reason": "labels entries only with its labels map, which is checked; the log fields go into the line; its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes"
       },
       "terminal_ok": false
     },
@@ -978,13 +1022,14 @@
       "icon": "docker",
       "strict": {
         "checks": [
+          "gateway_endpoints",
           "headers",
           "label_maps",
           "relabel_rules",
           "targets"
         ],
         "class": "checked",
-        "reason": "drops every label starting with __ from an entry after relabeling (Alloy v1.21.2 docker/tailer.go), so the data cannot set __tenant_id__; its labels, relabel_rules and API headers are checked"
+        "reason": "drops every label starting with __ from an entry after relabeling (Alloy v1.21.2 docker/tailer.go), so the data cannot set __tenant_id__; its labels, relabel_rules and API headers are checked; its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes"
       },
       "terminal_ok": false
     },
@@ -1114,11 +1159,12 @@
       ],
       "strict": {
         "checks": [
+          "gateway_endpoints",
           "headers",
           "targets"
         ],
         "class": "checked",
-        "reason": "kubetail drops every reserved label but __meta_* from a target before it labels an entry; its Kubernetes API headers are checked"
+        "reason": "kubetail drops every reserved label but __meta_* from a target before it labels an entry; its Kubernetes API headers are checked; its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes"
       },
       "terminal_ok": false
     },
@@ -1132,10 +1178,11 @@
       },
       "strict": {
         "checks": [
+          "gateway_endpoints",
           "headers"
         ],
         "class": "checked",
-        "reason": "labels events with fixed names (namespace, job, instance); its Kubernetes API headers are checked"
+        "reason": "labels events with fixed names (namespace, job, instance); its Kubernetes API headers are checked; its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes"
       },
       "terminal_ok": false
     },
@@ -1149,10 +1196,11 @@
       "icon": "k8s",
       "strict": {
         "checks": [
+          "gateway_endpoints",
           "headers"
         ],
         "class": "checked",
-        "reason": "kubetail drops every reserved label but __meta_* after the PodLogs relabelings, so neither the cluster's objects nor the logs set __tenant_id__; its Kubernetes API headers are checked"
+        "reason": "kubetail drops every reserved label but __meta_* after the PodLogs relabelings, so neither the cluster's objects nor the logs set __tenant_id__; its Kubernetes API headers are checked; its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes"
       },
       "terminal_ok": false
     },
@@ -1237,12 +1285,13 @@
       },
       "strict": {
         "checks": [
+          "gateway_endpoints",
           "headers",
           "label_maps",
           "tenant_attributes"
         ],
         "class": "checked",
-        "reason": "sends under its endpoint tenant_id, its headers' X-Scope-OrgID and each entry's __tenant_id__, each checked where it is set; its external_labels are checked"
+        "reason": "sends under its endpoint tenant_id, its headers' X-Scope-OrgID and each entry's __tenant_id__, each checked where it is set; its external_labels are checked; its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes"
       },
       "terminal_ok": true
     },
@@ -1253,10 +1302,11 @@
       "sim_unsupported": "reconciles alertmanager configuration from a live Kubernetes API into a real Mimir; the sandbox has neither, and its required address attribute names a production host",
       "strict": {
         "checks": [
+          "gateway_endpoints",
           "headers"
         ],
         "class": "checked",
-        "reason": "sends AlertmanagerConfig objects to the Mimir Alertmanager under its http_headers' X-Scope-OrgID, which is checked"
+        "reason": "sends AlertmanagerConfig objects to the Mimir Alertmanager under its http_headers' X-Scope-OrgID, which is checked; its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes"
       },
       "terminal_ok": true
     },
@@ -1267,12 +1317,13 @@
       "sim_unsupported": "reconciles PrometheusRule objects from a live Kubernetes API into a real Mimir ruler; the sandbox has neither, and its required address attribute names a production host",
       "strict": {
         "checks": [
+          "gateway_endpoints",
           "headers",
           "label_maps",
           "tenant_attributes"
         ],
         "class": "checked",
-        "reason": "syncs PrometheusRule objects to the Mimir ruler under its tenant_id and headers, both checked"
+        "reason": "syncs PrometheusRule objects to the Mimir ruler under its tenant_id and headers, both checked; its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes"
       },
       "terminal_ok": true
     },
@@ -1553,8 +1604,11 @@
       "doc": "Exports telemetry data to AWS S3 (experimental).",
       "icon": "cloud",
       "strict": {
-        "class": "allowed",
-        "reason": "writes OTLP data to an S3 bucket, SigV4-signed: no X-Scope-OrgID and no Loki label"
+        "class": "checked",
+        "reason": "writes OTLP data to an S3 bucket, SigV4-signed: no X-Scope-OrgID and no Loki label; its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes",
+        "checks": [
+          "gateway_endpoints"
+        ]
       },
       "terminal_ok": true
     },
@@ -1563,8 +1617,11 @@
       "doc": "Exports metrics and traces to Datadog (experimental).",
       "icon": "datadog",
       "strict": {
-        "class": "allowed",
-        "reason": "sends to the Datadog API with its API key: no X-Scope-OrgID and no Loki label"
+        "class": "checked",
+        "reason": "sends to the Datadog API with its API key: no X-Scope-OrgID and no Loki label; its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes",
+        "checks": [
+          "gateway_endpoints"
+        ]
       },
       "terminal_ok": true
     },
@@ -1637,10 +1694,11 @@
       },
       "strict": {
         "checks": [
+          "gateway_endpoints",
           "headers"
         ],
         "class": "checked",
-        "reason": "sends to a Faro receiver; its client headers are checked"
+        "reason": "sends to a Faro receiver; its client headers are checked; its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes"
       },
       "terminal_ok": true
     },
@@ -1686,8 +1744,11 @@
       "doc": "Exports metrics and traces to Google Cloud (experimental).",
       "icon": "cloud",
       "strict": {
-        "class": "allowed",
-        "reason": "sends to Google Cloud Monitoring, Logging and Trace with Google credentials: no X-Scope-OrgID and no Loki label"
+        "class": "checked",
+        "reason": "sends to Google Cloud Monitoring, Logging and Trace with Google credentials: no X-Scope-OrgID and no Loki label; its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes",
+        "checks": [
+          "gateway_endpoints"
+        ]
       },
       "terminal_ok": true
     },
@@ -1696,8 +1757,11 @@
       "doc": "Exports telemetry to Google Cloud Pub/Sub (experimental).",
       "icon": "cloud",
       "strict": {
-        "class": "allowed",
-        "reason": "publishes to Google Cloud Pub/Sub: no X-Scope-OrgID and no Loki label"
+        "class": "checked",
+        "reason": "publishes to Google Cloud Pub/Sub: no X-Scope-OrgID and no Loki label; its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes",
+        "checks": [
+          "gateway_endpoints"
+        ]
       },
       "terminal_ok": true
     },
@@ -1717,10 +1781,11 @@
       "icon": "upload",
       "strict": {
         "checks": [
+          "gateway_endpoints",
           "headers"
         ],
         "class": "checked",
-        "reason": "routes to OTLP backends through a nested otlp exporter whose client headers are checked (an auth extension is classified on its own)"
+        "reason": "routes to OTLP backends through a nested otlp exporter whose client headers are checked (an auth extension is classified on its own); its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes"
       },
       "terminal_ok": true
     },
@@ -1805,10 +1870,11 @@
       },
       "strict": {
         "checks": [
+          "gateway_endpoints",
           "headers"
         ],
         "class": "checked",
-        "reason": "sends OTLP under its client headers' X-Scope-OrgID, which is checked (an auth extension is classified on its own)"
+        "reason": "sends OTLP under its client headers' X-Scope-OrgID, which is checked (an auth extension is classified on its own); its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes"
       },
       "terminal_ok": true
     },
@@ -1866,10 +1932,11 @@
       },
       "strict": {
         "checks": [
+          "gateway_endpoints",
           "headers"
         ],
         "class": "checked",
-        "reason": "sends OTLP under its client headers' X-Scope-OrgID, which is checked (an auth extension is classified on its own)"
+        "reason": "sends OTLP under its client headers' X-Scope-OrgID, which is checked (an auth extension is classified on its own); its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes"
       },
       "terminal_ok": true
     },
@@ -1910,8 +1977,11 @@
       "doc": "Exports telemetry to Splunk HEC (experimental).",
       "icon": "upload",
       "strict": {
-        "class": "allowed",
-        "reason": "sends to Splunk HEC with its token: no X-Scope-OrgID and no Loki label"
+        "class": "checked",
+        "reason": "sends to Splunk HEC with its token: no X-Scope-OrgID and no Loki label; its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes",
+        "checks": [
+          "gateway_endpoints"
+        ]
       },
       "terminal_ok": true
     },
@@ -1974,10 +2044,11 @@
       },
       "strict": {
         "checks": [
+          "gateway_endpoints",
           "headers"
         ],
         "class": "checked",
-        "reason": "serves Jaeger sampling strategies and sends no telemetry; the headers of its remote strategy source are checked"
+        "reason": "serves Jaeger sampling strategies and sends no telemetry; the headers of its remote strategy source are checked; its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes"
       }
     },
     "otelcol.processor.attributes": {
@@ -2296,8 +2367,11 @@
       "icon": "transform",
       "sim_unsupported": "detects the SANDBOX host, cloud and Kubernetes environment, so every resource attribute it adds would describe the simulator instead of the user's fleet (VB-1 §6.5 refuses that fidelity lie); it also reaches consul.address and openshift.address and carries an openshift.token",
       "strict": {
-        "class": "allowed",
-        "reason": "transforms OTLP telemetry and sends nothing itself; OTLP attributes carry no tenant: a Loki label is made from them only by otelcol.exporter.loki, which the strict served form routes through a __tenant_id__ drop"
+        "class": "checked",
+        "reason": "transforms OTLP telemetry and sends nothing itself; OTLP attributes carry no tenant: a Loki label is made from them only by otelcol.exporter.loki, which the strict served form routes through a __tenant_id__ drop; its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes",
+        "checks": [
+          "gateway_endpoints"
+        ]
       },
       "terminal_ok": false
     },
@@ -3001,8 +3075,11 @@
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
       },
       "strict": {
-        "class": "allowed",
-        "reason": "exposes metrics for a scrape and sends no data; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends)"
+        "class": "checked",
+        "reason": "exposes metrics for a scrape and sends no data; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends); its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes",
+        "checks": [
+          "gateway_endpoints"
+        ]
       },
       "terminal_ok": false
     },
@@ -3028,11 +3105,12 @@
       "strict": {
         "checks": [
           "blackbox_config",
+          "gateway_endpoints",
           "label_maps",
           "targets"
         ],
         "class": "checked",
-        "reason": "a probe sends the requests its modules define (headers, bodies, tcp query_response), so the modules must be a literal config naming no X-Scope-OrgID header and no query_response; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends)"
+        "reason": "a probe sends the requests its modules define (headers, bodies, tcp query_response), so the modules must be a literal config naming no X-Scope-OrgID header and no query_response; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends); its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes"
       },
       "terminal_ok": false
     },
@@ -3045,8 +3123,11 @@
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
       },
       "strict": {
-        "class": "allowed",
-        "reason": "exposes metrics for a scrape and sends no data; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends)"
+        "class": "checked",
+        "reason": "exposes metrics for a scrape and sends no data; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends); its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes",
+        "checks": [
+          "gateway_endpoints"
+        ]
       },
       "terminal_ok": false
     },
@@ -3073,8 +3154,11 @@
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
       },
       "strict": {
-        "class": "allowed",
-        "reason": "exposes metrics for a scrape and sends no data; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends)"
+        "class": "checked",
+        "reason": "exposes metrics for a scrape and sends no data; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends); its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes",
+        "checks": [
+          "gateway_endpoints"
+        ]
       },
       "terminal_ok": false
     },
@@ -3084,8 +3168,11 @@
       "icon": "database",
       "sim_unsupported": "connects to a real Databricks workspace and requires client_secret, a required secret; nothing on sim_keep can carry a secret. Availability fix, VB-1 §6.4",
       "strict": {
-        "class": "allowed",
-        "reason": "exposes metrics for a scrape and sends no data; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends)"
+        "class": "checked",
+        "reason": "exposes metrics for a scrape and sends no data; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends); its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes",
+        "checks": [
+          "gateway_endpoints"
+        ]
       },
       "terminal_ok": false
     },
@@ -3112,8 +3199,11 @@
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
       },
       "strict": {
-        "class": "allowed",
-        "reason": "exposes metrics for a scrape and sends no data; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends)"
+        "class": "checked",
+        "reason": "exposes metrics for a scrape and sends no data; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends); its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes",
+        "checks": [
+          "gateway_endpoints"
+        ]
       },
       "terminal_ok": false
     },
@@ -3137,8 +3227,11 @@
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
       },
       "strict": {
-        "class": "allowed",
-        "reason": "exposes metrics for a scrape and sends no data; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends)"
+        "class": "checked",
+        "reason": "exposes metrics for a scrape and sends no data; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends); its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes",
+        "checks": [
+          "gateway_endpoints"
+        ]
       },
       "terminal_ok": false
     },
@@ -3311,8 +3404,11 @@
       "icon": "server",
       "sim_unsupported": "probes a destination the user names, and its target is not a Prometheus label set: the probe address rides in address, an ordinary required \"address\"-shaped key the target_set class does not touch — the same reason prometheus.exporter.blackbox and prometheus.exporter.snmp are unsupported. Availability fix, VB-1 §6.4",
       "strict": {
-        "class": "allowed",
-        "reason": "exposes metrics for a scrape and sends no data; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends)"
+        "class": "checked",
+        "reason": "exposes metrics for a scrape and sends no data; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends); its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes",
+        "checks": [
+          "gateway_endpoints"
+        ]
       },
       "terminal_ok": false
     },
@@ -3357,8 +3453,11 @@
         "reason": "nothing in the sandbox feeds this source, so no authored setting can change what it produces; every prop is dropped rather than allowlisted, which also removes its credentials"
       },
       "strict": {
-        "class": "allowed",
-        "reason": "exposes metrics for a scrape and sends no data; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends)"
+        "class": "checked",
+        "reason": "exposes metrics for a scrape and sends no data; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends); its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes",
+        "checks": [
+          "gateway_endpoints"
+        ]
       },
       "terminal_ok": false
     },
@@ -3386,11 +3485,12 @@
       },
       "strict": {
         "checks": [
+          "gateway_endpoints",
           "headers",
           "relabel_rules"
         ],
         "class": "checked",
-        "reason": "scrapes the targets of Prometheus Operator objects (a scrape is a GET that writes nothing); its Kubernetes API headers and rule blocks are checked; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends)"
+        "reason": "scrapes the targets of Prometheus Operator objects (a scrape is a GET that writes nothing); its Kubernetes API headers and rule blocks are checked; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends); its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes"
       },
       "terminal_ok": false
     },
@@ -3404,11 +3504,12 @@
       },
       "strict": {
         "checks": [
+          "gateway_endpoints",
           "headers",
           "relabel_rules"
         ],
         "class": "checked",
-        "reason": "scrapes the targets of Prometheus Operator objects (a scrape is a GET that writes nothing); its Kubernetes API headers and rule blocks are checked; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends)"
+        "reason": "scrapes the targets of Prometheus Operator objects (a scrape is a GET that writes nothing); its Kubernetes API headers and rule blocks are checked; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends); its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes"
       },
       "terminal_ok": false
     },
@@ -3422,11 +3523,12 @@
       },
       "strict": {
         "checks": [
+          "gateway_endpoints",
           "headers",
           "relabel_rules"
         ],
         "class": "checked",
-        "reason": "scrapes the targets of Prometheus Operator objects (a scrape is a GET that writes nothing); its Kubernetes API headers and rule blocks are checked; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends)"
+        "reason": "scrapes the targets of Prometheus Operator objects (a scrape is a GET that writes nothing); its Kubernetes API headers and rule blocks are checked; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends); its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes"
       },
       "terminal_ok": false
     },
@@ -3440,11 +3542,12 @@
       },
       "strict": {
         "checks": [
+          "gateway_endpoints",
           "headers",
           "relabel_rules"
         ],
         "class": "checked",
-        "reason": "scrapes the targets of Prometheus Operator objects (a scrape is a GET that writes nothing); its Kubernetes API headers and rule blocks are checked; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends)"
+        "reason": "scrapes the targets of Prometheus Operator objects (a scrape is a GET that writes nothing); its Kubernetes API headers and rule blocks are checked; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends); its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes"
       },
       "terminal_ok": false
     },
@@ -3550,11 +3653,12 @@
       ],
       "strict": {
         "checks": [
+          "gateway_endpoints",
           "headers",
           "label_maps"
         ],
         "class": "checked",
-        "reason": "sends to Mimir under its endpoint headers' X-Scope-OrgID, which is checked; its label maps are checked"
+        "reason": "sends to Mimir under its endpoint headers' X-Scope-OrgID, which is checked; its label maps are checked; its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes"
       },
       "terminal_ok": true
     },
@@ -3617,11 +3721,12 @@
       ],
       "strict": {
         "checks": [
+          "gateway_endpoints",
           "headers",
           "targets"
         ],
         "class": "checked",
-        "reason": "scrapes its targets (a GET that writes nothing) with http_headers that are checked; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends)"
+        "reason": "scrapes its targets (a GET that writes nothing) with http_headers that are checked; metrics labels carry no tenant (Mimir reads it only from the X-Scope-OrgID header the writer sends); its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes"
       },
       "terminal_ok": false
     },
@@ -3756,11 +3861,12 @@
       },
       "strict": {
         "checks": [
+          "gateway_endpoints",
           "headers",
           "targets"
         ],
         "class": "checked",
-        "reason": "scrapes its targets (a GET that writes nothing) with http_headers that are checked; profile labels carry no tenant (Pyroscope reads it only from the X-Scope-OrgID header the writer sends)"
+        "reason": "scrapes its targets (a GET that writes nothing) with http_headers that are checked; profile labels carry no tenant (Pyroscope reads it only from the X-Scope-OrgID header the writer sends); its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes"
       },
       "terminal_ok": false
     },
@@ -3799,11 +3905,12 @@
       },
       "strict": {
         "checks": [
+          "gateway_endpoints",
           "headers",
           "label_maps"
         ],
         "class": "checked",
-        "reason": "sends to Pyroscope under its endpoint headers' X-Scope-OrgID, which is checked; its label maps are checked"
+        "reason": "sends to Pyroscope under its endpoint headers' X-Scope-OrgID, which is checked; its label maps are checked; its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes"
       },
       "terminal_ok": true
     },
@@ -3816,10 +3923,11 @@
       },
       "strict": {
         "checks": [
+          "gateway_endpoints",
           "headers"
         ],
         "class": "checked",
-        "reason": "requests a URL with a headers map that is checked; wherever its exported value reaches a tenant, header, label map or import the lint refuses it as unreadable"
+        "reason": "requests a URL with a headers map that is checked; wherever its exported value reaches a tenant, header, label map or import the lint refuses it as unreadable; its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes"
       }
     },
     "remote.kubernetes.configmap": {
@@ -3831,10 +3939,11 @@
       },
       "strict": {
         "checks": [
+          "gateway_endpoints",
           "headers"
         ],
         "class": "checked",
-        "reason": "reads a Kubernetes object, its API headers checked; wherever its exported value reaches a tenant, header, label map or import the lint refuses it as unreadable"
+        "reason": "reads a Kubernetes object, its API headers checked; wherever its exported value reaches a tenant, header, label map or import the lint refuses it as unreadable; its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes"
       }
     },
     "remote.kubernetes.secret": {
@@ -3846,10 +3955,11 @@
       },
       "strict": {
         "checks": [
+          "gateway_endpoints",
           "headers"
         ],
         "class": "checked",
-        "reason": "reads a Kubernetes object, its API headers checked; wherever its exported value reaches a tenant, header, label map or import the lint refuses it as unreadable"
+        "reason": "reads a Kubernetes object, its API headers checked; wherever its exported value reaches a tenant, header, label map or import the lint refuses it as unreadable; its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes"
       }
     },
     "remote.s3": {
@@ -3860,8 +3970,11 @@
         "mode": "literal"
       },
       "strict": {
-        "class": "allowed",
-        "reason": "reads an S3 object; wherever its exported value reaches a tenant, header, label map or import the lint refuses it as unreadable"
+        "class": "checked",
+        "reason": "reads an S3 object; wherever its exported value reaches a tenant, header, label map or import the lint refuses it as unreadable; its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes",
+        "checks": [
+          "gateway_endpoints"
+        ]
       }
     },
     "remote.vault": {
@@ -3872,8 +3985,11 @@
         "mode": "literal"
       },
       "strict": {
-        "class": "allowed",
-        "reason": "reads a Vault secret; wherever its exported value reaches a tenant, header, label map or import the lint refuses it as unreadable"
+        "class": "checked",
+        "reason": "reads a Vault secret; wherever its exported value reaches a tenant, header, label map or import the lint refuses it as unreadable; its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes",
+        "checks": [
+          "gateway_endpoints"
+        ]
       }
     }
   },
@@ -3884,11 +4000,12 @@
     },
     "prometheus.write.queue": {
       "checks": [
+        "gateway_endpoints",
         "headers",
         "label_maps"
       ],
       "class": "checked",
-      "reason": "Alloy v1.18 only: sends to a remote-write endpoint under its endpoint headers' X-Scope-OrgID, which is checked; its external_labels are checked"
+      "reason": "Alloy v1.18 only: sends to a remote-write endpoint under its endpoint headers' X-Scope-OrgID, which is checked; its external_labels are checked; its endpoints are checked: one on the tenant-route gateway must be under one of the organisation's own routes"
     }
   },
   "wire_types": {

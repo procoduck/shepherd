@@ -995,28 +995,28 @@ var _ = Describe("Strict tenant mode", Label("integration"), func() {
 			added := ok(allowComponent(appAdmin, "otelcol.auth.google"))
 			Expect(added).To(And(HaveKeyWithValue("component", "otelcol.auth.google"), HaveKeyWithValue("classification", "refused"),
 				HaveKeyWithValue("reason", ContainSubstring("token_header"))))
-			future := ok(allowComponent(appAdmin, "loki.source.future"))
-			Expect(future).NotTo(HaveKey("classification"), "an unclassified component has none")
-
 			code, out = allowComponent(appAdmin, "otelcol.auth.google")
 			Expect(code).To(Equal(http.StatusConflict), "%v", out)
 			Expect(out["code"]).To(Equal("already_exists"))
-			for _, bad := range []string{"loki.write", "prometheus.exporter.self", "Loki.write", "declare", "a b.c"} {
+			// Only a component a shipped schema has: any other name is no
+			// component Alloy runs.
+			for _, bad := range []string{
+				"loki.source.future", "mod.out", "loki.write", "prometheus.exporter.self", "Loki.write", "declare", "a b.c",
+			} {
 				code, out = allowComponent(appAdmin, bad)
 				Expect(code).To(Equal(http.StatusBadRequest), "%s: %v", bad, out)
 			}
 
 			list := ok(call(appAdmin, "AdminService/ListOrgStrictComponents", map[string]any{"orgId": orgA.String()}))
-			Expect(list["items"]).To(HaveLen(2))
-			ok(call(appAdmin, "AdminService/RemoveOrgStrictComponent", map[string]any{"orgId": orgA.String(), "id": added["id"]}))
-			code, out = call(appAdmin, "AdminService/RemoveOrgStrictComponent", map[string]any{"orgId": orgB.String(), "id": future["id"]})
+			Expect(list["items"]).To(HaveLen(1))
+			code, out = call(appAdmin, "AdminService/RemoveOrgStrictComponent", map[string]any{"orgId": orgB.String(), "id": added["id"]})
 			Expect(code).To(Equal(http.StatusNotFound), "another org's entry: %v", out)
+			ok(call(appAdmin, "AdminService/RemoveOrgStrictComponent", map[string]any{"orgId": orgA.String(), "id": added["id"]}))
 
 			Expect(actions()).To(ConsistOf(
 				And(HavePrefix("org.strict_component.remove "), ContainSubstring(`"component": "otelcol.auth.google"`),
 					ContainSubstring(`"classification": "refused"`), ContainSubstring(`"reviewed": false`),
 					ContainSubstring(`"in_use_check": "no enabled pipeline currently uses it`)),
-				And(HavePrefix("org.strict_component.add "), ContainSubstring(`"classification": "unclassified"`)),
 				HavePrefix("org.strict_component.add "),
 			))
 		})

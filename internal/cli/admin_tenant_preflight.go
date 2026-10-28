@@ -39,6 +39,10 @@ func runAdminTenantPreflight(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
+	// The same gateway hosts the server checks endpoints against.
+	if err := tenancy.ConfigureGateway(cfg.Gateway.Routes); err != nil {
+		return err
+	}
 	st, err := store.New(cmd.Context(), &cfg.Database)
 	if err != nil {
 		return fmt.Errorf("connecting to database: %w", err)

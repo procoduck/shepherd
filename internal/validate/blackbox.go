@@ -50,6 +50,10 @@ func (l *tenantLinter) blackboxConfig(b *ast.BlockStmt, name string, sc scope) {
 			l.refuse(v, fmt.Sprintf("%s config %s — strict tenant mode refuses it", blackboxExporter, problem))
 			return
 		}
+		if problem := l.policy.Gateway.blackboxGatewayProblem(t); problem != "" {
+			l.refuse(v, fmt.Sprintf("%s config %s — %s, and refuses it", blackboxExporter, problem, GatewayEndpointRefusal))
+			return
+		}
 	}
 }
 

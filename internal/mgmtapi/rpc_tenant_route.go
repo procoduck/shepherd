@@ -37,6 +37,13 @@ type TenantRouteService struct {
 	// reconciler never picked up is reported "not_applicable" with the reason
 	// rather than "pending", which would read as "about to be applied" (#304).
 	applyRunning func() bool
+	// recompute is the eager recompute of an org's served configs
+	// (PipelineService.RecomputeOrgCaches), run after a route write: strict
+	// tenant mode checks gateway route endpoints against the org's routes,
+	// so a route created, rotated or revoked can change what its collectors
+	// are served. Nil: the configs are only marked dirty, and the next poll
+	// recomputes them.
+	recompute func(ctx context.Context, orgID pgtype.UUID)
 }
 
 // TenantRouteOption configures a TenantRouteService.
@@ -51,6 +58,22 @@ func WithGatewayPublicBaseURL(u string) TenantRouteOption {
 // is running in this process; see TenantRouteService.applyRunning.
 func WithTenantRouteApplyRunning(running func() bool) TenantRouteOption {
 	return func(s *TenantRouteService) { s.applyRunning = running }
+}
+
+// WithTenantRouteRecompute gives route writes the eager recompute of the
+// org's served configs; see TenantRouteService.recompute.
+func WithTenantRouteRecompute(recompute func(ctx context.Context, orgID pgtype.UUID)) TenantRouteOption {
+	return func(s *TenantRouteService) { s.recompute = recompute }
+}
+
+// markRoutesChanged marks orgID's served configs dirty in q's transaction:
+// strict tenant mode's verdict on an endpoint at the gateway depends on the
+// org's routes (validate.GatewayRoutes).
+func markRoutesChanged(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID) error {
+	if err := q.MarkServeCacheDirtyByOrg(ctx, orgID); err != nil {
+		return fmt.Errorf("marking the org's served configs for recompute: %w", err)
+	}
+	return nil
 }
 
 // NewTenantRouteService constructs a TenantRouteService.
@@ -342,8 +365,16 @@ func (s *TenantRouteService) CreateTenantRoute(ctx context.Context, req *connect
 		}
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to create tenant route"))
 	}
+	if err := markRoutesChanged(ctx, txQ, orgID); err != nil {
+		s.logger.Error("creating tenant route", "err", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to create tenant route"))
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to create tenant route"))
+	}
+	if s.recompute != nil {
+		// The write marked the org's served configs dirty in its transaction.
+		go s.recompute(context.Background(), orgID) //nolint:contextcheck,gosec // G118+contextcheck: intentional detached context, as UpdatePipeline
 	}
 	auditLog(ctx, s.store, actorFromCtx(ctx), orgID, "tenant_route.create", "tenant_route", r.ID.String())
 	return connect.NewResponse(s.routeProto(r)), nil
@@ -457,9 +488,16 @@ func (s *TenantRouteService) RotateTenantRoute(ctx context.Context, req *connect
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to create rotated tenant route"))
 	}
+	if err := markRoutesChanged(ctx, txQueries, current.OrgID); err != nil {
+		s.logger.Error("rotating tenant route", "err", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to commit rotation"))
+	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to commit rotation"))
+	}
+	if s.recompute != nil {
+		go s.recompute(context.Background(), current.OrgID) //nolint:contextcheck,gosec // G118+contextcheck: intentional detached context, as UpdatePipeline
 	}
 
 	auditLog(ctx, s.store, actorFromCtx(ctx), current.OrgID, "tenant_route.rotate", "tenant_route", current.ID.String())
@@ -480,9 +518,25 @@ func (s *TenantRouteService) RevokeTenantRoute(ctx context.Context, req *connect
 	if err != nil {
 		return nil, err
 	}
-	r, err := s.store.Queries.RevokeTenantRoute(ctx, owned.ID)
+	tx, err := s.store.Pool().Begin(ctx)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to revoke tenant route"))
+	}
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck // no-op once committed
+	txQ := s.store.Queries.WithTx(tx)
+	r, err := txQ.RevokeTenantRoute(ctx, owned.ID)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to revoke tenant route"))
+	}
+	if err := markRoutesChanged(ctx, txQ, r.OrgID); err != nil {
+		s.logger.Error("revoking tenant route", "err", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to revoke tenant route"))
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to revoke tenant route"))
+	}
+	if s.recompute != nil {
+		go s.recompute(context.Background(), r.OrgID) //nolint:contextcheck,gosec // G118+contextcheck: intentional detached context, as UpdatePipeline
 	}
 	auditLog(ctx, s.store, actorFromCtx(ctx), r.OrgID, "tenant_route.revoke", "tenant_route", r.ID.String())
 	return connect.NewResponse(s.routeProto(r)), nil

@@ -4,10 +4,11 @@
 
 Shepherd v0.21. A `helm upgrade` with one additive migration (`0047`) and no fleet-wide reload:
 organisations not in strict tenant mode are served the same bytes as before. **If any
-organisation uses strict tenant mode** (or you set `tenants.require_owned`), follow steps 1 and 3:
-strict tenant mode now accepts only components with a reviewed classification, and a stored
-pipeline that uses any other is left out of served config until it is fixed or the component is
-allowed for its organisation.
+organisation uses strict tenant mode** (or you set `tenants.require_owned`), follow steps 1, 3
+and 4: strict tenant mode now accepts only components with a reviewed classification, and checks
+endpoints on the tenant-route gateway against the organisation's own routes; a stored pipeline
+that fails either is left out of served config until it is fixed (or the component is allowed for
+its organisation).
 
 ### 1. Before you upgrade: run the tenant preflight (strict tenant mode only)
 
@@ -24,8 +25,10 @@ migrate up`, or right after the upgrade from a server pod:
 kubectl -n shepherd exec svc/shepherd -- /usr/local/bin/shepherd admin tenant-preflight
 ```
 
-It lists each pipeline with the component and exits non-zero while anything is listed. Replace
-the component, disable the pipeline, or allow the component for the organisation (step 3).
+It lists each pipeline with the component (or the endpoint, step 4) and exits non-zero while
+anything is listed. Replace the component, disable the pipeline, or allow the component for the
+organisation (step 3). Run it with the gateway hosts you will configure (step 4) set, so it checks
+what the upgraded server will.
 
 **With `tenants.require_owned: true`, the server refuses to start while the preflight lists
 anything**, as in 0.24: clear the list first, or set `config.tenants.require_owned: false` for the
@@ -53,7 +56,32 @@ component refusal: every other strict check — tenants, headers, label maps, ca
 are audited (`org.strict_component.add` / `.remove`). An entry cannot be removed while the
 organisation is strict and an enabled pipeline uses the component; the refusal names those
 pipelines. Only enabled pipelines are checked: a disabled pipeline that uses the component is
-refused when it is enabled again.
+refused when it is enabled again. Only a component a shipped schema has and classifies refused
+can be allowed (today `otelcol.auth.google`); any other name is refused.
+
+### 4. Gateway route endpoints (strict tenant mode with the receiver tier)
+
+Shepherd's tenant routes set the tenant themselves, so in a strict organisation every endpoint on
+the gateway's host must now be under one of that organisation's own routes (`/otlp/<segment>` or
+`/faro/<segment>` of an active route, or a deprecated one during its rotation overlap), and an
+endpoint written as an expression (`sys.env(…)`, a component export) is refused unless its literal
+start already names another host. Shepherd takes the gateway's host from `receiver.publicBaseURL`;
+list any other name or address the gateway answers to — its in-cluster Service name, a second
+public name — in `config.gateway.routes.hosts` (or `SHEPHERD_GATEWAY_ROUTES_HOSTS`,
+comma-separated):
+
+```yaml
+config:
+  gateway:
+    routes:
+      hosts:
+        - edge-gateway.gateways.svc.cluster.local
+```
+
+With neither set, no endpoint is checked. Run the preflight (step 1) with the hosts set before you
+upgrade; it lists each pipeline whose endpoint is refused. Point it at one of the organisation's
+routes, write the endpoint as a literal, or disable the pipeline. A value in `hosts` that is not a
+host name or IP address (a URL, a port, a path) stops the server from starting.
 
 ## 0.23.x → 0.24.0
 

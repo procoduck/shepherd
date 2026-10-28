@@ -91,6 +91,16 @@ func NewServing(q *sqlc.Queries, p tenancy.Policy) *Serving {
 	for _, c := range p.AllowedComponents {
 		b.WriteString("c" + c + "\x00")
 	}
+	// The gateway's hosts and the org's tenant routes: an endpoint on the
+	// gateway must be under one of the org's routes, so a host configured or
+	// a route created, rotated or revoked changes the verdict on the same
+	// text.
+	for _, h := range p.GatewayHosts {
+		b.WriteString("h" + h + "\x00")
+	}
+	for _, r := range p.Routes {
+		b.WriteString("g" + r.Kind + "\x00" + r.Segment + "\x00" + r.Tenant + "\x00" + r.Status + "\x00")
+	}
 	sum := sha256.Sum256([]byte(b.String()))
 	return &Serving{
 		q: q, policy: p, key: hex.EncodeToString(sum[:]),

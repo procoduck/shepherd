@@ -320,6 +320,128 @@ var _ = Describe("CheckRequireOwned", Label("integration"), func() {
 	})
 })
 
+// Strict tenant mode checks gateway route endpoints: every check the policy
+// feeds (the save, the preflight, the in-transaction lint, the tenant-removal
+// guard) knows the gateway's hosts and the org's own routes.
+var _ = Describe("gateway route endpoints in the policy", Label("integration"), func() {
+	var (
+		ctx          context.Context
+		st           *store.Store
+		org, other   sqlc.Org
+		own, foreign sqlc.TenantRoute
+	)
+	route := func(o sqlc.Org, tenant, kind, segment string) sqlc.TenantRoute {
+		r, err := st.Queries.CreateTenantRoute(ctx, sqlc.CreateTenantRouteParams{
+			OrgID: o.ID, TenantID: tenant, Kind: kind, Segment: segment, GatewayMode: "operator", GatewayName: "edge",
+		})
+		Expect(err).NotTo(HaveOccurred())
+		return r
+	}
+	exporter := func(segment string) string {
+		return "otelcol.exporter.otlphttp \"o\" {\n  client {\n    endpoint = \"https://gw.example.com/otlp/" + segment + "\"\n  }\n}\n"
+	}
+
+	BeforeEach(func() {
+		ctx = context.Background()
+		var err error
+		st, err = store.New(ctx, &config.DatabaseConfig{URL: sharedPG.IsolatedDB(ctx, GinkgoTB()), MaxConns: 4})
+		Expect(err).NotTo(HaveOccurred())
+		DeferCleanup(st.Close)
+		org, err = st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{Name: "gw-org", DisplayName: "G", AdminGroupID: "g-admins"})
+		Expect(err).NotTo(HaveOccurred())
+		other, err = st.Queries.CreateOrg(ctx, sqlc.CreateOrgParams{Name: "gw-other", DisplayName: "O", AdminGroupID: "o-admins"})
+		Expect(err).NotTo(HaveOccurred())
+		for _, a := range []sqlc.AddOrgTenantParams{
+			{OrgID: org.ID, Tenant: "acme", Kind: "exact", IsDefault: true, CreatedBy: "t"},
+			{OrgID: org.ID, Tenant: "acme-old", Kind: "exact", CreatedBy: "t"},
+			{OrgID: other.ID, Tenant: "globex", Kind: "exact", IsDefault: true, CreatedBy: "t"},
+		} {
+			_, err = st.Queries.AddOrgTenant(ctx, a)
+			Expect(err).NotTo(HaveOccurred())
+		}
+		own = route(org, "acme", "otlp", "acme-1a2b3c4d")
+		foreign = route(other, "globex", "otlp", "globex-9z8y7x6w")
+		restore, err := tenancy.SetGatewayHosts([]string{"GW.example.com."})
+		Expect(err).NotTo(HaveOccurred())
+		DeferCleanup(restore)
+	})
+
+	It("owns a live route of the org whose tenant the org owns, of that kind only", func() {
+		p, err := tenancy.Load(ctx, st.Queries, org.ID, true)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(p.GatewayHosts).To(Equal([]string{"gw.example.com"}))
+		Expect(p.OwnsRoute("otlp", own.Segment)).To(BeTrue())
+		Expect(p.OwnsRoute("faro", own.Segment)).To(BeFalse())
+		Expect(p.OwnsRoute("otlp", foreign.Segment)).To(BeFalse())
+		g := p.Validation(st.Queries, pinnedimport.Cached).Gateway
+		Expect(g.Hosts).To(Equal([]string{"gw.example.com"}))
+		Expect(g.Owns("otlp", own.Segment)).To(BeTrue())
+
+		// A deprecated route still routes during its overlap; a revoked one does not.
+		_, err = st.Queries.DeprecateTenantRoute(ctx, sqlc.DeprecateTenantRouteParams{
+			ID: own.ID, ValidUntil: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true},
+		})
+		Expect(err).NotTo(HaveOccurred())
+		p, err = tenancy.Load(ctx, st.Queries, org.ID, true)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(p.OwnsRoute("otlp", own.Segment)).To(BeTrue())
+		_, err = st.Queries.RevokeTenantRoute(ctx, own.ID)
+		Expect(err).NotTo(HaveOccurred())
+		p, err = tenancy.Load(ctx, st.Queries, org.ID, true)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(p.OwnsRoute("otlp", own.Segment)).To(BeFalse())
+
+		// A route whose tenant the org no longer owns is not one of its routes.
+		old := route(org, "acme-old", "otlp", "acme-old-5e6f7a8b")
+		p, err = tenancy.Load(ctx, st.Queries, org.ID, true)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(p.OwnsRoute("otlp", old.Segment)).To(BeTrue())
+		Expect(st.Queries.DeleteOrgTenant(ctx, sqlc.DeleteOrgTenantParams{OrgID: org.ID, Tenant: "acme-old", Kind: "exact"})).To(Equal(int64(1)))
+		p, err = tenancy.Load(ctx, st.Queries, org.ID, true)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(p.OwnsRoute("otlp", old.Segment)).To(BeFalse())
+	})
+
+	It("is the same check on every path: the preflight, the in-transaction lint and the tenant-removal guard", func() {
+		_, err := st.Queries.CreatePipeline(ctx, sqlc.CreatePipelineParams{
+			OrgID: org.ID, Name: "foreign", Contents: exporter(foreign.Segment), Matchers: json.RawMessage(`[]`), Source: "ui", Enabled: true,
+		})
+		Expect(err).NotTo(HaveOccurred())
+		vs, err := tenancy.Preflight(ctx, st.Queries, org, false, pinnedimport.Cached)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(vs).To(ConsistOf(SatisfyAll(
+			HaveField("Name", "foreign"), HaveField("Message", ContainSubstring(validate.GatewayEndpointRefusal)))))
+		Expect(tenancy.LintLocked(ctx, st.Queries, org.ID, true, tenancy.Pipeline{Name: "foreign", Contents: exporter(foreign.Segment)})).
+			To(MatchError(ContainSubstring(foreign.Segment)))
+		Expect(tenancy.LintLocked(ctx, st.Queries, org.ID, true, tenancy.Pipeline{Name: "own", Contents: exporter(own.Segment)})).To(Succeed())
+		p, err := tenancy.Load(ctx, st.Queries, org.ID, true)
+		Expect(err).NotTo(HaveOccurred())
+		orphans, err := tenancy.OrphanedPipelines(ctx, st.Queries, org.ID, p.Owned)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(orphans).To(ConsistOf(ContainSubstring(`pipeline "foreign"`)))
+
+		// No gateway host configured: nothing to check.
+		restore, err := tenancy.SetGatewayHosts(nil)
+		Expect(err).NotTo(HaveOccurred())
+		defer restore()
+		vs, err = tenancy.Preflight(ctx, st.Queries, org, false, pinnedimport.Cached)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(vs).To(BeEmpty())
+	})
+
+	It("takes the gateway's hosts from the configuration, refusing one that is not a host", func() {
+		restore, err := tenancy.SetGatewayHosts(nil)
+		Expect(err).NotTo(HaveOccurred())
+		defer restore()
+		Expect(tenancy.ConfigureGateway(config.GatewayRoutesConfig{
+			PublicBaseURL: "https://Telemetry.Example.com:8443/base", Hosts: []string{"gateway.ingress.svc.cluster.local", "10.0.0.5"},
+		})).To(Succeed())
+		Expect(tenancy.GatewayHosts()).To(Equal([]string{"telemetry.example.com", "gateway.ingress.svc.cluster.local", "10.0.0.5"}))
+		Expect(tenancy.ConfigureGateway(config.GatewayRoutesConfig{Hosts: []string{"https://gw.example.com"}})).
+			To(MatchError(ContainSubstring("gateway.routes.hosts")))
+	})
+})
+
 // Pinned import.git (#390): the preflight, the boot check, the in-transaction
 // lint and the allowlist-removal guard read a pipeline's modules the way a
 // save does, so a pipeline the save path accepted passes them all, and one

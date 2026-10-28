@@ -119,6 +119,10 @@ var strictChecks = map[string]strictCheck{
 		doc:    "otelcol.auth.bearer sending its token as X-Scope-OrgID",
 		covers: func(c string) bool { return c == "otelcol.auth.bearer" },
 	},
+	"gateway_endpoints": {
+		doc:    "every endpoint on the tenant-route gateway's hosts is under one of the org's own routes, and an endpoint it cannot read is refused (gatewayendpoints.go)",
+		covers: hasEndpointAttribute,
+	},
 	"blackbox_config": {
 		doc:    "prometheus.exporter.blackbox's modules: a literal config naming no X-Scope-OrgID header and no tcp query_response",
 		covers: func(c string) bool { return c == blackboxExporter },
@@ -246,19 +250,24 @@ func ClassifyComponent(component string) (ComponentClassification, bool) {
 }
 
 // ErrComponentNotAllowable is the refusal of allowing a component for an org
-// that strict tenant mode already accepts, or whose name is not a component
-// name.
+// that strict tenant mode already accepts, that no shipped schema has, or
+// whose name is not a component name.
 var ErrComponentNotAllowable = errors.New("not a component strict tenant mode refuses")
 
 // CheckAllowableComponent reports whether an application administrator may
-// allow component for an org: a dotted component name (lower-case letters,
-// digits and underscores) whose classification is refused or missing. One
-// classified allowed or checked is already accepted.
+// allow component for an org: a component a shipped schema has (the pinned
+// one, or an older one: strict_retired) whose classification is refused.
+// One classified allowed or checked is already accepted; any other dotted
+// name is no component Alloy runs, so allowing it would mean nothing.
 func CheckAllowableComponent(component string) error {
 	if !isComponentName(component) {
 		return fmt.Errorf("%w: %q is not a component name (such as otelcol.auth.google)", ErrComponentNotAllowable, component)
 	}
-	if c, ok := ClassifyComponent(component); ok && c.Class != ComponentRefused {
+	c, ok := ClassifyComponent(component)
+	if !ok {
+		return fmt.Errorf("%w: no shipped Alloy schema has a component %s", ErrComponentNotAllowable, component)
+	}
+	if c.Class != ComponentRefused {
 		return fmt.Errorf("%w: %s is classified %s, so strict tenant mode already accepts it", ErrComponentNotAllowable, component, c.Class)
 	}
 	return nil
@@ -343,7 +352,12 @@ func (l *tenantLinter) resolveModuleInstances() {
 		if l.moduleDeclares[p.importKey][decl] {
 			continue
 		}
-		l.judgeComponent(p.block, p.name, ComponentClassification{}, false)
+		// Not a built-in (no shipped schema has the name) and not a declare
+		// of the module the import loads: nothing an application
+		// administrator could allow.
+		l.refuse(p.block, fmt.Sprintf("%s %q: %s, and %s is not a built-in component; the module or declare it names "+
+			"was not found (import %q has no declare %q the tenant check could read) — strict tenant mode refuses it",
+			p.name, p.block.Label, StrictComponentRefusal, p.name, label, decl))
 	}
 	l.pendingInstances = nil
 }
@@ -357,8 +371,11 @@ func (l *tenantLinter) judgeComponent(b *ast.BlockStmt, name string, c Component
 	ok := classified
 	switch {
 	case !ok:
-		l.refuse(b, fmt.Sprintf("%s %q: %s, and %s has none — strict tenant mode refuses it; an application "+
-			"administrator can allow %s for this organisation", name, b.Label, StrictComponentRefusal, name, name))
+		// Every component a shipped schema has is classified (the repo test),
+		// so this name is no component Alloy ships, and none an application
+		// administrator can allow (CheckAllowableComponent).
+		l.refuse(b, fmt.Sprintf("%s %q: %s, and %s has none: no shipped Alloy schema has it — strict tenant mode "+
+			"refuses it", name, b.Label, StrictComponentRefusal, name))
 	case c.Class == ComponentRefused:
 		l.refuse(b, fmt.Sprintf("%s %q: %s, and %s is classified refused (%s) — strict tenant mode refuses it; an "+
 			"application administrator can allow %s for this organisation", name, b.Label, StrictComponentRefusal,

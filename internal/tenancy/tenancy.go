@@ -19,10 +19,12 @@ import (
 	"log/slog"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"shepherd/internal/advisorylock"
+	"shepherd/internal/config"
 	"shepherd/internal/gateway"
 	"shepherd/internal/pinnedimport"
 	"shepherd/internal/store"
@@ -47,6 +49,117 @@ type Policy struct {
 	// allowed for the org although strict mode refuses them (0047, #421),
 	// sorted: it lifts only that refusal.
 	AllowedComponents []string
+	// GatewayHosts are the tenant-route gateway's hosts (ConfigureGateway),
+	// normalised; Routes are the org's tenant routes. In strict mode an
+	// endpoint on the gateway must be under one of the org's own routes
+	// (OwnsRoute).
+	GatewayHosts []string
+	Routes       []Route
+}
+
+// Route is one of an org's tenant routes as strict tenant mode reads it.
+type Route struct {
+	Kind, Segment, Tenant, Status string
+}
+
+// OwnsRoute reports whether the org owns the route of kind with segment:
+// one of its routes that still routes (active, or deprecated during its
+// rotation overlap; a revoked route does not), whose tenant the org owns.
+// A segment is unique per kind and never reused (0009_tenant_routes'
+// UNIQUE (kind, segment) over every row, revoked ones included).
+func (p Policy) OwnsRoute(kind, segment string) bool {
+	return routeOwner(p.Routes, p.Owns)(kind, segment)
+}
+
+func routeOwner(routes []Route, ownsTenant func(string) bool) func(kind, segment string) bool {
+	return func(kind, segment string) bool {
+		for _, r := range routes {
+			if r.Kind != kind || r.Segment != segment {
+				continue
+			}
+			st, err := gateway.ParseRouteStatus(r.Status)
+			if err != nil {
+				return false
+			}
+			switch st {
+			case gateway.RouteActive, gateway.RouteDeprecated:
+				return ownsTenant(r.Tenant)
+			case gateway.RouteRevoked:
+				return false
+			}
+			return false
+		}
+		return false
+	}
+}
+
+// orgRoutes is orgID's tenant routes, in a stable order.
+func orgRoutes(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID) ([]Route, error) {
+	rows, err := q.ListTenantRoutesByOrg(ctx, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("loading the org's tenant routes: %w", err)
+	}
+	out := make([]Route, len(rows))
+	for i := range rows {
+		out[i] = Route{Kind: rows[i].Kind, Segment: rows[i].Segment, Tenant: rows[i].TenantID, Status: rows[i].Status}
+	}
+	slices.SortFunc(out, func(a, b Route) int {
+		return strings.Compare(a.Kind+"\x00"+a.Segment, b.Kind+"\x00"+b.Segment)
+	})
+	return out, nil
+}
+
+var (
+	gatewayMu    sync.RWMutex
+	gatewayHosts []string
+)
+
+// ConfigureGateway sets the tenant-route gateway's hosts from the server
+// configuration (gateway.routes.public_base_url's host and
+// gateway.routes.hosts) for every policy this process loads. The server and
+// each CLI command that checks pipelines call it once, at start. A host that
+// is not one (a URL, a port, a path) is an error. With no host, strict tenant
+// mode checks no endpoint against the gateway: it cannot know which host
+// serves the routes.
+func ConfigureGateway(c config.GatewayRoutesConfig) error {
+	hosts := c.GatewayHosts()
+	norm := make([]string, 0, len(hosts))
+	for _, h := range hosts {
+		n, err := validate.NormalizeGatewayHost(h)
+		if err != nil {
+			return fmt.Errorf("gateway.routes.hosts: %w", err)
+		}
+		if !slices.Contains(norm, n) {
+			norm = append(norm, n)
+		}
+	}
+	gatewayMu.Lock()
+	gatewayHosts = norm
+	gatewayMu.Unlock()
+	return nil
+}
+
+// SetGatewayHosts replaces the gateway's hosts until restore is called: for
+// tests.
+func SetGatewayHosts(hosts []string) (restore func(), err error) {
+	gatewayMu.RLock()
+	saved := gatewayHosts
+	gatewayMu.RUnlock()
+	if err := ConfigureGateway(config.GatewayRoutesConfig{Hosts: hosts}); err != nil {
+		return func() {}, err
+	}
+	return func() {
+		gatewayMu.Lock()
+		gatewayHosts = saved
+		gatewayMu.Unlock()
+	}, nil
+}
+
+// GatewayHosts is the gateway's hosts as ConfigureGateway set them.
+func GatewayHosts() []string {
+	gatewayMu.RLock()
+	defer gatewayMu.RUnlock()
+	return slices.Clone(gatewayHosts)
 }
 
 // Load reads orgID's policy through q. requireOwned is the server-wide
@@ -76,9 +189,14 @@ func LoadOrg(ctx context.Context, q *sqlc.Queries, org sqlc.Org, requireOwned bo
 	if err != nil {
 		return Policy{}, err
 	}
+	routes, err := orgRoutes(ctx, q, org.ID)
+	if err != nil {
+		return Policy{}, err
+	}
 	return Policy{
 		Strict: org.StrictTenants || requireOwned, OrgStrict: org.StrictTenants, Owned: Rules(rows),
 		OrgID: org.ID, ImportRepos: repos, AllowedComponents: components,
+		GatewayHosts: GatewayHosts(), Routes: routes,
 	}, nil
 }
 
@@ -146,6 +264,7 @@ func (p Policy) Validation(q *sqlc.Queries, src pinnedimport.Source) validate.Te
 	return validate.TenantPolicy{
 		Strict: true, Owns: p.Owns, Git: src.Modules(q, p.OrgID, p.ImportRepos), Inline: inliner(q, p.OrgID, p.ImportRepos),
 		AllowedComponents: componentSet(p.AllowedComponents),
+		Gateway:           validate.GatewayRoutes{Hosts: p.GatewayHosts, Owns: p.OwnsRoute},
 	}
 }
 
@@ -200,9 +319,13 @@ func Preflight(ctx context.Context, q *sqlc.Queries, org sqlc.Org, requireTenant
 	if err != nil {
 		return nil, err
 	}
+	routes, err := orgRoutes(ctx, q, org.ID)
+	if err != nil {
+		return nil, err
+	}
 	p := Policy{
 		Strict: true, OrgStrict: org.StrictTenants, Owned: Rules(rows), OrgID: org.ID, ImportRepos: repos,
-		AllowedComponents: components,
+		AllowedComponents: components, GatewayHosts: GatewayHosts(), Routes: routes,
 	}
 	base := Violation{OrgID: org.ID.String(), OrgName: org.Name}
 	var out []Violation
@@ -394,10 +517,17 @@ func OrphanedPipelines(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, 
 	if err != nil {
 		return nil, err
 	}
+	routes, err := orgRoutes(ctx, q, orgID)
+	if err != nil {
+		return nil, err
+	}
+	ownsTenant := func(t string) bool { return gateway.OrgOwnsTenant(remaining, t) }
 	policy := validate.TenantPolicy{
-		Strict: true, Owns: func(t string) bool { return gateway.OrgOwnsTenant(remaining, t) },
+		Strict: true, Owns: ownsTenant,
 		Git: pinnedimport.Cached.Modules(q, orgID, repos), Inline: inliner(q, orgID, repos),
 		AllowedComponents: componentSet(components),
+		// A route whose tenant is removed is no longer one of the org's.
+		Gateway: validate.GatewayRoutes{Hosts: GatewayHosts(), Owns: routeOwner(routes, ownsTenant)},
 	}
 	var out []string
 	for i := range pipelines {
