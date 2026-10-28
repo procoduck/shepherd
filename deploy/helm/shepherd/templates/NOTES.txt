@@ -149,7 +149,7 @@ That url only resolves from inside the cluster. Collectors outside it need an
 Ingress or an HTTPRoute -- see `ingress` and `route` in values.yaml.
 {{ end }}
 Create a token:
-  kubectl exec -it -n {{ .Release.Namespace }} deploy/{{ $fullName }} -- shepherd token create --name my-cluster --org <org-slug>
+  kubectl exec -n {{ .Release.Namespace }} svc/{{ $fullName }} -- shepherd token create --name my-cluster --org <org-slug>
 {{- if ((.Values.receiver).enabled) }}
 
 Receiver tier: ENABLED ({{ include "shepherd.receiverFullname" . }}, OTLP/HTTP on port {{ .Values.receiver.listener.port }}).

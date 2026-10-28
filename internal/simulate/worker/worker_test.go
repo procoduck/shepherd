@@ -130,7 +130,7 @@ func singleNodeGraph(component string) visual.GraphDocument {
 	}
 }
 
-func seedQueuedRun(ctx context.Context, st *store.Store, orgID pgtype.UUID, component string) sqlc.SimulateRun {
+func seedQueuedRun(ctx context.Context, st *store.Store, orgID pgtype.UUID, component string) sqlc.CreateSimulateRunRow {
 	graphJSON, err := json.Marshal(singleNodeGraph(component))
 	Expect(err).NotTo(HaveOccurred())
 	run, err := st.Queries.CreateSimulateRun(ctx, sqlc.CreateSimulateRunParams{
@@ -201,6 +201,24 @@ var _ = Describe("RunWorker", Label("integration"), func() {
 			defer fakeSim.mu.Unlock()
 			return append([]int(nil), fakeSim.durations...)
 		}, 5*time.Second, 50*time.Millisecond).Should(Equal([]int{120}))
+	})
+
+	It("sends the requested duration for a run a v0.20 server inserted without an effective one (0051)", func() {
+		graphJSON, err := json.Marshal(singleNodeGraph("prometheus.relabel"))
+		Expect(err).NotTo(HaveOccurred())
+		// RAW-SQL-OK: the v0.20.0 CreateSimulateRun column list, which predates effective_duration_seconds
+		_, err = st.Pool().Exec(ctx,
+			`INSERT INTO simulate_runs (org_id, graph, requested_duration_seconds, created_by) VALUES ($1, $2, 25, 'v020-pod')`,
+			orgID, graphJSON)
+		Expect(err).NotTo(HaveOccurred())
+		fakeSim.unblock()
+
+		worker.New(st, reg, v, workerCfg(), slog.Default()).Start(ctx)
+		Eventually(func() []int {
+			fakeSim.mu.Lock()
+			defer fakeSim.mu.Unlock()
+			return append([]int(nil), fakeSim.durations...)
+		}, 5*time.Second, 50*time.Millisecond).Should(Equal([]int{25}))
 	})
 
 	It("never lets two RunWorker instances run the sandbox concurrently, even with MaxConcurrentRuns=1 each sharing one DB", func() {

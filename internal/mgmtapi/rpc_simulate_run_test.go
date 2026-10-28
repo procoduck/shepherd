@@ -216,6 +216,22 @@ var _ = Describe("shepherd.mgmt.v1.SimulateService — Run API (S3 sandbox runs)
 		Expect(reRead["status"]).To(Equal("queued"))
 	})
 
+	It("reports the requested duration as effective for a run a v0.20 server inserted (0051)", func() {
+		var runID string
+		// RAW-SQL-OK: the v0.20.0 CreateSimulateRun column list, which predates effective_duration_seconds
+		Expect(st.Pool().QueryRow(ctx,
+			`INSERT INTO simulate_runs (org_id, graph, requested_duration_seconds, created_by)
+			 VALUES ($1, '{"kind":"alloy-graph/v1","nodes":[]}'::jsonb, 25, 'v020-pod') RETURNING id::text`,
+			orgUUID(orgID)).Scan(&runID)).To(Succeed())
+
+		resp := getRun(adminCookie, runID)
+		defer resp.Body.Close() //nolint:errcheck // test cleanup
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+		body := decodeBody(resp)
+		Expect(body["requestedDurationSeconds"]).To(BeNumerically("==", 25))
+		Expect(body["effectiveDurationSeconds"]).To(BeNumerically("==", 25))
+	})
+
 	It("404s GetRun for a run id that never existed", func() {
 		resp := getRun(adminCookie, "00000000-0000-0000-0000-000000000000")
 		defer resp.Body.Close() //nolint:errcheck // test cleanup

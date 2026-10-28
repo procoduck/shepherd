@@ -38,6 +38,15 @@ test('an org admin generates k8s-monitoring values to connect a cluster', async 
   await expect(dialog.getByTestId('connect-cluster-status')).toContainText(
     'has not seen this cluster',
   );
+  // Tokens are org-bound: they are minted under Access, and only an app
+  // admin's token claims the cluster on its own.
+  await expect(dialog.getByTestId('connect-cluster-status')).toContainText('Access → Agent Tokens');
+  await expect(dialog.getByTestId('connect-cluster-status')).toContainText(
+    'an app admin created claims this cluster',
+  );
+  await expect(dialog.getByTestId('connect-cluster-status')).not.toContainText(
+    'Admin → Agent Tokens',
+  );
   await expect(dialog.getByTestId('connect-cluster-values')).toContainText('name: "prod-eu-1"');
   await expect(dialog.getByTestId('connect-cluster-values')).toContainText('alloy-receiver');
   await expect(dialog.getByTestId('connect-cluster-values')).not.toContainText('alloy-singleton');

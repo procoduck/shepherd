@@ -2,8 +2,9 @@
 
 ## 0.24.x → 0.25.0
 
-Shepherd v0.21.0. A `helm upgrade` with four additive migrations (`0047`–`0050`) and no
-fleet-wide reload: the served config format moves to 5, but every cached row recomputes to the
+Shepherd v0.21.0 (chart 0.25.1 is v0.21.1, which adds migration `0051`; upgrade straight to it,
+see step 6). A `helm upgrade` with additive migrations (`0047`–`0050`, plus `0051` in 0.25.1) and
+no fleet-wide reload: the served config format moves to 5, but every cached row recomputes to the
 same bytes and hash. Organisations not in strict tenant mode are served the same bytes as before.
 **If any organisation uses strict tenant mode** (or you set `tenants.require_owned`), follow
 steps 1–3: strict tenant mode now accepts only components with a reviewed classification and
@@ -120,16 +121,16 @@ server cannot read a v0.21 simulator's results for a run that captured one, and 
 still fails such a run. Both images follow the chart's `appVersion` by default; if you pin
 `image.tag` or `simulator.image.tag`, move both to `0.21.0` in the same upgrade.
 
-### 6. Upgrade: migrations 0047–0050 and the format-5 recompute
+### 6. Upgrade: migrations 0047–0051 and the format-5 recompute
 
 ```sh
-helm upgrade shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.25.0 \
+helm upgrade shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.25.1 \
   --namespace shepherd --reuse-values
 ```
 
 The migration Job (a `pre-upgrade` hook, on by default) applies them before the new pods start;
-if you turned it off, run `shepherd migrate up` yourself first. All four are additive and quick,
-and pods still on the old image ignore them:
+if you turned it off, run `shepherd migrate up` yourself first. All are additive and quick.
+Pods still on the old image ignore 0047–0049; 0050 and 0051 are below:
 
 - `0047` creates `org_strict_components`, the components an app admin allowed per organisation.
   Its down migration drops it.
@@ -140,7 +141,14 @@ and pods still on the old image ignore them:
 - `0049` adds the nullable `serve_cache.provenance`, how each served config was built (the
   collector page's new Pipelines tab). Its down migration drops it.
 - `0050` adds `simulate_runs.effective_duration_seconds` and `duration_note` (the extended sandbox
-  run window). Existing runs keep what they requested. Its down migration drops them.
+  run window). Existing runs keep what they requested. Its down migration drops them. In
+  v0.21.0 (chart 0.25.0) the effective duration is `NOT NULL` with no default, and a v0.20 pod's
+  run insert does not set it: **a v0.20 pod cannot start a sandbox run** on the migrated schema
+  until every pod runs v0.21, during a rolling upgrade or after a rollback to chart 0.24.x.
+- `0051` (v0.21.1, chart 0.25.1) removes that: the effective duration may be empty, and a run
+  without one runs for, and reports, the duration it requested. Upgrade from 0.24.x straight to
+  chart 0.25.1 to avoid the window. Its down migration fills the empty durations from the
+  requested ones and makes the column required again.
 
 **Serve format 5, once, with no reload.** Every served-config row recomputes once, on its
 collector's next poll, to fill in `provenance`. The bytes and hash are unchanged, so collectors
@@ -173,13 +181,17 @@ meaning. `CreatePipeline` and `UpdatePipeline` answer `invalid_argument`, not `i
 
 ### Rolling back
 
-`helm rollback` to chart 0.24.x works on the migrated schema: v0.20 ignores the new tables and
-columns and serves the format-5 rows as they are (the same bytes). Roll the simulator back with
-the server (step 5). v0.20 does not run the component or gateway route checks, so pipelines v0.21
-left out for them are served again on the next recompute. To remove the schema changes too, run
-`shepherd migrate down` four times with the v0.21 image before rolling back; that deletes the
-admin-allowed components, the instance report records, the served-config provenance and the run
-window columns.
+`helm rollback` to chart 0.24.x works on the migrated schema once `0051` is applied (chart
+0.25.1): v0.20 ignores the new tables and columns, starts sandbox runs as before, and serves the
+format-5 rows as they are (the same bytes). From chart 0.25.0, which stops at `0050`, a rolled-back
+v0.20 server serves config but cannot start sandbox runs (step 6); upgrade to 0.25.1 first, or
+run `shepherd migrate down` once with the v0.21.0 image before rolling back. Roll the simulator
+back with the server (step 5). v0.20 does not run the component or gateway route checks, so
+pipelines v0.21 left out for them are served again on the next recompute. To remove the schema
+changes too, run `shepherd migrate down` with the v0.21 image before rolling back, once per
+migration applied (five times from v0.21.1, four from v0.21.0); that deletes the admin-allowed
+components, the instance report records, the served-config provenance and the run window
+columns.
 
 ## 0.23.x → 0.24.0
 

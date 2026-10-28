@@ -211,21 +211,21 @@ func (s *SimulateService) GetRun(ctx context.Context, req *connect.Request[mgmtv
 // org-B admin cannot use the response code to confirm a run id belongs to
 // org A. GetRun is the only caller — CreateRun never needs it, since the
 // row it inserts is born with the caller's own org_id.
-func (s *SimulateService) loadRun(ctx context.Context, orgIDStr, idStr string) (sqlc.SimulateRun, error) {
+func (s *SimulateService) loadRun(ctx context.Context, orgIDStr, idStr string) (sqlc.GetSimulateRunByIDRow, error) {
 	id, err := scanUUID(idStr)
 	if err != nil {
-		return sqlc.SimulateRun{}, connect.NewError(connect.CodeInvalidArgument, errRunIDInvalid)
+		return sqlc.GetSimulateRunByIDRow{}, connect.NewError(connect.CodeInvalidArgument, errRunIDInvalid)
 	}
 	orgID, err := scanUUID(orgIDStr)
 	if err != nil {
-		return sqlc.SimulateRun{}, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid org id"))
+		return sqlc.GetSimulateRunByIDRow{}, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid org id"))
 	}
 	run, err := s.store.Queries.GetSimulateRunByID(ctx, id)
 	if err != nil {
-		return sqlc.SimulateRun{}, connect.NewError(connect.CodeNotFound, errRunNotFound)
+		return sqlc.GetSimulateRunByIDRow{}, connect.NewError(connect.CodeNotFound, errRunNotFound)
 	}
 	if run.OrgID != orgID {
-		return sqlc.SimulateRun{}, connect.NewError(connect.CodeNotFound, errRunNotFound)
+		return sqlc.GetSimulateRunByIDRow{}, connect.NewError(connect.CodeNotFound, errRunNotFound)
 	}
 	return run, nil
 }
@@ -352,7 +352,7 @@ func logsResponseToProto(r simulate.LogsResponse) *mgmtv1.SimulateLogsResponse {
 // full SimulateRun document GetRun returns. queuePosition is supplied by the
 // caller (computed at read time, per decision 8 — never stored) and used
 // only while status is still "queued".
-func simulateRunToProto(run sqlc.SimulateRun, queuePosition int32) (*mgmtv1.SimulateRun, error) {
+func simulateRunToProto(run sqlc.GetSimulateRunByIDRow, queuePosition int32) (*mgmtv1.SimulateRun, error) {
 	var rewrites []simulate.Rewrite
 	if err := json.Unmarshal(run.Rewrites, &rewrites); err != nil {
 		return nil, fmt.Errorf("decoding rewrites: %w", err)

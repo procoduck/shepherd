@@ -283,13 +283,18 @@ kubectl -n shepherd port-forward svc/shepherd 8080:8080</code></pre>
         An ordinary <code>helm upgrade</code>: four additive migrations
         (<code>0047</code>&ndash;<code>0050</code>) run ahead of the new pods, and the served config
         format moves to 5, which recomputes every cached row once to the same bytes, so no
-        collector reloads. Strict tenant mode now accepts only classified components and checks
+        collector reloads (in strict organisations, two documented cases change the served text,
+        and those collectors reload once). Strict tenant mode now accepts only classified components and checks
         endpoints under tenant-route segments against the organisation&rsquo;s own routes; a
         stored pipeline that fails either is left out of served config until it is fixed. If any
         organisation uses strict tenant mode, list every name collectors reach the gateway by in
-        <code>config.gateway.routes.hosts</code>, then run
-        <code>shepherd admin tenant-preflight</code> before and after the upgrade; with
-        <code>tenants.require_owned</code> on, the server does not start while it lists anything.
+        <code>config.gateway.routes.hosts</code>, then run the v0.21 image&rsquo;s
+        <code>shepherd admin tenant-preflight</code> against a copy of the database migrated with
+        that image, or from a server pod right after the upgrade (UPGRADING step 1): the v0.20
+        binary lacks the new checks. With <code>tenants.require_owned</code> on, the server does
+        not start while it lists anything. Upgrade straight to chart 0.25.1: its migration
+        <code>0051</code> lets v0.20 pods keep starting sandbox runs during the rollout and after a
+        rollback, which chart 0.25.0 does not.
         HTTPRoute installs can set <code>route.scheme</code> so the install notes print the right
         URL. Upgrade the server and simulator images together: the simulator&rsquo;s results
         encoding changed for non-finite samples. Details in
@@ -304,9 +309,11 @@ kubectl -n shepherd port-forward svc/shepherd 8080:8080</code></pre>
         tenant mode now checks more at save time and re-checks every stored pipeline when it is
         served; a pipeline saved under an earlier version that no longer passes is left out of
         served config until it is fixed, and listed in the served header, the pipeline page and
-        the Reconciliation tab. Run <code>shepherd admin tenant-preflight</code> before and after
-        the upgrade; with <code>tenants.require_owned</code> on, the server does not start while it
-        lists anything. Create viewer service accounts only once every replica runs v0.20. Saves
+        the Reconciliation tab. Run the v0.20 image&rsquo;s
+        <code>shepherd admin tenant-preflight</code> against a copy of the database migrated with
+        that image, or from a server pod right after the upgrade (UPGRADING step 1): the v0.19
+        binary lacks the new checks. With <code>tenants.require_owned</code> on, the server does not
+        start while it lists anything. Create viewer service accounts only once every replica runs v0.20. Saves
         are now checked against the Alloy versions your collectors run. Details in
         <a href="https://github.com/procoduck/shepherd/blob/main/deploy/helm/shepherd/UPGRADING.md">UPGRADING.md</a>.
       </p>
