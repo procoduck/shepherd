@@ -27,6 +27,28 @@ type ComponentPolicy struct {
 	Unsupported  string            `json:"sim_unsupported"`
 }
 
+// stubbed reports whether the transform replaces a node of this component with
+// its synthetic stub (applyStubs): a Sources component that names one.
+func (p ComponentPolicy) stubbed() bool {
+	return p.Category == categorySources && p.Stub != nil
+}
+
+// removedSecretSource reports whether the transform removes a node of this
+// component outright as a secret source (substituteRemovedRefs).
+func (p ComponentPolicy) removedSecretSource() bool {
+	return p.SecretSource != nil
+}
+
+// ReplacedInSandbox reports whether a node of this component never runs as
+// authored in a sandbox run, because the transform swaps it for a stub or
+// removes it as a secret source. Its own cadence (a poll frequency, a refresh
+// interval) therefore never runs there either, which is what the run window
+// (runwindow.go) needs to know. It is the same two predicates the transform
+// itself branches on, so the two cannot disagree.
+func (p ComponentPolicy) ReplacedInSandbox() bool {
+	return p.stubbed() || p.removedSecretSource()
+}
+
 // KeepSpec is the deny-by-default allowlist rule K constructs a node's props
 // from. It is the security boundary: an attribute path absent from it is absent
 // from the sandbox config, whatever the artifact declares its type to be.

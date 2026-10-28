@@ -408,7 +408,7 @@ func Preflight(ctx context.Context, q *sqlc.Queries, org sqlc.Org, requireTenant
 		}
 		msgs := make([]string, len(refusals))
 		for j, d := range refusals {
-			msgs[j] = refusalText(d)
+			msgs[j] = preflightRefusalText(d, pipelines[i].Contents)
 		}
 		v := base
 		v.Kind, v.Name = KindPipeline, pipelines[i].Name
@@ -563,12 +563,26 @@ func refusalText(d validate.Diagnostic) string {
 	return fmt.Sprintf("%d:%d %s", d.Line, d.Col, d.Message)
 }
 
+// preflightRefusalText is refusalText for the preflight's report, which
+// names a pipeline whose stored text does not parse as exactly that, with
+// the parser's error. The served header and a save keep refusalText's
+// wording: it is what v0.20.0 already serves as the exclusion reason.
+func preflightRefusalText(d validate.Diagnostic, contents string) string {
+	if d.Finding == validate.FindingUnparsable {
+		if err := validate.ParseError(contents); err != nil {
+			return "the pipeline text does not parse: " + err.Error()
+		}
+	}
+	return refusalText(d)
+}
+
 // fixHint is how a pipeline refused for refusals is fixed: edit or disable
 // it, or whatever lifts each kind of finding it has — assigning a tenant
 // fixes a tenant finding only, allowing a component only a refused shipped
-// one.
+// one. Text that does not parse has one fix only: nothing else can be judged
+// until it parses.
 func fixHint(refusals []validate.Diagnostic) string {
-	var tenant, component, route bool
+	var tenant, component, route, unparsable bool
 	for _, d := range refusals {
 		switch d.Finding {
 		case validate.FindingTenant:
@@ -579,7 +593,12 @@ func fixHint(refusals []validate.Diagnostic) string {
 			route = true
 		case validate.FindingUnknownComponent:
 			// Nothing to allow: only an edit fixes it.
+		case validate.FindingUnparsable:
+			unparsable = true
 		}
+	}
+	if unparsable {
+		return "fix the pipeline text"
 	}
 	options := []string{"edit or disable the pipeline"}
 	if tenant {

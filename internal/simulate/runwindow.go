@@ -152,8 +152,9 @@ func formatSeconds(d time.Duration) string {
 // components of an Alloy config set, at the top level and inside declare
 // bodies. An unset attribute takes its schema default; an attribute in a
 // nested block is read only where the block is written. A component the
-// sandbox replaces with a stub (Policy discovery_stub) is skipped: its own
-// cadence never runs there.
+// sandbox transform stubs or removes (ComponentPolicy.ReplacedInSandbox: a
+// discovery_stub, or a sim_secret_source such as remote.kubernetes.secret) is
+// skipped: its own cadence never runs there.
 func PipelineIntervals(content []byte, merged map[string]any, policy Policy) ([]RunInterval, error) {
 	file, err := alloysyntax.ParseFile("<run window>", content)
 	if err != nil {
@@ -177,7 +178,7 @@ func PipelineIntervals(content []byte, merged map[string]any, policy Policy) ([]
 			if !ok {
 				continue
 			}
-			if p, ok := policy.Components[name]; ok && p.Stub != nil {
+			if policy.Components[name].ReplacedInSandbox() {
 				continue
 			}
 			collectIntervals(name, block.Label, block.Body, spec, nil, &out)

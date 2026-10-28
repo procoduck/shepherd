@@ -701,6 +701,20 @@ In rough priority order; closed items stay in place, marked with the release tha
       the tenant index's (`tenancy.RebuildPipelineTenants`, incomplete) or the lint's (accepted)
       — and whether "incomplete" here can hide a tenant the assignment check should see. Behaviour
       unchanged for now.
+- [ ] **No skip link past the builder palette.** From the visual builder's toolbar, reaching the
+      canvas by keyboard takes about 160 Tab presses through every palette entry (v0.21.0 final
+      walkthrough). Add a "Skip to canvas" link (or make the palette one tab stop with arrow-key
+      navigation inside it).
+- [ ] **The canvas's React Flow `application` element has no accessible name.** Its wrapper
+      region is named, but the inner `role="application"` element a screen reader lands on is
+      announced without one (v0.21.0 final walkthrough). Give it an `aria-label`.
+- [ ] **Collector detail tabs are plain buttons, not `role="tab"`.** The tab strip on the
+      collector page has no `tablist`/`tab`/`tabpanel` roles or `aria-selected`, so assistive
+      technology does not announce it as tabs (v0.21.0 final walkthrough).
+- [ ] **`Render` returns 200 with the content minus an invalid binding, plus the diagnostic.** A
+      caller reading `content` alone sees text that looks valid; only `diagnostics` says a binding
+      was left out (v0.21.0 final walkthrough). Decide whether such a render should return no
+      content, or mark the content partial, so a client cannot mistake it for the whole graph.
 
 Closed since the last pass, with the evidence in `docs/archive/completed-2026-09-11.md`: the React
 19 / TypeScript 7 / Vite 8 migrations, request-gate authentication, the lazy editor chunk, the

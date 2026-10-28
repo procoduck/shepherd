@@ -62,6 +62,11 @@ const (
 	FindingUnknownComponent
 	// FindingRoute is an endpoint under a tenant route the org may not use.
 	FindingRoute
+	// FindingUnparsable is a stored pipeline text that does not parse, so its
+	// served form cannot be built: only fixing the text lifts it. A save never
+	// gets here (Stage 1 refuses it first); a pipeline stored before a check
+	// does (the preflight, the serve-time check).
+	FindingUnparsable
 )
 
 // Result is returned by all validation functions.
@@ -115,6 +120,19 @@ func New(cfg *config.ValidateConfig) *Validator {
 
 // Stage3Timeout returns the budget for Stage 3 validation.
 func (v *Validator) Stage3Timeout() time.Duration { return v.stage3Timeout }
+
+// ParseError is why content does not parse as Alloy syntax, nil when it
+// does: the first line of the parser's error, without the parser's file name
+// ("4:1: expected }, got EOF"). Unlike Stage1 it is not counted as a
+// validation; it is for a caller describing stored text (tenancy.Preflight).
+func ParseError(content string) error {
+	_, err := alloysyntax.ParseFile("<pipeline>", []byte(content))
+	if err == nil {
+		return nil
+	}
+	first, _, _ := strings.Cut(err.Error(), "\n")
+	return errors.New(strings.TrimPrefix(first, "<pipeline>:"))
+}
 
 // Stage1 parses the Alloy syntax and returns structured diagnostics.
 // content should be the raw pipeline body (not yet declare-wrapped).
@@ -285,8 +303,16 @@ func withServedForm(ctx context.Context, r Result, contents string, tenants Tena
 	}
 	served, err := tenants.Inline(ctx, contents)
 	if err != nil {
-		return refuse(fmt.Sprintf("the pipeline cannot be built in the form strict tenant mode serves (pinned "+
+		// The message is the served header's exclusion reason (merge.Assemble,
+		// via the serve-time check) and is kept as released; only the finding
+		// says when the cause is the stored text itself not parsing, so the
+		// preflight can say so and hint the one fix that applies.
+		r = refuse(fmt.Sprintf("the pipeline cannot be built in the form strict tenant mode serves (pinned "+
 			"modules inlined, "+tenantLabel+" dropped after labelmaps and otelcol.exporter.loki): %v", err))
+		if ParseError(contents) != nil {
+			r.Diagnostics[len(r.Diagnostics)-1].Finding = FindingUnparsable
+		}
+		return r
 	}
 	// The bound, whatever Inline did: no import.git, however spelt, anywhere
 	// in what is served — top level, declares, import.string contents.

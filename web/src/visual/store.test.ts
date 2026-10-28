@@ -954,3 +954,84 @@ describe('openPipeline', () => {
     expect(useVisualStore.getState().pipelineId).toBe('');
   });
 });
+
+// v0.21.0 final walkthrough: Cmd/Ctrl+Z straight after opening a saved visual
+// pipeline emptied the canvas and enabled Save — importGraph left the
+// empty→loaded step in the undo history. Replacing the whole document starts
+// a fresh history.
+describe('replacing the document starts a fresh undo history', () => {
+  const node = (id: string, component: string, x: number) => ({
+    id,
+    component,
+    label: 'default',
+    position: { x, y: 0 },
+    props: {},
+    disabled: false,
+    notes: '',
+  });
+  const loaded = (): GraphDocument => ({
+    kind: 'alloy-graph/v1',
+    schema_version: 'alloy-v1.18.1',
+    nodes: [node('n1', 'prometheus.scrape', 0), node('n2', 'prometheus.remote_write', 200)],
+    edges: [],
+    bindings: [],
+    viewport: { x: 0, y: 0, zoom: 1 },
+    meta: { created_with: 'test' },
+  });
+
+  beforeEach(() => {
+    useVisualStore.setState({ readOnly: false });
+    useVisualStore.getState().resetDoc();
+    useVisualStore.temporal.getState().clear();
+  });
+
+  it('undo right after importGraph is a no-op and leaves the document clean', () => {
+    // An edit before the load (a previous graph) must not be reachable either.
+    useVisualStore.getState().addNode('x', { x: 1, y: 1 });
+    useVisualStore.getState().importGraph(loaded());
+    expect(useVisualStore.temporal.getState().pastStates).toHaveLength(0);
+
+    useVisualStore.getState().undo();
+    expect(useVisualStore.getState().doc.nodes).toHaveLength(2);
+    expect(useVisualStore.getState().isDirty()).toBe(false);
+  });
+
+  it('undo after a real edit returns to the loaded graph and is clean again', () => {
+    useVisualStore.getState().importGraph(loaded());
+    useVisualStore.getState().addNode('x', { x: 1, y: 1 });
+    expect(useVisualStore.getState().isDirty()).toBe(true);
+
+    useVisualStore.getState().undo();
+    expect(useVisualStore.getState().doc.nodes.map((n) => n.id)).toEqual(['n1', 'n2']);
+    expect(useVisualStore.getState().isDirty()).toBe(false);
+    // ...and no further: the loaded graph is the bottom of the history.
+    useVisualStore.getState().undo();
+    expect(useVisualStore.getState().doc.nodes).toHaveLength(2);
+    expect(useVisualStore.getState().isDirty()).toBe(false);
+
+    useVisualStore.getState().redo();
+    expect(useVisualStore.getState().doc.nodes).toHaveLength(3);
+    expect(useVisualStore.getState().isDirty()).toBe(true);
+  });
+
+  it('resetDoc (switching pipelines, reload) drops the previous history', () => {
+    useVisualStore.getState().importGraph(loaded());
+    useVisualStore.getState().addNode('x', { x: 1, y: 1 });
+    useVisualStore.getState().resetDoc();
+    expect(useVisualStore.temporal.getState().pastStates).toHaveLength(0);
+    expect(useVisualStore.temporal.getState().futureStates).toHaveLength(0);
+    useVisualStore.getState().undo();
+    expect(useVisualStore.getState().doc.nodes).toHaveLength(0);
+    expect(useVisualStore.getState().isDirty()).toBe(false);
+  });
+
+  it('importGraph drops redo states left from the previous document', () => {
+    useVisualStore.getState().addNode('x', { x: 1, y: 1 });
+    useVisualStore.getState().undo();
+    expect(useVisualStore.temporal.getState().futureStates.length).toBeGreaterThan(0);
+    useVisualStore.getState().importGraph(loaded());
+    expect(useVisualStore.temporal.getState().futureStates).toHaveLength(0);
+    useVisualStore.getState().redo();
+    expect(useVisualStore.getState().doc.nodes.map((n) => n.id)).toEqual(['n1', 'n2']);
+  });
+});
