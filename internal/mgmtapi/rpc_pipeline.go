@@ -1160,19 +1160,91 @@ func (s *PipelineService) validationModules(ctx context.Context, orgIDStr string
 	if !p.Strict || len(p.ImportRepos) == 0 {
 		return pinnedimport.Cached // no import.git is allowed, so none is fetched
 	}
-	if authorizeProcedure(ctx, s.store, auth.SessionFromCtx(ctx), orgIDStr, reqOrgEditor) == nil {
+	if validationMayFetch(ctx, s.store, orgIDStr, p.OrgID) {
 		return s.imports.Saving()
 	}
-	teams, err := s.store.Queries.ListTeamsByOrg(ctx, p.OrgID)
-	if err != nil {
-		return pinnedimport.Cached
+	return pinnedimport.Cached
+}
+
+// validationMayFetch is validationModules' caller check: an org editor or
+// above, or a caller who passes pipelineCanEdit for at least one team of orgID.
+// Any error answers false, so the caller reads the cache only.
+func validationMayFetch(ctx context.Context, st *store.Store, orgIDStr string, orgID pgtype.UUID) bool {
+	if authorizeProcedure(ctx, st, auth.SessionFromCtx(ctx), orgIDStr, reqOrgEditor) == nil {
+		return true
 	}
+	// requireWriteAuthorized does not depend on the team, so a caller it
+	// refuses is refused for every team: no need to list them.
+	if requireWriteAuthorized(ctx) != nil {
+		return false
+	}
+	teams, err := st.Queries.ListTeamsByOrg(ctx, orgID)
+	if err != nil {
+		return false
+	}
+	return pipelineCanEditAnyTeam(ctx, st, orgIDStr, teams)
+}
+
+// pipelineCanEditAnyTeam answers "is pipelineCanEdit true for at least one of
+// teams?" in one pass rather than one per team. It splits pipelineCanEdit
+// into the part that does not depend on the owner, decided once, and the
+// team owner-write grant (auth.authorizeTeamOwnerWrite), decided over all of
+// teams at once:
+//
+//   - requireWriteAuthorized refuses the caller: false.
+//   - a machine caller (no session) passes authorizePipelineOwnership for any
+//     owner: true.
+//   - a session passing auth.AuthorizeOwnership with no owner (app admin, org
+//     editor or above) passes it for any owner: true. Any error but
+//     auth.ErrForbidden refuses every owner: false.
+//   - otherwise only the team grant is left: a team of orgIDStr whose IdP
+//     group is in the session's groups (an OIDC session), or an explicit
+//     team_members row in a team of orgIDStr (a local session).
+//
+// Every branch needs one team to exist, as the loop it replaces did.
+// internal/mgmtapi/strict_tenants_test.go pins it to that loop.
+func pipelineCanEditAnyTeam(ctx context.Context, st *store.Store, orgIDStr string, teams []sqlc.Team) bool {
+	if len(teams) == 0 || requireWriteAuthorized(ctx) != nil {
+		return false
+	}
+	sess := auth.SessionFromCtx(ctx)
+	if sess == nil {
+		_, ok := serviceAccountFromCtx(ctx)
+		return ok
+	}
+	switch err := auth.AuthorizeOwnership(ctx, st, sess, orgIDStr, ""); {
+	case err == nil:
+		return true
+	case !errors.Is(err, auth.ErrForbidden):
+		return false
+	}
+	orgID, err := scanUUID(orgIDStr)
+	if err != nil {
+		return false
+	}
+	// authorizeTeamOwnerWrite refuses a team of another org.
+	inOrg := teams[:0:0]
 	for i := range teams {
-		if pipelineCanEdit(ctx, s.store, orgIDStr, teams[i].ID.String()) {
-			return s.imports.Saving()
+		if teams[i].OrgID == orgID {
+			inOrg = append(inOrg, teams[i])
 		}
 	}
-	return pinnedimport.Cached
+	if len(inOrg) == 0 {
+		return false
+	}
+	// One session, one source: a local session matches explicit members
+	// only, an OIDC session the teams' IdP groups only.
+	if sess.Source == auth.SourceLocal && sess.UserID.Valid {
+		member, err := st.Queries.IsUserMemberOfAnyTeamInOrg(ctx,
+			sqlc.IsUserMemberOfAnyTeamInOrgParams{OrgID: orgID, UserID: sess.UserID})
+		return err == nil && member
+	}
+	for i := range inOrg {
+		if inOrg[i].IdpGroupID.Valid && slices.Contains(sess.GroupIDs, inOrg[i].IdpGroupID.String) {
+			return true
+		}
+	}
+	return false
 }
 
 // FormatPipeline canonicalises the pipeline body (what `alloy fmt` does),
