@@ -49,6 +49,14 @@
 > grpc 1.85.0 lifting the 1.84.x hold, x/net 0.62.0, the web dev toolchain; PRs #430, #441) and
 > migration `0051`, so v0.20 pods can start sandbox runs on the v0.21 schema during a rollout or
 > after a rollback, with the install-docs corrections from the docs review (PR #442).
+>
+> **On main since v0.21.1, unreleased** (towards v0.22.0; `CHANGELOG.md` → Unreleased): query
+> logs without bound parameters and cache-only module reads for read-only validation (PRs #444,
+> #448), session ids stored as digests (PR #445, migration `0052`), group access bound to the
+> granting org (PR #446, migration `0053`), one database URL parser for the server and
+> `shepherd migrate` (PR #449), a byte budget for a strict org's served-form build (PR #450), and
+> `seroval` 1.7.2 (PR #451).
+>
 > Completed rounds live in `docs/archive/` — the history this ledger used to carry inline is
 > `docs/archive/completed-2026-09-11.md`. Do not start a second ledger.
 
@@ -293,6 +301,10 @@ the manual end-to-end pass the list above records. Re-walk them on the next rele
   `pipelinesource.Source` (#425, PR #437); canvas keyboard accessibility, axe scan and
   nested-block bindings (#426, PR #438); walkthrough fixes (PRs #434, #439). Walked on kind before
   the tag (§1).
+- **v0.21.1** (chart 0.25.1) — dependency updates (go-jose 4.1.6, grpc 1.85.0, x/net 0.62.0, the
+  web dev toolchain; PRs #430, #441) and migration `0051`, so a v0.20 pod can start sandbox runs
+  on the v0.21 schema during a rollout or after a rollback, plus install-docs corrections (PR #442).
+  Not walked in the browser.
 
 ### History
 
@@ -325,19 +337,18 @@ remediation with its D1–D14 decisions, and the v0.5.0 dependency and toolchain
   pipelines, repository-link delete, docs review and screenshots), chart 0.22.0, release run
   38769359463.
 - 2026-10-22 — v0.19.0-rc.1, prerelease (review remediation steps 1–6, 4b–4d, 7a; signed
-  releases), chart 0.23.0-rc.1; release run recorded after the tag.
+  releases), chart 0.23.0-rc.1; release run 39836585311.
 - 2026-10-23 — v0.19.0-rc.2, prerelease (org-bound agent tokens, several tenants per org, strict
   tenant mode, database-outage tolerance, config and render bounds), chart 0.23.0-rc.2; release
   run 40043204621 (rc.1: 39836585311; v0.18.0: 38769359463).
 - 2026-10-24 — v0.19.0 (review remediation, org-bound agent tokens, several tenants per org,
   strict tenant mode, outage tolerance, config and render bounds, refused collectors visible, the
-  beacon reporting), chart 0.23.0; release run recorded after the tag.
+  beacon reporting), chart 0.23.0; release run 40284245357.
 - 2026-10-26 — v0.19.1 (beacon ingest hardening, bounded in-browser preview, Alloy v1.21.2),
   chart 0.23.1, release run 40314944875.
 - 2026-10-27 — v0.20.0 (viewer service accounts, version-aware validation, pinned `import.git`
   for strict orgs, k8s-monitoring pipelines under restricted roles and strict mode, the
-  serve-time strict re-check, Reconciliation fixes), chart 0.24.0; release run recorded after the
-  tag.
+  serve-time strict re-check, Reconciliation fixes), chart 0.24.0; release run 40497249061.
 - 2026-10-28 — v0.21.0-rc.1, prerelease (strict component allowlist and real-Alloy suite, gateway
   route endpoints in strict mode, post-0.20 follow-ups, collector contributing/excluded pipelines,
   sandbox run window, walkthrough fixes), chart 0.25.0-rc.1; release run 40659974682.
@@ -346,7 +357,7 @@ remediation with its D1–D14 decisions, and the v0.5.0 dependency and toolchain
   bindings, chart notes schemes and upgrade spec), chart 0.25.0; release run 40706359755.
 - 2026-10-28 — v0.21.1 (dependency updates incl. go-jose 4.1.6 and grpc 1.85.0, migration 0051
   for v0.20 sandbox runs during rollout and rollback, install-docs corrections), chart 0.25.1;
-  release run recorded after the tag.
+  release run 40737429024 (its first attempt failed on a Docker Hub 502; the rerun passed).
 
 ---
 
