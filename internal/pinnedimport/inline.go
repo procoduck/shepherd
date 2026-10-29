@@ -20,12 +20,25 @@ import (
 // repository, revision or path is not a string literal, the revision is not a
 // full commit SHA, the repository is not on the allowlist, the module is not
 // cached, or it nests deeper than validate.MaxGitImportDepth. The serve path
-// fails closed on it: a strict org is never served an import.git.
+// fails closed on it: a strict org is never served an import.git. It is also
+// a served form that would be more than validate.MaxContentBytes, or that
+// expands more than MaxImportInstances imports.
 var ErrNotInlinable = errors.New("pinned import.git cannot be inlined")
+
+// MaxImportInstances is how many import blocks (import.git and
+// import.string) a strict org's pipeline may expand as served, nested ones
+// included and a module imported twice counted twice. The pipelines in use
+// have a handful; each instance is a module Alloy loads and runs.
+const MaxImportInstances = 256
 
 // Ref is one pinned module, as the cache keys it.
 type Ref struct {
 	Key, Revision, Path string
+}
+
+// moduleQuerier is how the walker reads the cache (*sqlc.Queries).
+type moduleQuerier interface {
+	GetPinnedImportModule(ctx context.Context, arg sqlc.GetPinnedImportModuleParams) (sqlc.PinnedImportModule, error)
 }
 
 // Inline is what a strict org is served for contents (#390): every
@@ -47,14 +60,27 @@ type Ref struct {
 // is returned unchanged.
 //
 // Only the cache is read, through q. The result is at most
-// validate.MaxContentBytes (the pipeline contents cap).
+// validate.MaxContentBytes (the pipeline contents cap), and the whole build
+// — every module, every nested expansion, every drop — is charged to one
+// validate.ServedBudget of that size as it goes: a pipeline that would
+// expand past it is refused when it gets there, never built in full. At
+// most MaxImportInstances imports are expanded.
 func Inline(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, repos []sqlc.OrgImportRepository, contents string) (string, error) {
+	return inline(ctx, q, orgID, repos, contents)
+}
+
+func inline(ctx context.Context, q moduleQuerier, orgID pgtype.UUID, repos []sqlc.OrgImportRepository, contents string) (string, error) {
 	w := newWalker(ctx, q, orgID, repos)
 	out, err := w.inline(contents, 0, 0)
 	if err != nil {
 		return "", err
 	}
-	if out, err = validate.InsertTenantDrops(out); err != nil {
+	// A changed text is charged; the drop pass charges what it builds from
+	// it (validate.ServedBudget).
+	if out != contents {
+		w.budget.Give(len(out))
+	}
+	if out, err = validate.InsertTenantDropsWithin(out, w.budget); err != nil {
 		return "", fmt.Errorf("%w: %w", ErrNotInlinable, err)
 	}
 	if len(out) > validate.MaxContentBytes {
@@ -78,6 +104,10 @@ func InlineOrg(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, contents
 // modules — what must stay cached while contents is enabled. A module that
 // is not cached is listed, and what it would import is not.
 func References(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, repos []sqlc.OrgImportRepository, contents string) ([]Ref, error) {
+	return references(ctx, q, orgID, repos, contents)
+}
+
+func references(ctx context.Context, q moduleQuerier, orgID pgtype.UUID, repos []sqlc.OrgImportRepository, contents string) ([]Ref, error) {
 	w := newWalker(ctx, q, orgID, repos)
 	w.collect = true
 	if _, err := w.inline(contents, 0, 0); err != nil {
@@ -88,15 +118,41 @@ func References(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, repos [
 
 type walker struct {
 	ctx     context.Context
-	q       *sqlc.Queries
+	q       moduleQuerier
 	orgID   pgtype.UUID
 	repos   map[string]bool
 	collect bool
 	refs    []Ref
+	// budget is the served form's (Inline); instances counts the imports
+	// expanded (MaxImportInstances).
+	budget    *validate.ServedBudget
+	instances int
+	// modules are the modules inlined so far, by where they were inlined:
+	// one module imported many times is read and inlined once. visited is
+	// References' (collect) record of the same.
+	modules map[moduleAt]inlinedModule
+	visited map[moduleAt]bool
 }
 
-func newWalker(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, repos []sqlc.OrgImportRepository) *walker {
-	w := &walker{ctx: ctx, q: q, orgID: orgID, repos: map[string]bool{}}
+// moduleAt is a module at the depths it is inlined at: what inlining it
+// depends on, besides the cache.
+type moduleAt struct {
+	ref             Ref
+	gitDepth, depth int
+}
+
+// inlinedModule is a module's inlined text, quoted, and how many imports
+// inlining it expanded.
+type inlinedModule struct {
+	quoted    string
+	instances int
+}
+
+func newWalker(ctx context.Context, q moduleQuerier, orgID pgtype.UUID, repos []sqlc.OrgImportRepository) *walker {
+	w := &walker{
+		ctx: ctx, q: q, orgID: orgID, repos: map[string]bool{}, budget: validate.NewServedBudget(),
+		modules: map[moduleAt]inlinedModule{}, visited: map[moduleAt]bool{},
+	}
 	for i := range repos {
 		w.repos[repos[i].RepositoryKey] = true
 	}
@@ -107,19 +163,15 @@ func newWalker(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, repos []
 // follows into: the tenant lint's module depth.
 const maxModuleDepth = 8
 
-// splice is one rewrite of a byte range of a text.
-type splice struct {
-	start, end int // [start, end)
-	text       string
-}
-
 // inline rewrites text's import.git blocks — found in the parse tree, so
 // whatever spelling of the name the parser accepts — and descends into each
 // import.string whose content is a plain literal, rewriting the module text
 // it holds the same way. gitDepth is how many import.git modules enclose
 // text, depth how many modules of either kind. Text with nothing to rewrite
 // is returned unchanged; otherwise only the rewritten byte ranges change,
-// located by the parsed nodes' positions.
+// located by the parsed nodes' positions, and the result is charged to the
+// budget (validate.ServedBudget). In collect mode (References) nothing is
+// rewritten: the walk only lists the modules.
 func (w *walker) inline(text string, gitDepth, depth int) (string, error) {
 	if depth > maxModuleDepth {
 		return "", fmt.Errorf("%w: modules nest more than %d deep", ErrNotInlinable, maxModuleDepth)
@@ -133,9 +185,14 @@ func (w *walker) inline(text string, gitDepth, depth int) (string, error) {
 	}
 	var blocks []*ast.BlockStmt
 	collectImports(file.Body, &blocks, 0)
-	var splices []splice
+	var splices []validate.Splice
 	for _, b := range blocks {
-		var sp *splice
+		if !w.collect {
+			if err := w.expand(1); err != nil {
+				return "", err
+			}
+		}
+		var sp *validate.Splice
 		var err error
 		if strings.Join(b.Name, ".") == "import.git" {
 			sp, err = w.gitBlock(b, gitDepth, depth)
@@ -155,18 +212,35 @@ func (w *walker) inline(text string, gitDepth, depth int) (string, error) {
 	if len(splices) == 0 {
 		return text, nil
 	}
-	// Apply from the last range back, so earlier offsets stay valid.
-	slices.SortFunc(splices, func(a, b splice) int { return b.start - a.start })
-	out := text
-	for _, sp := range splices {
-		out = out[:sp.start] + sp.text + out[sp.end:]
+	out, err := validate.ApplySplices(text, splices, w.budget)
+	if err != nil {
+		return "", fmt.Errorf("%w: %w", ErrNotInlinable, err)
 	}
 	return out, nil
 }
 
+// expand counts n more import instances, refusing more than
+// MaxImportInstances.
+func (w *walker) expand(n int) error {
+	w.instances += n
+	if w.instances > MaxImportInstances {
+		return fmt.Errorf("%w: as served the pipeline expands more than %d imports (import.git and "+
+			"import.string blocks, nested ones and repeats included)", ErrNotInlinable, MaxImportInstances)
+	}
+	return nil
+}
+
+// take charges n bytes of served form to the budget.
+func (w *walker) take(n int) error {
+	if err := w.budget.Take(n); err != nil {
+		return fmt.Errorf("%w: %w", ErrNotInlinable, err)
+	}
+	return nil
+}
+
 // gitBlock rewrites one import.git block into an import.string of its
 // cached module, itself inlined.
-func (w *walker) gitBlock(b *ast.BlockStmt, gitDepth, depth int) (*splice, error) {
+func (w *walker) gitBlock(b *ast.BlockStmt, gitDepth, depth int) (*validate.Splice, error) {
 	if gitDepth >= validate.MaxGitImportDepth {
 		return nil, fmt.Errorf("%w: import.git nests more than %d deep", ErrNotInlinable, validate.MaxGitImportDepth)
 	}
@@ -174,34 +248,90 @@ func (w *walker) gitBlock(b *ast.BlockStmt, gitDepth, depth int) (*splice, error
 	if err != nil {
 		return nil, err
 	}
-	if w.collect && !slices.Contains(w.refs, ref) {
-		w.refs = append(w.refs, ref)
+	at := moduleAt{ref: ref, gitDepth: gitDepth, depth: depth}
+	if w.collect {
+		if !slices.Contains(w.refs, ref) {
+			w.refs = append(w.refs, ref)
+		}
+		// A second visit at the same depths lists nothing new.
+		if w.visited[at] {
+			return nil, nil //nolint:nilnil // nothing to rewrite in collect mode
+		}
+		w.visited[at] = true
+		content, err := w.module(ref)
+		if err != nil {
+			return nil, err
+		}
+		_, err = w.inline(content, gitDepth+1, depth+1)
+		return nil, err
 	}
+	m, ok := w.modules[at]
+	if ok {
+		if err := w.expand(m.instances); err != nil {
+			return nil, err
+		}
+	} else {
+		content, err := w.module(ref)
+		if err != nil {
+			return nil, err
+		}
+		before := w.instances
+		module, err := w.inline(content, gitDepth+1, depth+1)
+		if err != nil {
+			return nil, err
+		}
+		if module != content {
+			// Charged as inlined; what is served is the import.string below.
+			w.budget.Give(len(module))
+		}
+		// The quoted module is built once, here, and is part of the first
+		// instance's import.string: it must fit the budget before it is
+		// built (the instance charges it below).
+		quoted := validate.QuotedLen(module)
+		if err := w.take(quoted); err != nil {
+			return nil, err
+		}
+		w.budget.Give(quoted)
+		m = inlinedModule{quoted: alloysyntax.QuoteString(module), instances: w.instances - before}
+		w.modules[at] = m
+	}
+	start := ast.StartPos(b).Position()
+	columns := max(start.Column-1, 0)
+	const head, open, content, closing = "import.string ", " {\n", "  content = ", "\n"
+	n := len(head) + validate.QuotedLen(b.Label) + len(open) + columns + len(content) + len(m.quoted) +
+		len(closing) + columns + 1
+	if err := w.take(n); err != nil {
+		return nil, err
+	}
+	indent := strings.Repeat(" ", columns)
+	var sb strings.Builder
+	sb.Grow(n)
+	for _, s := range []string{head, alloysyntax.QuoteString(b.Label), open, indent, content, m.quoted, closing, indent, "}"} {
+		sb.WriteString(s)
+	}
+	return &validate.Splice{
+		Start: start.Offset,
+		End:   ast.EndPos(b).Position().Offset + 1,
+		Text:  sb.String(),
+	}, nil
+}
+
+// module is ref's cached text.
+func (w *walker) module(ref Ref) (string, error) {
 	row, err := w.q.GetPinnedImportModule(w.ctx, sqlc.GetPinnedImportModuleParams{
 		OrgID: w.orgID, RepositoryKey: ref.Key, Revision: ref.Revision, Path: ref.Path,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("%w: module %s at %s (%s) is not cached", ErrNotInlinable, ref.Path, ref.Revision, ref.Key)
+		return "", fmt.Errorf("%w: module %s at %s (%s) is not cached", ErrNotInlinable, ref.Path, ref.Revision, ref.Key)
 	}
-	module, err := w.inline(row.Content, gitDepth+1, depth+1)
-	if err != nil {
-		return nil, err
-	}
-	start := ast.StartPos(b).Position()
-	indent := strings.Repeat(" ", max(start.Column-1, 0))
-	return &splice{
-		start: start.Offset,
-		end:   ast.EndPos(b).Position().Offset + 1,
-		text: "import.string " + alloysyntax.QuoteString(b.Label) + " {\n" +
-			indent + "  content = " + alloysyntax.QuoteString(module) + "\n" + indent + "}",
-	}, nil
+	return row.Content, nil
 }
 
 // stringBlock rewrites the content of one import.string whose module text
 // holds an import.git (at any depth): only its content literal is replaced,
 // re-quoted. Content that is not a plain literal is left alone (the served
 // form's bound, validate.ServedFormProblem, refuses it in a strict org).
-func (w *walker) stringBlock(b *ast.BlockStmt, gitDepth, depth int) (*splice, error) {
+func (w *walker) stringBlock(b *ast.BlockStmt, gitDepth, depth int) (*validate.Splice, error) {
 	for _, st := range b.Body {
 		a, ok := st.(*ast.AttributeStmt)
 		if !ok || a.Name.Name != "content" {
@@ -218,10 +348,15 @@ func (w *walker) stringBlock(b *ast.BlockStmt, gitDepth, depth int) (*splice, er
 		if inner == content {
 			return nil, nil //nolint:nilnil // unchanged: the bytes stay as written
 		}
-		return &splice{
-			start: ast.StartPos(a.Value).Position().Offset,
-			end:   ast.EndPos(a.Value).Position().Offset + 1,
-			text:  alloysyntax.QuoteString(inner),
+		// Charged as inlined; what is served is inner quoted.
+		w.budget.Give(len(inner))
+		if err := w.take(validate.QuotedLen(inner)); err != nil {
+			return nil, err
+		}
+		return &validate.Splice{
+			Start: ast.StartPos(a.Value).Position().Offset,
+			End:   ast.EndPos(a.Value).Position().Offset + 1,
+			Text:  alloysyntax.QuoteString(inner),
 		}, nil
 	}
 	return nil, nil //nolint:nilnil // no content attribute

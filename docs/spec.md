@@ -1009,7 +1009,14 @@ every pipeline without an `import.git` block, are served byte for byte as before
 change: only a strict org's pipeline that uses a pinned import is served differently). The
 validation gate validates that served form too (`TenantPolicy.Inline`): Stages 1-2 and the tenant
 lint on the inlined text, refused when it cannot be built or is over the 1 MiB pipeline cap
-(`validate.MaxContentBytes`); role/signal enforcement and the editor's derived signals see it as
+(`validate.MaxContentBytes`). The cap holds while the form is built, not only after: the inliner
+and the `__tenant_id__` drop pass charge one byte budget (`validate.ServedBudget`) for every module
+text, nested expansion, re-quoted content and inserted drop before building it, and stop the moment
+the result would pass 1 MiB. What is charged never exceeds the finished length, so a pipeline whose
+served form fits is built byte for byte as before. A pipeline that expands more than 256 imports
+(`pinnedimport.MaxImportInstances`: `import.git` and `import.string` blocks, nested ones and repeats
+included) is refused too. A module imported several times is read and inlined once per build, and
+the tenant lint parses each module text once per run; role/signal enforcement and the editor's derived signals see it as
 well, so a pinned module's declare body's signals count (an `import.git` instance would be Unknown).
 At serve time an `import.git` that cannot be inlined fails the recompute closed: the collector keeps
 its last good config and the failure is recorded (`last_failed_seq`, audited), never the raw import.

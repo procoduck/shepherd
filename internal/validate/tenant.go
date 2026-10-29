@@ -110,6 +110,26 @@ type gitState struct {
 	fetched map[GitModule]gitFetch
 	needed  []GitModule
 	asked   map[GitModule]bool
+	// parsed is every text the call has parsed (nil: it does not parse),
+	// so a module imported many times is parsed once. The lint only reads
+	// the tree.
+	parsed map[string]*ast.File
+}
+
+// parse is text parsed, once per call.
+func (g *gitState) parse(text string) *ast.File {
+	if f, ok := g.parsed[text]; ok {
+		return f
+	}
+	f, err := alloysyntax.ParseFile("<pipeline>", []byte(text))
+	if err != nil {
+		f = nil
+	}
+	if g.parsed == nil {
+		g.parsed = map[string]*ast.File{}
+	}
+	g.parsed[text] = f
+	return f
 }
 
 func (g *gitState) need(m GitModule) {
@@ -428,11 +448,12 @@ func newTenantLinter(content string, p TenantPolicy, external map[string]map[str
 	// on its own (alloysyntax's nesting prescan, maxContentBytes) and linear,
 	// but a 1 MiB expression chain takes tens of milliseconds, which would
 	// make such a pipeline "busy" on every run. The guard is moved on by
-	// however long this parse took (a module's too).
+	// however long this parse took (a module's too). A text is parsed once
+	// per call (gitState.parse): a module imported many times costs one parse.
 	parseStart := time.Now()
-	file, err := alloysyntax.ParseFile("<pipeline>", []byte(content))
+	file := git.parse(content)
 	b.deadline = b.deadline.Add(time.Since(parseStart))
-	if err != nil {
+	if file == nil {
 		return nil
 	}
 	l.collectDeclares(file.Body, "", external)
