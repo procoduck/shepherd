@@ -2,6 +2,7 @@ package mgmtapi_test
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -1014,6 +1015,189 @@ var _ = Describe("Strict tenant mode", Label("integration"), func() {
 				Expect(fmt.Sprint(v["diagnostics"])).To(And(ContainSubstring("could not be fetched"), Not(ContainSubstring(cacheOnly))),
 					"%s: fetches the module, as its save would", name)
 			}
+		})
+
+		// Who fetches, per kind of caller: the module source follows "could
+		// this caller save the text", for humans and machines alike.
+		It("fetches in ValidatePipeline for an app admin, an editor-tier service account and a team member; a viewer-tier service account, a viewer and another org's team member read the cache", func() {
+			ok(allow(repo))
+			_, err := st.Queries.UpdateOrg(ctx, sqlc.UpdateOrgParams{
+				ID: orgA, DisplayName: "strict-a", AdminGroupID: "strict-a-admins",
+				ViewerGroupID: pgtype.Text{String: "strict-a-viewers", Valid: true},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			for _, t := range []sqlc.CreateTeamParams{
+				{OrgID: orgA, Name: "owners", IdpGroupID: pgtype.Text{String: "strict-a-owners", Valid: true}},
+				{OrgID: orgB, Name: "b-owners", IdpGroupID: pgtype.Text{String: "strict-b-owners", Valid: true}},
+			} {
+				_, err = st.Queries.CreateTeam(ctx, t)
+				Expect(err).NotTo(HaveOccurred())
+			}
+			editorSecret, editorID := satierMakeServiceAccount(ctx, st, orgA, "strict-sa-editor", "apply")
+			viewerSecret := "strict-sa-viewer-secret"
+			viewerHash := sha256.Sum256([]byte(viewerSecret))
+			viewerSA, err := st.Queries.CreateServiceAccount(ctx, sqlc.CreateServiceAccountParams{
+				OrgID: orgA, Name: "strict-sa-viewer", Role: "viewer", TokenHash: viewerHash[:], CreatedBy: satierDelegatedPrincipal,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			body := map[string]any{"orgId": orgA.String(), "name": "p", "contents": importing(sha, "none.alloy")}
+			decode := func(resp *http.Response) map[string]any {
+				GinkgoHelper()
+				defer resp.Body.Close() //nolint:errcheck // test cleanup
+				out := map[string]any{}
+				Expect(json.NewDecoder(resp.Body).Decode(&out)).To(Succeed())
+				Expect(resp.StatusCode).To(Equal(http.StatusOK), "%v", out)
+				return out
+			}
+			viaCookie := func(who *http.Cookie) func() map[string]any {
+				return func() map[string]any { return ok(call(who, "PipelineService/ValidatePipeline", body)) }
+			}
+			viaServiceAccount := func(id, secret string) func() map[string]any {
+				return func() map[string]any {
+					return decode(g12PostConnect(server, "/shepherd.mgmt.v1.PipelineService/ValidatePipeline", body, id, secret, satierDelegatedPrincipal))
+				}
+			}
+			const cacheOnly = "the module has not been fetched yet"
+			for name, tc := range map[string]struct {
+				validate func() map[string]any
+				fetches  bool
+			}{
+				"app admin":                    {viaCookie(appAdmin), true},
+				"editor-tier service account":  {viaServiceAccount(editorID, editorSecret), true},
+				"owning-team member":           {viaCookie(session(false, "strict-a-owners")), true},
+				"viewer-tier service account":  {viaServiceAccount(viewerSA.ID.String(), viewerSecret), false},
+				"org viewer":                   {viaCookie(session(false, "strict-a-viewers")), false},
+				"viewer in another org's team": {viaCookie(session(false, "strict-a-viewers", "strict-b-owners")), false},
+			} {
+				v := tc.validate()
+				Expect(v).NotTo(HaveKeyWithValue("valid", true), name)
+				if tc.fetches {
+					Expect(fmt.Sprint(v["diagnostics"])).To(And(ContainSubstring("could not be fetched"), Not(ContainSubstring(cacheOnly))),
+						"%s: fetches the module, as its save would", name)
+				} else {
+					Expect(fmt.Sprint(v["diagnostics"])).To(ContainSubstring(cacheOnly), "%s: reads the cache only", name)
+				}
+			}
+		})
+
+		// validationMayFetch answers in one pass what the org-editor check
+		// plus pipelineCanEdit per team answered; this pins the two together
+		// for every kind of caller, against an org with teams of both kinds,
+		// another org's teams and an org with none.
+		It("decides who fetches exactly as pipelineCanEdit per team did", func() {
+			_, err := st.Queries.UpdateOrg(ctx, sqlc.UpdateOrgParams{
+				ID: orgA, DisplayName: "strict-a", AdminGroupID: "strict-a-admins",
+				EditorGroupID: pgtype.Text{String: "strict-a-editors", Valid: true},
+				ViewerGroupID: pgtype.Text{String: "strict-a-viewers", Valid: true},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			team := func(org pgtype.UUID, name, group string) pgtype.UUID {
+				GinkgoHelper()
+				t, err := st.Queries.CreateTeam(ctx, sqlc.CreateTeamParams{
+					OrgID: org, Name: name, IdpGroupID: pgtype.Text{String: group, Valid: group != ""},
+				})
+				Expect(err).NotTo(HaveOccurred())
+				return t.ID
+			}
+			team(orgA, "owners", "strict-a-owners")
+			explicitA := team(orgA, "explicit", "")
+			explicitB := team(orgB, "b-explicit", "")
+			team(orgB, "b-owners", "strict-b-owners")
+
+			user := func(login string) pgtype.UUID {
+				GinkgoHelper()
+				u, err := st.Queries.CreateUser(ctx, sqlc.CreateUserParams{
+					Login: login, Email: login + "@example.com", DisplayName: login, PasswordHash: "x",
+				})
+				Expect(err).NotTo(HaveOccurred())
+				return u.ID
+			}
+			inTeamA, inTeamB, editorA, viewerA, nobody := user("in-team-a"), user("in-team-b"), user("editor-a"), user("viewer-a"), user("nobody")
+			Expect(st.Queries.AddTeamMember(ctx, sqlc.AddTeamMemberParams{TeamID: explicitA, UserID: inTeamA})).To(Succeed())
+			Expect(st.Queries.AddTeamMember(ctx, sqlc.AddTeamMemberParams{TeamID: explicitB, UserID: inTeamB})).To(Succeed())
+			for _, m := range []sqlc.UpsertOrgMemberParams{
+				{OrgID: orgA, UserID: editorA, Role: "editor"},
+				{OrgID: orgA, UserID: viewerA, Role: "viewer"},
+				{OrgID: orgB, UserID: inTeamA, Role: "viewer"},
+			} {
+				_, err := st.Queries.UpsertOrgMember(ctx, m)
+				Expect(err).NotTo(HaveOccurred())
+			}
+
+			// A session reaches the decision as SessionMiddleware leaves it.
+			sessions := auth.NewLocalAdmin(cfg, st, slog.Default())
+			sessionCtx := func(userID pgtype.UUID, source string, isAppAdmin bool, groups ...string) context.Context {
+				GinkgoHelper()
+				if groups == nil {
+					groups = []string{}
+				}
+				groupsJSON, err := json.Marshal(groups)
+				Expect(err).NotTo(HaveOccurred())
+				id := fmt.Sprintf("strict-equivalence-%d", time.Now().UnixNano())
+				_, err = st.Queries.CreateSession(ctx, sqlc.CreateSessionParams{
+					ID: auth.HashSessionToken(id), UserID: userID, UserOid: "user-" + id, Email: id + "@example.com",
+					DisplayName: "Strict", GroupIds: groupsJSON, IsAppAdmin: isAppAdmin,
+					ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}, Source: source,
+				})
+				Expect(err).NotTo(HaveOccurred())
+				req := httptest.NewRequest(http.MethodPost, "/", nil).WithContext(ctx)
+				req.AddCookie(&http.Cookie{Name: "shepherd_session", Value: id})
+				var got context.Context
+				sessions.SessionMiddleware(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+					got = r.Context()
+				})).ServeHTTP(httptest.NewRecorder(), req)
+				Expect(auth.SessionFromCtx(got)).NotTo(BeNil())
+				return got
+			}
+			oidc := func(groups ...string) context.Context { return sessionCtx(pgtype.UUID{}, "test", false, groups...) }
+			local := func(id pgtype.UUID) context.Context { return sessionCtx(id, auth.SourceLocal, false) }
+			machine := func(base context.Context, org pgtype.UUID, role, capability, onBehalfOf string) context.Context {
+				return mgmtapi.WithDelegatedServiceAccountForTest(base, org.String(), role, capability, satierDelegatedPrincipal, onBehalfOf)
+			}
+			const p = satierDelegatedPrincipal
+
+			principals := map[string]context.Context{
+				"nobody":                             ctx,
+				"app admin":                          sessionCtx(pgtype.UUID{}, "test", true),
+				"org A admin":                        oidc("strict-a-admins"),
+				"org B admin":                        oidc("strict-b-admins"),
+				"org A editor":                       oidc("strict-a-editors"),
+				"org A viewer":                       oidc("strict-a-viewers"),
+				"org A team member":                  oidc("strict-a-owners"),
+				"org A viewer + team member":         oidc("strict-a-viewers", "strict-a-owners"),
+				"org A viewer + org B team member":   oidc("strict-a-viewers", "strict-b-owners"),
+				"empty group":                        oidc(""),
+				"no groups":                          oidc(),
+				"local, org A explicit team member":  local(inTeamA),
+				"local, org B explicit team member":  local(inTeamB),
+				"local, org A editor":                local(editorA),
+				"local, org A viewer":                local(viewerA),
+				"local, nothing":                     local(nobody),
+				"oidc-sourced row with a user id":    sessionCtx(inTeamA, "test", false),
+				"org A editor apply, claimed":        machine(ctx, orgA, "editor", "apply", p),
+				"org A editor apply, unclaimed":      machine(ctx, orgA, "editor", "apply", ""),
+				"org A editor apply, wrong claim":    machine(ctx, orgA, "editor", "apply", "someone@example.com"),
+				"org A editor propose":               machine(ctx, orgA, "editor", "propose", p),
+				"org A admin apply":                  machine(ctx, orgA, "admin", "apply", p),
+				"org A viewer machine":               machine(ctx, orgA, "viewer", "", p),
+				"org A unknown tier":                 machine(ctx, orgA, "owner", "apply", p),
+				"org B editor apply":                 machine(ctx, orgB, "editor", "apply", p),
+				"org B editor propose":               machine(ctx, orgB, "editor", "propose", p),
+				"session + org A editor apply":       machine(oidc("strict-a-viewers"), orgA, "editor", "apply", p),
+				"session + org A viewer machine":     machine(oidc("strict-a-owners"), orgA, "viewer", "", p),
+				"team member + org B editor propose": machine(oidc("strict-a-owners"), orgB, "editor", "propose", p),
+			}
+			decided := map[bool]int{}
+			for name, who := range principals {
+				for orgName, org := range map[string]pgtype.UUID{"A": orgA, "B": orgB, "C (no teams)": orgC} {
+					want := mgmtapi.ValidationMayFetchPerTeamForTest(who, st, org.String())
+					Expect(mgmtapi.ValidationMayFetchForTest(who, st, org.String())).To(Equal(want), "%s in org %s", name, orgName)
+					decided[want]++
+				}
+			}
+			Expect(decided[true]).To(BeNumerically(">", 10), "the matrix exercises callers who fetch")
+			Expect(decided[false]).To(BeNumerically(">", 10), "and callers who do not")
 		})
 	})
 
