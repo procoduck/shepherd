@@ -2,7 +2,6 @@ package store
 
 import (
 	"errors"
-	"fmt"
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -31,10 +30,20 @@ func parseDatabaseURL(databaseURL string) (*pgxpool.Config, error) {
 	}
 	cfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
-		return nil, fmt.Errorf("parsing database URL: %w", err)
+		// pgx's parse errors are not safe to show: it masks only the simplest
+		// password shapes, so a keyword/value DSN with spaces around '=',
+		// quotes or escapes, or a query password with a raw '&', comes back
+		// quoting part of the password.
+		return nil, ErrUnparsableDatabaseURL
 	}
 	return cfg, nil
 }
+
+// ErrUnparsableDatabaseURL is returned for a database URL or keyword/value DSN
+// pgx cannot parse. Its text is fixed for the reason ErrAmbiguousDatabaseURL's
+// is: pgx's own message can quote the password.
+var ErrUnparsableDatabaseURL = errors.New("database URL could not be parsed; check its syntax " +
+	"(the parser's message is not shown because it can quote the password)")
 
 // misreadsCredentials reports whether pgx would split a URL-form DSN somewhere
 // other than where its author meant, so that part of the password lands in

@@ -68,6 +68,25 @@ var _ = Describe("Database URL parsing", func() {
 		Entry("no path, ?password= value with '@'", "postgres://db.invalid?password=p@zq", "zq"),
 	)
 
+	// pgx masks only the simplest password shapes in its own messages, so a
+	// DSN it cannot parse is refused with fixed text; one it does parse fails
+	// later, at connect, where the password is not echoed either.
+	DescribeTable("never quotes the password of an odd keyword/value or query DSN",
+		func(dsn string, fragments ...string) {
+			if _, err := store.ParseDatabaseURL(dsn); err != nil {
+				Expect(err).To(MatchError(store.ErrUnparsableDatabaseURL))
+			}
+			expectNoFragment(dsnOps(context.Background(), dsn), fragments...)
+		},
+		Entry("keyword/value, spaces around '='", "host=h port=1 password = 'sekra sekrb' sslmode=bogus", "sekra", "sekrb"),
+		Entry("keyword/value, escaped quote", `password='it\'s sekra sekrb' sslmode=bogus`, "sekra", "sekrb"),
+		Entry("keyword/value, empty then a word", "password= sekra sslmode=bogus", "sekra"),
+		Entry("keyword/value, unbalanced quote", "password='sekra sekrb", "sekra", "sekrb"),
+		Entry("keyword/value, tab inside", "password=sekra\tsekrb", "sekra", "sekrb"),
+		Entry("keyword/value, escaped space", `password=sekra\ sekrb`, "sekra", "sekrb"),
+		Entry("query password with a raw '&'", "postgres://u@h/db?password=sekra&sekrb", "sekra", "sekrb"),
+	)
+
 	DescribeTable("never quotes the password when the URL parses but the connection fails",
 		func(dsn string, fragments ...string) {
 			expectNoFragment(dsnOps(context.Background(), dsn), fragments...)
