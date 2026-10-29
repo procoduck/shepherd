@@ -15,6 +15,11 @@ Categories used here:
 
 ### Changed
 
+- **Shipped — the migration command accepts every database URL the server accepts.**
+  `shepherd migrate` now parses the URL the way the server does (keyword/value DSNs and
+  `pgx5://` included). A URL whose user name, password or database name holds an unencoded `/`
+  or `@` that would split it in the wrong place is refused by both, with a message that names no
+  part of it; percent-encode those characters (`%2F`, `%40`).
 - **Shipped — group access is bound to the org that granted it.** A group assigned to a
   collector on its Access tab gives its members viewer access only while the collector's cluster
   stays in the org that made the assignment. Claiming a cluster into another org removes the

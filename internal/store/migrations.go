@@ -6,42 +6,65 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strings"
 
 	"github.com/golang-migrate/migrate/v4"
-	_ "github.com/golang-migrate/migrate/v4/database/pgx/v5"
+	pgxv5 "github.com/golang-migrate/migrate/v4/database/pgx/v5"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
+	"github.com/jackc/pgx/v5/stdlib"
 
 	"shepherd/internal/migrations"
 )
 
-// pgx5DSN rewrites a standard postgres://... or postgresql://... DSN to use
-// the "pgx5" URL scheme, which is how golang-migrate's pgx-based database
-// driver (database/pgx/v5) is registered. Callers of this package pass
-// ordinary postgres DSNs; this keeps that contract while selecting the pgx
-// driver instead of the lib/pq-based one.
-func pgx5DSN(databaseURL string) string {
-	switch {
-	case strings.HasPrefix(databaseURL, "postgres://"):
-		return "pgx5://" + strings.TrimPrefix(databaseURL, "postgres://")
-	case strings.HasPrefix(databaseURL, "postgresql://"):
-		return "pgx5://" + strings.TrimPrefix(databaseURL, "postgresql://")
-	default:
-		return databaseURL
-	}
-}
-
 // newMigrate creates a migrate.Migrate instance backed by embedded SQL files.
+//
+// The URL is parsed once, by parseDatabaseURL (the same parser New uses), and
+// golang-migrate is handed an open database handle rather than the URL: its
+// own URL parsing accepts fewer DSNs than the server does (no keyword/value
+// form) and its parse errors quote the URL, password included.
+//
+// Closing the returned migrator closes the database handle: the pgx/v5
+// driver's Close closes its dedicated connection and then the *sql.DB.
 func newMigrate(databaseURL string) (*migrate.Migrate, error) {
+	poolCfg, err := parseDatabaseURL(databaseURL)
+	if err != nil {
+		return nil, err
+	}
 	src, err := iofs.New(migrations.FS, "sql")
 	if err != nil {
 		return nil, fmt.Errorf("creating migration source: %w", err)
 	}
-	m, err := migrate.NewWithSourceInstance("iofs", src, pgx5DSN(databaseURL))
+	db := stdlib.OpenDB(*poolCfg.ConnConfig)
+	driver, err := pgxv5.WithInstance(db, migrationDriverConfig(poolCfg.ConnConfig.Database))
 	if err != nil {
-		return nil, fmt.Errorf("creating migrator: %w", err)
+		// WithInstance keeps no reference on failure, so the handle is ours
+		// to close (its idle connections go with it).
+		return nil, errors.Join(fmt.Errorf("creating migrator: %w", err), db.Close(), src.Close())
+	}
+	m, err := migrate.NewWithInstance("iofs", src, "pgx5", driver)
+	if err != nil {
+		// driver.Close closes the driver's connection and the handle.
+		return nil, errors.Join(fmt.Errorf("creating migrator: %w", err), driver.Close(), src.Close())
 	}
 	return m, nil
+}
+
+// migrationDriverConfig is the driver configuration golang-migrate derived
+// from a pgx5:// URL with no x-* options, which is what this package passed
+// before: the default schema_migrations table in the connection's current
+// schema, no statement timeout, single-statement files. DatabaseName only
+// keys the advisory lock that serialises concurrent migrators; the URL form
+// set it to the URL path ("/<database>"), so it is kept in that form, and
+// left empty (resolved with CURRENT_DATABASE(), as before) when the DSN
+// names no database.
+func migrationDriverConfig(database string) *pgxv5.Config {
+	cfg := &pgxv5.Config{
+		MigrationsTable:       pgxv5.DefaultMigrationsTable,
+		MultiStatementMaxSize: pgxv5.DefaultMultiStatementMaxSize,
+	}
+	if database != "" {
+		cfg.DatabaseName = "/" + database
+	}
+	return cfg
 }
 
 // MigrateUp applies all pending migrations and closes the migrator connection.

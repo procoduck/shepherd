@@ -25,9 +25,12 @@ type Store struct {
 
 // New creates a Store and opens a connection pool to the database.
 func New(ctx context.Context, cfg *config.DatabaseConfig, loggers ...*slog.Logger) (*Store, error) {
-	poolCfg, err := pgxpool.ParseConfig(cfg.URL)
+	// parseDatabaseURL refuses a URL whose credentials would be misread
+	// before pgx sees it, so a connection error below (which quotes the
+	// parsed user, database and host) cannot quote part of a password.
+	poolCfg, err := parseDatabaseURL(cfg.URL)
 	if err != nil {
-		return nil, fmt.Errorf("parsing database URL: %w", err)
+		return nil, err
 	}
 	poolCfg.MaxConns = cfg.MaxConns
 	logger := slog.New(slog.DiscardHandler)
