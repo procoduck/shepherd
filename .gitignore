@@ -42,3 +42,6 @@ web/walkthrough/
 # Playwright MCP session artifacts (screenshots, snapshots, console logs)
 /.playwright-mcp/
 /walkthrough/
+
+# Local security-scan reports (claude-security); they stay on this machine.
+/CLAUDE-SECURITY-*/
