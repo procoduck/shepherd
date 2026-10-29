@@ -21,6 +21,14 @@ helm install shepherd oci://ghcr.io/procoduck/charts/shepherd --version 0.25.1 \
   --namespace shepherd --set existingSecret=shepherd-secrets</code></pre>
       </div>
       <p>
+        The value is a PostgreSQL URL (<code>postgres://</code> or <code>postgresql://</code>) or a
+        keyword/value string (<code>host=&hellip; port=5432 user=&hellip; dbname=shepherd</code>).
+        The server and the migration Job read it the same way. Percent-encode a <code>/</code> or
+        <code>@</code> in the user name, password or database name (<code>%2F</code>,
+        <code>%40</code>): a URL where one of them cuts the password short is refused, with a
+        message that names no part of the URL.
+      </p>
+      <p>
         Shepherd needs an ordinary database and an ordinary role that owns it. No superuser, no
         extensions beyond what a stock PostgreSQL ships, and no manual schema step &mdash;
         migrations run themselves on install and upgrade. Use PostgreSQL 16 or newer: the test

@@ -15,6 +15,11 @@ Categories used here:
 
 ### Changed
 
+- **Shipped — the migration command accepts every database URL the server accepts.**
+  `shepherd migrate` now parses the URL the way the server does (keyword/value DSNs and
+  `pgx5://` included). A URL whose user name, password or database name holds an unencoded `/`
+  or `@` that would split it in the wrong place is refused by both, with a message that names no
+  part of it; percent-encode those characters (`%2F`, `%40`).
 - **Shipped — a strict org's served form stops at the 1 MiB limit while it is built.** Inlining
   pinned modules and inserting the `__tenant_id__` drops now count every byte against the pipeline
   limit as they go, so a pipeline that would expand past 1 MiB (one module imported many times,
