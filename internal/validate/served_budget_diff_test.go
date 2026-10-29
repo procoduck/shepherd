@@ -100,7 +100,9 @@ func (g *dropGen) stmt(depth int, ind string) string {
 		}
 		inner := g.text(depth + 1)
 		var lit string
-		switch g.r.Intn(5) {
+		switch g.r.Intn(6) {
+		case 5: // a raw string, raw CR LF and all
+			lit = rawLiteral(inner)
 		case 4: // escapes the encoder does not write: re-quoted shorter
 			lit = noncanonicalQuote(g.r, inner)
 		case 0: // raw tabs and control bytes kept as written
@@ -133,11 +135,7 @@ func (g *dropGen) text(depth int) string {
 	for range g.r.Intn(6) {
 		sb.WriteString(g.stmt(depth, g.indent()))
 	}
-	s := sb.String()
-	if g.r.Intn(6) == 0 {
-		s = strings.ReplaceAll(s, "\n", "\r\n")
-	}
-	return s
+	return lineEndings(g.r, sb.String())
 }
 
 // checkDropsMatch fails t unless InsertTenantDrops agrees with the
@@ -448,4 +446,33 @@ func TestNoncanonicalQuoteDecodesBack(t *testing.T) {
 			t.Fatalf("%s decodes to %q (%v), want %q", lit, got, err, s)
 		}
 	}
+}
+
+// lineEndings is s with its line endings as written: LF (most), all CR LF,
+// or a mix.
+func lineEndings(r *rand.Rand, s string) string {
+	switch r.Intn(6) {
+	case 0:
+		return strings.ReplaceAll(s, "\n", "\r\n")
+	case 1:
+		var sb strings.Builder
+		for _, line := range strings.SplitAfter(s, "\n") {
+			if strings.HasSuffix(line, "\n") && r.Intn(2) == 0 {
+				line = strings.TrimSuffix(line, "\n") + "\r\n"
+			}
+			sb.WriteString(line)
+		}
+		return sb.String()
+	default:
+		return s
+	}
+}
+
+// rawLiteral writes s as a raw (backtick) string, its CR LF kept raw, or
+// quoted when it holds a backtick.
+func rawLiteral(s string) string {
+	if strings.Contains(s, "`") {
+		return alloysyntax.QuoteString(s)
+	}
+	return "`" + s + "`"
 }

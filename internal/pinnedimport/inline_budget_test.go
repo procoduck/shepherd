@@ -101,7 +101,7 @@ func (g *inlineGen) stmt(depth, imports int, ind string) string {
 		}
 		inner := g.text(depth+1, imports-1)
 		return ind + "import.string " + strconv.Quote(label) + " {\n" + ind + "  content = " +
-			g.pick(alloysyntax.QuoteString(inner), noncanonicalQuote(g.r, inner), noncanonicalQuote(g.r, inner),
+			g.pick(alloysyntax.QuoteString(inner), noncanonicalQuote(g.r, inner), noncanonicalQuote(g.r, inner), rawLiteral(inner),
 				"local.file.f.content") + "\n" + ind + "}\n"
 	case 4:
 		if depth > 2 {
@@ -133,7 +133,7 @@ func (g *inlineGen) text(depth, imports int) string {
 	for range g.r.Intn(5) {
 		sb.WriteString(g.stmt(depth, imports, g.pick("", "", "  ", "\t")))
 	}
-	return sb.String()
+	return lineEndings(g.r, sb.String())
 }
 
 func (g *inlineGen) modules() fakeModules {
@@ -494,3 +494,65 @@ func allocated(fn func()) uint64 {
 
 // errSink keeps a result only measured for its allocations.
 var errSink error
+
+// lineEndings is s with its line endings as written: LF (most), all CR LF,
+// or a mix.
+func lineEndings(r *rand.Rand, s string) string {
+	switch r.Intn(6) {
+	case 0:
+		return strings.ReplaceAll(s, "\n", "\r\n")
+	case 1:
+		var sb strings.Builder
+		for _, line := range strings.SplitAfter(s, "\n") {
+			if strings.HasSuffix(line, "\n") && r.Intn(2) == 0 {
+				line = strings.TrimSuffix(line, "\n") + "\r\n"
+			}
+			sb.WriteString(line)
+		}
+		return sb.String()
+	default:
+		return s
+	}
+}
+
+// rawLiteral writes s as a raw (backtick) string, its CR LF kept raw, or
+// quoted when it holds a backtick.
+func rawLiteral(s string) string {
+	if strings.Contains(s, "`") {
+		return alloysyntax.QuoteString(s)
+	}
+	return "`" + s + "`"
+}
+
+// The drop pass reads a level's line ending from the text the old inliner
+// left (#450 review): without its import.git blocks and the import.string
+// contents it re-quoted. A raw (backtick) content may hold raw CR LF; when
+// it holds an import.git, directly or in a module or content it follows,
+// the old inliner re-quoted it and its CR LF no longer counted.
+func TestInlineReadsTheLineEndingTheOldInlinerLeft(t *testing.T) {
+	repos := budgetRepos(t)
+	relabel := "prometheus.relabel \"r\" {\n  forward_to = []\n  rule {\n    action = \"labelmap\"\n  }\n}\n"
+	crlf := func(s string) string { return strings.ReplaceAll(s, "\n", "\r\n") }
+	g := strings.TrimSuffix(importGit("", "g", "m0.alloy"), "\n")
+	rawMod := "x = 1\n" + relabel + "import.string \"s\" {\n  content = `" + crlf(importGit("", "g", "m0.alloy")) + "`\n}\n"
+	mods := fakeModules{
+		"m0.alloy": "x = 1\n", "crlf.alloy": "x = 1\r\n" + relabel, "raw.alloy": rawMod, "lm.alloy": relabel,
+	}
+	for name, contents := range map[string]string{
+		"raw content with CR LF holding an import.git": relabel + "import.string \"s\" {\n  content = `" +
+			crlf(importGit("", "g", "m0.alloy")) + "`\n}\n",
+		"the same in a cached module": importGit("", "r", "raw.alloy"),
+		"raw content importing a labelmap, LF outside": "import.string \"s\" {\n  content = `" +
+			crlf(importGit("", "g", "lm.alloy")) + "`\n}\n" + relabel,
+		"raw content holding an import.git one level down": relabel + "import.string \"s\" {\n  content = `" +
+			"import.string \"t\" {\r\n  content = " + alloysyntax.QuoteString(importGit("", "g", "m0.alloy")) + "\r\n}\r\n`\n}\n",
+		"raw content with CR LF and no import.git": relabel + "import.string \"s\" {\n  content = `y = 1\r\n`\n}\n",
+		"CR LF inside the import.git block only":   relabel + crlf(importGit("", "g", "m0.alloy")),
+		"a module written with CR LF":              relabel + importGit("", "g", "crlf.alloy"),
+		"a raw second content":                     relabel + "import.string \"s\" {\n  content = \"x = 1\"\n  content = `" + crlf(importGit("", "g", "m0.alloy")) + "`\n}\n",
+		"CR LF in a declare":                       "declare \"d\"\r\n{\r\n" + crlf(importGit("  ", "g", "lm.alloy")) + "}\n" + relabel,
+		"an import.git after an exporter's brace":  "otelcol.exporter.loki \"a\" {\n  forward_to = [loki.write.a.receiver]\n}" + g + "\n",
+	} {
+		t.Run(name, func(t *testing.T) { checkInlineMatches(t, mods, repos, contents, true, true) })
+	}
+}

@@ -81,6 +81,9 @@ func inline(ctx context.Context, q moduleQuerier, orgID pgtype.UUID, repos []sql
 	if err != nil {
 		return "", fmt.Errorf("%w: %w", ErrNotInlinable, err)
 	}
+	// A text the build leaves unchanged charges nothing (it builds
+	// nothing), so this is where one over the cap is refused; a changed
+	// one over it has already failed the budget.
 	if len(out) > validate.MaxContentBytes {
 		return "", fmt.Errorf("%w: as served (pinned modules inlined, __tenant_id__ dropped after "+
 			"each labelmap) the pipeline is %d bytes, more than the %d a "+
@@ -128,6 +131,11 @@ type walker struct {
 	checked map[moduleAt]checkedModule
 	built   map[moduleAt]string
 	visited map[moduleAt]bool
+	// inlines records, for each text the check walked, whether inlining
+	// rewrites it: it holds an import.git, directly or in the content of an
+	// import.string it follows. Exactly then the old inliner re-quoted an
+	// import.string content (build reads the line ending accordingly).
+	inlines map[string]bool
 }
 
 // moduleAt is a module at the depths it is inlined at: what inlining it
@@ -146,6 +154,7 @@ func newWalker(ctx context.Context, q moduleQuerier, orgID pgtype.UUID, repos []
 	w := &walker{
 		ctx: ctx, q: q, orgID: orgID, repos: map[string]bool{}, budget: validate.NewServedBudget(),
 		checked: map[moduleAt]checkedModule{}, built: map[moduleAt]string{}, visited: map[moduleAt]bool{},
+		inlines: map[string]bool{},
 	}
 	for i := range repos {
 		w.repos[repos[i].RepositoryKey] = true
@@ -174,6 +183,7 @@ func (w *walker) check(text string, gitDepth, depth int) error {
 	}
 	var blocks []*ast.BlockStmt
 	collectImports(file.Body, &blocks, 0)
+	inlines := false
 	for _, b := range blocks {
 		if err := w.expand(1); err != nil {
 			return err
@@ -183,9 +193,11 @@ func (w *walker) check(text string, gitDepth, depth int) error {
 				if err := w.check(content, gitDepth, depth+1); err != nil {
 					return err
 				}
+				inlines = inlines || w.inlines[content]
 			}
 			continue
 		}
+		inlines = true
 		if gitDepth >= validate.MaxGitImportDepth {
 			return fmt.Errorf("%w: import.git nests more than %d deep", ErrNotInlinable, validate.MaxGitImportDepth)
 		}
@@ -210,18 +222,27 @@ func (w *walker) check(text string, gitDepth, depth int) error {
 		}
 		w.checked[at] = checkedModule{content: content, instances: w.instances - before}
 	}
+	w.inlines[text] = inlines
 	return nil
 }
 
 // firstContent is the value of an import.string's first content attribute,
 // when that is a plain literal: what Inline follows into.
 func firstContent(b *ast.BlockStmt) (string, bool) {
-	for _, st := range b.Body {
-		if a, ok := st.(*ast.AttributeStmt); ok && a.Name.Name == "content" {
-			return validate.PlainStringLiteral(a.Value)
-		}
+	if a := firstContentAttr(b); a != nil {
+		return validate.PlainStringLiteral(a.Value)
 	}
 	return "", false
+}
+
+// firstContentAttr is an import.string's first content attribute, or nil.
+func firstContentAttr(b *ast.BlockStmt) *ast.AttributeStmt {
+	for _, st := range b.Body {
+		if a, ok := st.(*ast.AttributeStmt); ok && a.Name.Name == "content" {
+			return a
+		}
+	}
+	return nil
 }
 
 // expand counts n more import instances, refusing more than
@@ -248,10 +269,23 @@ func (w *walker) build(text string, gitDepth, depth int) (string, error) {
 		collectImports(file.Body, &blocks, 0)
 		owned := make(map[*ast.BlockStmt]bool, len(blocks))
 		var replaced [][2]int
+		// The drop pass reads the level's line ending from the text the
+		// old inliner left: without each import.git block, and without
+		// each import.string content it re-quoted (QuoteString writes no
+		// raw CR), which is the first content, a plain literal, exactly
+		// when inlining rewrites it (inlines).
 		for _, b := range blocks {
 			owned[b] = true
 			if strings.Join(b.Name, ".") == "import.git" {
 				replaced = append(replaced, [2]int{ast.StartPos(b).Position().Offset, ast.EndPos(b).Position().Offset + 1})
+				continue
+			}
+			if a := firstContentAttr(b); a != nil {
+				if content, ok := validate.PlainStringLiteral(a.Value); ok && w.inlines[content] {
+					replaced = append(replaced, [2]int{
+						ast.StartPos(a.Value).Position().Offset, ast.EndPos(a.Value).Position().Offset + 1,
+					})
+				}
 			}
 		}
 		return validate.ServedImports{
