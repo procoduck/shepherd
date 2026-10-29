@@ -170,6 +170,7 @@ type GroupAssignment struct {
 	GroupDisplayName string             `json:"group_display_name"`
 	CreatedAt        pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
+	OrgID            pgtype.UUID        `json:"org_id"`
 }
 
 type OidcSetting struct {

@@ -15,6 +15,14 @@ Categories used here:
 
 ### Changed
 
+- **Shipped — group access is bound to the org that granted it.** A group assigned to a
+  collector on its Access tab gives its members viewer access only while the collector's cluster
+  stays in the org that made the assignment. Claiming a cluster into another org removes the
+  previous org's assignments on its collectors, unclaiming removes all of them, and the Access tab
+  lists only the current org's. An assignment with an empty group id is refused. Migration `0053`
+  removes grants made by a previous owner of a cluster (and those on clusters with no org) and
+  records each removal in the audit log (`assignment.delete` by `migration:0053`); see
+  UPGRADING.md.
 - **Shipped — database query logs omit bound parameters.** When a query fails, the server's log
   line names the statement, the error and the timing, but no longer lists the values bound to
   it. The error text itself is logged as before, and some database errors quote the offending

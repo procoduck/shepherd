@@ -12,20 +12,39 @@ import (
 )
 
 const createGroupAssignment = `-- name: CreateGroupAssignment :one
-INSERT INTO group_assignments (collector_id, group_id, group_display_name)
-VALUES ($1, $2, $3)
-ON CONFLICT (collector_id, group_id) DO UPDATE SET group_display_name = EXCLUDED.group_display_name
-RETURNING id, collector_id, group_id, group_display_name, created_at, updated_at
+INSERT INTO group_assignments (collector_id, group_id, group_display_name, org_id)
+SELECT c.id, $1::text, $2::text, cl.org_id
+FROM collectors c
+JOIN clusters cl ON cl.id = c.cluster_id
+WHERE c.id = $3 AND cl.org_id = $4
+FOR SHARE OF cl
+ON CONFLICT (collector_id, group_id) DO UPDATE
+SET group_display_name = EXCLUDED.group_display_name,
+    org_id = EXCLUDED.org_id,
+    updated_at = now()
+RETURNING id, collector_id, group_id, group_display_name, created_at, updated_at, org_id
 `
 
 type CreateGroupAssignmentParams struct {
-	CollectorID      pgtype.UUID `json:"collector_id"`
 	GroupID          string      `json:"group_id"`
 	GroupDisplayName string      `json:"group_display_name"`
+	CollectorID      pgtype.UUID `json:"collector_id"`
+	OrgID            pgtype.UUID `json:"org_id"`
 }
 
+// A grant belongs to the org that made it (0053). The insert happens only
+// while the collector's cluster is in that org, so a cluster that moved
+// between the caller's ownership check and this statement gets no row (the
+// caller sees pgx.ErrNoRows) rather than a grant bound to an org that no
+// longer owns it. FOR SHARE OF cl makes a claim that is already updating the
+// cluster finish first, so the org check sees its result.
 func (q *Queries) CreateGroupAssignment(ctx context.Context, arg CreateGroupAssignmentParams) (GroupAssignment, error) {
-	row := q.db.QueryRow(ctx, createGroupAssignment, arg.CollectorID, arg.GroupID, arg.GroupDisplayName)
+	row := q.db.QueryRow(ctx, createGroupAssignment,
+		arg.GroupID,
+		arg.GroupDisplayName,
+		arg.CollectorID,
+		arg.OrgID,
+	)
 	var i GroupAssignment
 	err := row.Scan(
 		&i.ID,
@@ -34,21 +53,23 @@ func (q *Queries) CreateGroupAssignment(ctx context.Context, arg CreateGroupAssi
 		&i.GroupDisplayName,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.OrgID,
 	)
 	return i, err
 }
 
 const deleteGroupAssignment = `-- name: DeleteGroupAssignment :exec
-DELETE FROM group_assignments WHERE collector_id = $1 AND group_id = $2
+DELETE FROM group_assignments WHERE collector_id = $1 AND group_id = $2 AND org_id = $3
 `
 
 type DeleteGroupAssignmentParams struct {
 	CollectorID pgtype.UUID `json:"collector_id"`
 	GroupID     string      `json:"group_id"`
+	OrgID       pgtype.UUID `json:"org_id"`
 }
 
 func (q *Queries) DeleteGroupAssignment(ctx context.Context, arg DeleteGroupAssignmentParams) error {
-	_, err := q.db.Exec(ctx, deleteGroupAssignment, arg.CollectorID, arg.GroupID)
+	_, err := q.db.Exec(ctx, deleteGroupAssignment, arg.CollectorID, arg.GroupID, arg.OrgID)
 	return err
 }
 
@@ -58,12 +79,13 @@ FROM group_assignments ga
 JOIN collectors c ON c.id = ga.collector_id
 JOIN clusters cl ON cl.id = c.cluster_id
 WHERE ga.group_id = ANY($1::text[])
+  AND ga.org_id = $2
   AND cl.org_id = $2
 `
 
 type ListCollectorIDsByGroupMembershipInOrgParams struct {
-	Column1 []string    `json:"column_1"`
-	OrgID   pgtype.UUID `json:"org_id"`
+	GroupIds []string    `json:"group_ids"`
+	OrgID    pgtype.UUID `json:"org_id"`
 }
 
 // Used by internal/auth.authorizeOrgAccess's collector-assignment fallback.
@@ -74,8 +96,13 @@ type ListCollectorIDsByGroupMembershipInOrgParams struct {
 // because GetMe computes its org list from group matches and never shows the
 // extra orgs. The sibling ListTeamsByOrgAndGroups has always been org-scoped;
 // this one was not.
+//
+// Both halves are required: the grant must have been made by this org
+// (ga.org_id, 0053) AND the collector must still be in it. Checking only the
+// collector's current org let a grant made by a cluster's previous owner keep
+// working after the cluster moved.
 func (q *Queries) ListCollectorIDsByGroupMembershipInOrg(ctx context.Context, arg ListCollectorIDsByGroupMembershipInOrgParams) ([]pgtype.UUID, error) {
-	rows, err := q.db.Query(ctx, listCollectorIDsByGroupMembershipInOrg, arg.Column1, arg.OrgID)
+	rows, err := q.db.Query(ctx, listCollectorIDsByGroupMembershipInOrg, arg.GroupIds, arg.OrgID)
 	if err != nil {
 		return nil, err
 	}
@@ -95,11 +122,17 @@ func (q *Queries) ListCollectorIDsByGroupMembershipInOrg(ctx context.Context, ar
 }
 
 const listGroupAssignmentsByCollector = `-- name: ListGroupAssignmentsByCollector :many
-SELECT id, collector_id, group_id, group_display_name, created_at, updated_at FROM group_assignments WHERE collector_id = $1 ORDER BY group_display_name
+SELECT id, collector_id, group_id, group_display_name, created_at, updated_at, org_id FROM group_assignments WHERE collector_id = $1 AND org_id = $2 ORDER BY group_display_name
 `
 
-func (q *Queries) ListGroupAssignmentsByCollector(ctx context.Context, collectorID pgtype.UUID) ([]GroupAssignment, error) {
-	rows, err := q.db.Query(ctx, listGroupAssignmentsByCollector, collectorID)
+type ListGroupAssignmentsByCollectorParams struct {
+	CollectorID pgtype.UUID `json:"collector_id"`
+	OrgID       pgtype.UUID `json:"org_id"`
+}
+
+// Org-scoped: the Access tab lists only the grants the viewing org made.
+func (q *Queries) ListGroupAssignmentsByCollector(ctx context.Context, arg ListGroupAssignmentsByCollectorParams) ([]GroupAssignment, error) {
+	rows, err := q.db.Query(ctx, listGroupAssignmentsByCollector, arg.CollectorID, arg.OrgID)
 	if err != nil {
 		return nil, err
 	}
@@ -114,6 +147,7 @@ func (q *Queries) ListGroupAssignmentsByCollector(ctx context.Context, collector
 			&i.GroupDisplayName,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.OrgID,
 		); err != nil {
 			return nil, err
 		}

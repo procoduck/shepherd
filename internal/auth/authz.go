@@ -228,7 +228,7 @@ func authorizeOrgAccess(ctx context.Context, st *store.Store, sess *Session, org
 		// viewer floor in every org to anyone holding one assignment in any
 		// org -- see the query's own comment.
 		collectorIDs, err := st.Queries.ListCollectorIDsByGroupMembershipInOrg(ctx,
-			sqlc.ListCollectorIDsByGroupMembershipInOrgParams{Column1: sess.GroupIDs, OrgID: org.ID})
+			sqlc.ListCollectorIDsByGroupMembershipInOrgParams{GroupIds: sess.GroupIDs, OrgID: org.ID})
 		if err == nil && len(collectorIDs) > 0 {
 			return nil
 		}

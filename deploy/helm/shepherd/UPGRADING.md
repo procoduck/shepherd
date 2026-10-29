@@ -1,13 +1,15 @@
 # Upgrading the Shepherd chart
 
-## Unreleased: migration `0052`
+## Unreleased
+
+### Migration `0052`: sessions are stored as digests
 
 The session table now keeps a SHA-256 digest of each `shepherd_session` cookie instead of the
 cookie value. Migration `0052` deletes every existing session rather than converting it, so
 **everyone signs in again once after the upgrade**. Service-account tokens, agent tokens and
 collectors are not affected.
 
-### During the rollout
+**During the rollout:**
 
 Old and new pods do not recognise each other's sessions: an old pod looks a cookie up by its
 value, a new pod by its digest. While both run, a user whose requests reach the other kind of pod
@@ -16,13 +18,57 @@ after the rollout is enough. Until the last old pod is gone, an old pod would al
 copied out of the session table as a cookie, and the rows old pods write are keyed by the cookie
 value until they expire (`auth.session_ttl`), so keep the rollout short.
 
-### Rolling back
+**Rolling back:**
 
-Run `shepherd migrate down` once **with the new image** (back to `0051`) before `helm rollback`.
+Run `shepherd migrate down` **with the new image** until the schema is back at `0051` (once
+for `0053`, once for `0052`) before `helm rollback`.
 This step is required. The down migration deletes every session, so everyone signs in again
 after the rollback too. Skipping it leaves the digest-keyed rows in place, and an older server
 looks a cookie up by its value, so it would accept a value copied out of the session table as a
 session cookie until those rows expire.
+
+### Migration `0053`: group assignments are bound to the granting org
+
+A group assignment (a collector's Access tab) now belongs to the org that made it and grants
+viewer access only while the collector's cluster is in that org. `0053` binds each existing
+assignment to its collector's current org, **except** that it removes:
+
+- assignments on a cluster that has no org, and
+- assignments on a cluster whose audit log shows a `cluster.claim` or `cluster.unclaim` after the
+  assignment was created. The audit log cannot tell a move from a re-claim into the same org, so
+  a re-claim counts too. Claims made before v0.14.0 were not audited and are not seen.
+
+Each removal is written to the audit log first: action `assignment.delete`, actor
+`migration:0053` (actor type `system`), resource the collector, with `group_id`,
+`group_display_name`, `cluster_id`, `current_org_id`, `previous_org_id` (the org whose
+`assignment.create` entry granted it, when the log has one), `assignment_created_at` and `reason`
+(`org changed` or `cluster has no org`) in the detail. An entry is filed under the granting org,
+so that org's admins see it on the Audit page filtered by action `assignment.delete` and actor
+`migration`; one whose granting org is unknown is in the application admin's global view only.
+From SQL:
+
+```sql
+SELECT at, org_id, resource_id AS collector_id, detail
+FROM audit_log
+WHERE actor = 'migration:0053' AND action = 'assignment.delete'
+ORDER BY resource_id;
+```
+
+To re-create a grant that is still wanted, an admin of the org that now owns the cluster assigns
+the group again from the collector's Access tab.
+
+During the rolling update a v0.21 pod cannot create assignments (its insert names no org, which
+`0053` requires), so an Access-tab change that reaches an old pod fails until the rollout
+completes; retry it afterwards. A v0.21 pod's cluster claim and unclaim leave the previous org's
+assignments in place; they grant nothing on an upgraded pod and are removed by the cluster's next
+claim or unclaim.
+
+`0053` judges an assignment by when it was first created. If a cluster moved and its new owner
+then assigned a group the previous owner had also assigned, that assignment is removed too;
+re-create it after the upgrade.
+
+**Rolling back:** the down migration drops the `org_id` column. It does not restore the
+assignments `0053` removed; their audit entries remain.
 
 ## 0.24.x → 0.25.0
 

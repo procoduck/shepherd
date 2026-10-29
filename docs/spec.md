@@ -325,7 +325,10 @@ collector_instances(id text PRIMARY KEY,      -- the remotecfg wire id
 
 group_assignments(id, collector_id uuid REFERENCES collectors,
            group_id text, group_display_name text,   -- Entra GUID + cached name
+           org_id uuid NOT NULL REFERENCES orgs,     -- the granting org (0053)
            UNIQUE(collector_id, group_id))
+           -- grants only while the collector's cluster is in org_id; every
+           -- claim/unclaim deletes the cluster's rows the new org did not make
 
 destinations(id, org_id uuid REFERENCES orgs, name text, 
            type text CHECK (type IN ('prometheus','loki','otlp')),
@@ -517,7 +520,9 @@ The resulting roles are the same either way:
 - **Viewer** of org O: member of `O.viewer_group_id` (`reader_group_id` until
   migration 0037), or `org_members.role = 'viewer'`, or holds a higher role.
   Also reached without either: for any collector C, a member of any group in
-  `group_assignments` for C is a viewer of C's org, and a member of any team of
+  `group_assignments` for C is a viewer of C's org while that org is the one
+  that made the assignment (`group_assignments.org_id`; a cluster's change of
+  org removes the previous org's assignments), and a member of any team of
   O — local or IdP-group-backed — is a viewer of O, on top of whatever
   `org_members.role` (if any) separately grants. A viewer reads; it writes
   nothing org-wide — no destination, route, wizard or unowned pipeline.
