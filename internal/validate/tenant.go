@@ -110,14 +110,21 @@ type gitState struct {
 	fetched map[GitModule]gitFetch
 	needed  []GitModule
 	asked   map[GitModule]bool
-	// parsed is every text the call has parsed (nil: it does not parse),
-	// so a module imported many times is parsed once. The lint only reads
-	// the tree.
-	parsed map[string]*ast.File
+	// parsed are module texts the call has parsed (nil: it does not
+	// parse), so a module imported many times is parsed once; the lint only
+	// reads the tree. A tree is several times its text, so at most
+	// maxParsedBytes of text is kept parsed; past that a module is parsed
+	// each time, as it always was.
+	parsed      map[string]*ast.File
+	parsedBytes int
 }
 
-// parse is text parsed, once per call.
-func (g *gitState) parse(text string) *ast.File {
+// maxParsedBytes is how much module text one lint call keeps parsed.
+const maxParsedBytes = MaxContentBytes
+
+// parse is text parsed: a module's (depth > 0) once per call, while the
+// kept trees stay within maxParsedBytes of text.
+func (g *gitState) parse(text string, depth int) *ast.File {
 	if f, ok := g.parsed[text]; ok {
 		return f
 	}
@@ -125,10 +132,14 @@ func (g *gitState) parse(text string) *ast.File {
 	if err != nil {
 		f = nil
 	}
+	if depth == 0 || g.parsedBytes+len(text) > maxParsedBytes {
+		return f
+	}
 	if g.parsed == nil {
 		g.parsed = map[string]*ast.File{}
 	}
 	g.parsed[text] = f
+	g.parsedBytes += len(text)
 	return f
 }
 
@@ -448,10 +459,10 @@ func newTenantLinter(content string, p TenantPolicy, external map[string]map[str
 	// on its own (alloysyntax's nesting prescan, maxContentBytes) and linear,
 	// but a 1 MiB expression chain takes tens of milliseconds, which would
 	// make such a pipeline "busy" on every run. The guard is moved on by
-	// however long this parse took (a module's too). A text is parsed once
-	// per call (gitState.parse): a module imported many times costs one parse.
+	// however long this parse took (a module's too). A module imported many
+	// times is parsed once per call, within a bound (gitState.parse).
 	parseStart := time.Now()
-	file := git.parse(content)
+	file := git.parse(content, depth)
 	b.deadline = b.deadline.Add(time.Since(parseStart))
 	if file == nil {
 		return nil

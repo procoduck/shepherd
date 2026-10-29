@@ -2,6 +2,7 @@ package pinnedimport
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"slices"
@@ -74,7 +75,7 @@ func Inline(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, repos []sql
 
 func inline(ctx context.Context, q moduleQuerier, orgID pgtype.UUID, repos []sqlc.OrgImportRepository, contents string) (string, error) {
 	w := newWalker(ctx, q, orgID, repos)
-	if err := w.check(contents, 0, 0); err != nil {
+	if err := w.check(contents, 0, 0, false); err != nil {
 		return "", err
 	}
 	out, err := w.build(contents, 0, 0)
@@ -124,18 +125,26 @@ type walker struct {
 	// the check expands (MaxImportInstances).
 	budget    *validate.ServedBudget
 	instances int
-	// checked are the modules the check has walked, by where: their text
-	// and how many imports walking them expanded. built are the same
-	// modules' served form, quoted. One module imported many times is read,
-	// walked and built once. visited is References' record of the same.
+	// checked are the modules the check has walked, by where: how many
+	// imports walking them expanded and how many bytes of served form they
+	// make at least. built are the same modules' served form, quoted (part
+	// of what the budget is charged). One module imported many times is
+	// walked and built once per place; its text is held only while its
+	// level is walked or built, never between the walks. visited is
+	// References' record of the same.
 	checked map[moduleAt]checkedModule
 	built   map[moduleAt]string
 	visited map[moduleAt]bool
-	// inlines records, for each text the check walked, whether inlining
-	// rewrites it: it holds an import.git, directly or in the content of an
-	// import.string it follows. Exactly then the old inliner re-quoted an
-	// import.string content (build reads the line ending accordingly).
-	inlines map[string]bool
+	// inlines records, for each text the check walked (by its SHA-256, so
+	// no text is held), whether inlining rewrites it: it holds an
+	// import.git, directly or in the content of an import.string it
+	// follows. Exactly then the old inliner re-quoted an import.string
+	// content (build reads the line ending accordingly).
+	inlines map[[sha256.Size]byte]bool
+	// atLeast is a lower bound on the served form's length, summed as the
+	// check walks (see check): past the cap, the pipeline is refused
+	// before anything more is read.
+	atLeast int
 }
 
 // moduleAt is a module at the depths it is inlined at: what inlining it
@@ -146,15 +155,14 @@ type moduleAt struct {
 }
 
 type checkedModule struct {
-	content   string
-	instances int
+	instances, atLeast int
 }
 
 func newWalker(ctx context.Context, q moduleQuerier, orgID pgtype.UUID, repos []sqlc.OrgImportRepository) *walker {
 	w := &walker{
 		ctx: ctx, q: q, orgID: orgID, repos: map[string]bool{}, budget: validate.NewServedBudget(),
 		checked: map[moduleAt]checkedModule{}, built: map[moduleAt]string{}, visited: map[moduleAt]bool{},
-		inlines: map[string]bool{},
+		inlines: map[[sha256.Size]byte]bool{},
 	}
 	for i := range repos {
 		w.repos[repos[i].RepositoryKey] = true
@@ -173,7 +181,16 @@ const maxModuleDepth = 8
 // way. gitDepth is how many import.git modules enclose text, depth how many
 // modules of either kind. It builds nothing; its first refusal is Inline's,
 // in the order Inline has always reported them.
-func (w *walker) check(text string, gitDepth, depth int) error {
+//
+// It also sums atLeast, a lower bound on the served form's length: every
+// level that is served as a text of its own — the pipeline and each
+// content it rewrites, and each module instance — adds its bytes outside
+// every import block (importBytes). Those bytes appear in the served form,
+// once per instance, re-quoted (never shorter); the drops only add to them
+// (a forward_to they replace is served again in the loki.process they
+// insert); and different levels' counted bytes are disjoint. A pipeline
+// whose bound passes the cap is refused at once.
+func (w *walker) check(text string, gitDepth, depth int, module bool) error {
 	if depth > maxModuleDepth {
 		return fmt.Errorf("%w: modules nest more than %d deep", ErrNotInlinable, maxModuleDepth)
 	}
@@ -189,11 +206,13 @@ func (w *walker) check(text string, gitDepth, depth int) error {
 			return err
 		}
 		if strings.Join(b.Name, ".") != "import.git" {
-			if content, ok := firstContent(b); ok {
-				if err := w.check(content, gitDepth, depth+1); err != nil {
-					return err
+			if a := firstContentAttr(b); a != nil {
+				if content, ok := validate.PlainStringLiteral(a.Value); ok {
+					if err := w.check(content, gitDepth, depth+1, false); err != nil {
+						return err
+					}
+					inlines = inlines || w.inlines[sha256.Sum256([]byte(content))]
 				}
-				inlines = inlines || w.inlines[content]
 			}
 			continue
 		}
@@ -210,19 +229,60 @@ func (w *walker) check(text string, gitDepth, depth int) error {
 			if err := w.expand(m.instances); err != nil {
 				return err
 			}
+			if err := w.atLeastMore(m.atLeast); err != nil {
+				return err
+			}
 			continue
 		}
 		content, err := w.module(ref)
 		if err != nil {
 			return err
 		}
-		before := w.instances
-		if err := w.check(content, gitDepth+1, depth+1); err != nil {
+		before, beforeBytes := w.instances, w.atLeast
+		if err := w.check(content, gitDepth+1, depth+1, true); err != nil {
 			return err
 		}
-		w.checked[at] = checkedModule{content: content, instances: w.instances - before}
+		w.checked[at] = checkedModule{instances: w.instances - before, atLeast: w.atLeast - beforeBytes}
 	}
-	w.inlines[text] = inlines
+	w.inlines[sha256.Sum256([]byte(text))] = inlines
+	// A content the inliner leaves alone is part of its parent's kept
+	// bytes; the pipeline left alone is held to the cap by Inline.
+	if module || inlines {
+		return w.atLeastMore(len(text) - importBytes(file.Body, 0))
+	}
+	return nil
+}
+
+// importBytes is how many bytes of a text its import blocks span, at any
+// block depth: what the served form may rewrite there (a content the drops
+// re-quote may come out shorter than written). The rest is served as it
+// is, or with only drops added.
+func importBytes(body ast.Body, nesting int) int {
+	if nesting > alloysyntax.MaxNesting {
+		return 0
+	}
+	n := 0
+	for _, st := range body {
+		b, ok := st.(*ast.BlockStmt)
+		if !ok {
+			continue
+		}
+		if len(b.Name) > 0 && b.Name[0] == "import" {
+			n += ast.EndPos(b).Position().Offset + 1 - ast.StartPos(b).Position().Offset
+			continue
+		}
+		n += importBytes(b.Body, nesting+1)
+	}
+	return n
+}
+
+// atLeastMore adds n bytes to the served form's lower bound, refusing it
+// past the cap.
+func (w *walker) atLeastMore(n int) error {
+	w.atLeast += n
+	if w.atLeast > validate.MaxContentBytes {
+		return fmt.Errorf("%w: %w", ErrNotInlinable, validate.ErrServedFormTooLarge)
+	}
 	return nil
 }
 
@@ -281,7 +341,7 @@ func (w *walker) build(text string, gitDepth, depth int) (string, error) {
 				continue
 			}
 			if a := firstContentAttr(b); a != nil {
-				if content, ok := validate.PlainStringLiteral(a.Value); ok && w.inlines[content] {
+				if content, ok := validate.PlainStringLiteral(a.Value); ok && w.inlines[sha256.Sum256([]byte(content))] {
 					replaced = append(replaced, [2]int{
 						ast.StartPos(a.Value).Position().Offset, ast.EndPos(a.Value).Position().Offset + 1,
 					})
@@ -332,7 +392,10 @@ func (w *walker) gitSplice(b *ast.BlockStmt, gitDepth, depth int) ([]validate.Sp
 	// charges its copy below.
 	quoted, ok := w.built[at]
 	if !ok {
-		content := w.checked[at].content
+		content, err := w.module(ref)
+		if err != nil {
+			return nil, err
+		}
 		served, err := w.build(content, gitDepth+1, depth+1)
 		if err != nil {
 			return nil, fmt.Errorf("import.string %q: %w", b.Label, err)
