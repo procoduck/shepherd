@@ -13,6 +13,11 @@ Categories used here:
 
 ## Unreleased
 
+### Security
+
+- **`seroval` 1.7.2** (from 1.6.8, through `@tanstack/react-router`): GHSA-9wx9-5pv9-3349,
+  GHSA-f86p-h4j2-7qgj. A lockfile refresh within the router's existing range.
+
 ### Changed
 
 - **Shipped — the migration command accepts every database URL the server accepts.**
