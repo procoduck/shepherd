@@ -60,27 +60,25 @@ type moduleQuerier interface {
 // is returned unchanged.
 //
 // Only the cache is read, through q. The result is at most
-// validate.MaxContentBytes (the pipeline contents cap), and the whole build
-// — every module, every nested expansion, every drop — is charged to one
-// validate.ServedBudget of that size as it goes: a pipeline that would
-// expand past it is refused when it gets there, never built in full. At
-// most MaxImportInstances imports are expanded.
+// validate.MaxContentBytes (the pipeline contents cap). It is built in two
+// walks: the first checks every import (what can be inlined, at most
+// MaxImportInstances of them) and builds nothing; the second builds the
+// served form directly — each level's modules inlined and drops inserted
+// in one pass (validate.BuildServedLevel) — charging one
+// validate.ServedBudget of the cap as it goes, so a pipeline whose served
+// form would pass the cap is refused when it gets there, never built in
+// full, and one whose served form fits is built exactly as before.
 func Inline(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, repos []sqlc.OrgImportRepository, contents string) (string, error) {
 	return inline(ctx, q, orgID, repos, contents)
 }
 
 func inline(ctx context.Context, q moduleQuerier, orgID pgtype.UUID, repos []sqlc.OrgImportRepository, contents string) (string, error) {
 	w := newWalker(ctx, q, orgID, repos)
-	out, err := w.inline(contents, 0, 0)
-	if err != nil {
+	if err := w.check(contents, 0, 0); err != nil {
 		return "", err
 	}
-	// A changed text is charged; the drop pass charges what it builds from
-	// it (validate.ServedBudget).
-	if out != contents {
-		w.budget.Give(len(out))
-	}
-	if out, err = validate.InsertTenantDropsWithin(out, w.budget); err != nil {
+	out, err := w.build(contents, 0, 0)
+	if err != nil {
 		return "", fmt.Errorf("%w: %w", ErrNotInlinable, err)
 	}
 	if len(out) > validate.MaxContentBytes {
@@ -109,28 +107,26 @@ func References(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID, repos [
 
 func references(ctx context.Context, q moduleQuerier, orgID pgtype.UUID, repos []sqlc.OrgImportRepository, contents string) ([]Ref, error) {
 	w := newWalker(ctx, q, orgID, repos)
-	w.collect = true
-	if _, err := w.inline(contents, 0, 0); err != nil {
-		return nil, err
-	}
+	w.collect(contents, 0, 0)
 	return w.refs, nil
 }
 
 type walker struct {
-	ctx     context.Context
-	q       moduleQuerier
-	orgID   pgtype.UUID
-	repos   map[string]bool
-	collect bool
-	refs    []Ref
+	ctx   context.Context
+	q     moduleQuerier
+	orgID pgtype.UUID
+	repos map[string]bool
+	refs  []Ref
 	// budget is the served form's (Inline); instances counts the imports
-	// expanded (MaxImportInstances).
+	// the check expands (MaxImportInstances).
 	budget    *validate.ServedBudget
 	instances int
-	// modules are the modules inlined so far, by where they were inlined:
-	// one module imported many times is read and inlined once. visited is
-	// References' (collect) record of the same.
-	modules map[moduleAt]inlinedModule
+	// checked are the modules the check has walked, by where: their text
+	// and how many imports walking them expanded. built are the same
+	// modules' served form, quoted. One module imported many times is read,
+	// walked and built once. visited is References' record of the same.
+	checked map[moduleAt]checkedModule
+	built   map[moduleAt]string
 	visited map[moduleAt]bool
 }
 
@@ -141,17 +137,15 @@ type moduleAt struct {
 	gitDepth, depth int
 }
 
-// inlinedModule is a module's inlined text, quoted, and how many imports
-// inlining it expanded.
-type inlinedModule struct {
-	quoted    string
+type checkedModule struct {
+	content   string
 	instances int
 }
 
 func newWalker(ctx context.Context, q moduleQuerier, orgID pgtype.UUID, repos []sqlc.OrgImportRepository) *walker {
 	w := &walker{
 		ctx: ctx, q: q, orgID: orgID, repos: map[string]bool{}, budget: validate.NewServedBudget(),
-		modules: map[moduleAt]inlinedModule{}, visited: map[moduleAt]bool{},
+		checked: map[moduleAt]checkedModule{}, built: map[moduleAt]string{}, visited: map[moduleAt]bool{},
 	}
 	for i := range repos {
 		w.repos[repos[i].RepositoryKey] = true
@@ -163,60 +157,71 @@ func newWalker(ctx context.Context, q moduleQuerier, orgID pgtype.UUID, repos []
 // follows into: the tenant lint's module depth.
 const maxModuleDepth = 8
 
-// inline rewrites text's import.git blocks — found in the parse tree, so
-// whatever spelling of the name the parser accepts — and descends into each
-// import.string whose content is a plain literal, rewriting the module text
-// it holds the same way. gitDepth is how many import.git modules enclose
-// text, depth how many modules of either kind. Text with nothing to rewrite
-// is returned unchanged; otherwise only the rewritten byte ranges change,
-// located by the parsed nodes' positions, and the result is charged to the
-// budget (validate.ServedBudget). In collect mode (References) nothing is
-// rewritten: the walk only lists the modules.
-func (w *walker) inline(text string, gitDepth, depth int) (string, error) {
+// check walks text's import blocks — found in the parse tree, so whatever
+// spelling of the name the parser accepts: each import.git must be
+// inlinable (a literal, allowlisted, cached module, within the depths) and
+// each import.string with plain literal content is followed into, the same
+// way. gitDepth is how many import.git modules enclose text, depth how many
+// modules of either kind. It builds nothing; its first refusal is Inline's,
+// in the order Inline has always reported them.
+func (w *walker) check(text string, gitDepth, depth int) error {
 	if depth > maxModuleDepth {
-		return "", fmt.Errorf("%w: modules nest more than %d deep", ErrNotInlinable, maxModuleDepth)
+		return fmt.Errorf("%w: modules nest more than %d deep", ErrNotInlinable, maxModuleDepth)
 	}
 	file, err := alloysyntax.ParseFile("<pipeline>", []byte(text))
 	if err != nil {
-		if w.collect {
-			return text, nil
-		}
-		return "", fmt.Errorf("%w: the text does not parse: %w", ErrNotInlinable, err)
+		return fmt.Errorf("%w: the text does not parse: %w", ErrNotInlinable, err)
 	}
 	var blocks []*ast.BlockStmt
 	collectImports(file.Body, &blocks, 0)
-	var splices []validate.Splice
 	for _, b := range blocks {
-		if !w.collect {
-			if err := w.expand(1); err != nil {
-				return "", err
+		if err := w.expand(1); err != nil {
+			return err
+		}
+		if strings.Join(b.Name, ".") != "import.git" {
+			if content, ok := firstContent(b); ok {
+				if err := w.check(content, gitDepth, depth+1); err != nil {
+					return err
+				}
 			}
+			continue
 		}
-		var sp *validate.Splice
-		var err error
-		if strings.Join(b.Name, ".") == "import.git" {
-			sp, err = w.gitBlock(b, gitDepth, depth)
-		} else {
-			sp, err = w.stringBlock(b, gitDepth, depth)
+		if gitDepth >= validate.MaxGitImportDepth {
+			return fmt.Errorf("%w: import.git nests more than %d deep", ErrNotInlinable, validate.MaxGitImportDepth)
 		}
+		ref, err := w.ref(b)
 		if err != nil {
-			if w.collect {
-				continue
+			return err
+		}
+		at := moduleAt{ref: ref, gitDepth: gitDepth, depth: depth}
+		if m, ok := w.checked[at]; ok {
+			if err := w.expand(m.instances); err != nil {
+				return err
 			}
-			return "", err
+			continue
 		}
-		if sp != nil {
-			splices = append(splices, *sp)
+		content, err := w.module(ref)
+		if err != nil {
+			return err
+		}
+		before := w.instances
+		if err := w.check(content, gitDepth+1, depth+1); err != nil {
+			return err
+		}
+		w.checked[at] = checkedModule{content: content, instances: w.instances - before}
+	}
+	return nil
+}
+
+// firstContent is the value of an import.string's first content attribute,
+// when that is a plain literal: what Inline follows into.
+func firstContent(b *ast.BlockStmt) (string, bool) {
+	for _, st := range b.Body {
+		if a, ok := st.(*ast.AttributeStmt); ok && a.Name.Name == "content" {
+			return validate.PlainStringLiteral(a.Value)
 		}
 	}
-	if len(splices) == 0 {
-		return text, nil
-	}
-	out, err := validate.ApplySplices(text, splices, w.budget)
-	if err != nil {
-		return "", fmt.Errorf("%w: %w", ErrNotInlinable, err)
-	}
-	return out, nil
+	return "", false
 }
 
 // expand counts n more import instances, refusing more than
@@ -230,90 +235,191 @@ func (w *walker) expand(n int) error {
 	return nil
 }
 
-// take charges n bytes of served form to the budget.
-func (w *walker) take(n int) error {
-	if err := w.budget.Take(n); err != nil {
-		return fmt.Errorf("%w: %w", ErrNotInlinable, err)
-	}
-	return nil
+// build is the served form of one checked level, text: the drop pass
+// (validate.BuildServedLevel) with the level's import.git blocks served as
+// import.string of their module's served form, and its literal
+// import.string contents as their own served form, re-quoted when that
+// differs — byte for byte what inlining text and then inserting the drops
+// made, without building the inlined text. Every piece is charged to the
+// budget before it is built.
+func (w *walker) build(text string, gitDepth, depth int) (string, error) {
+	return validate.BuildServedLevel(text, depth, w.budget, func(file *ast.File) validate.ServedImports {
+		var blocks []*ast.BlockStmt
+		collectImports(file.Body, &blocks, 0)
+		owned := make(map[*ast.BlockStmt]bool, len(blocks))
+		var replaced [][2]int
+		for _, b := range blocks {
+			owned[b] = true
+			if strings.Join(b.Name, ".") == "import.git" {
+				replaced = append(replaced, [2]int{ast.StartPos(b).Position().Offset, ast.EndPos(b).Position().Offset + 1})
+			}
+		}
+		return validate.ServedImports{
+			Replaced: replaced,
+			Serve: func(b *ast.BlockStmt) ([]validate.Splice, bool, error) {
+				if !owned[b] {
+					return nil, false, nil
+				}
+				var splices []validate.Splice
+				var err error
+				if strings.Join(b.Name, ".") == "import.git" {
+					splices, err = w.gitSplice(b, gitDepth, depth)
+				} else {
+					splices, err = w.stringSplices(b, gitDepth, depth)
+				}
+				return splices, true, err
+			},
+		}
+	})
 }
 
-// gitBlock rewrites one import.git block into an import.string of its
-// cached module, itself inlined.
-func (w *walker) gitBlock(b *ast.BlockStmt, gitDepth, depth int) (*validate.Splice, error) {
-	if gitDepth >= validate.MaxGitImportDepth {
-		return nil, fmt.Errorf("%w: import.git nests more than %d deep", ErrNotInlinable, validate.MaxGitImportDepth)
+// quoted is the splice of a nested level's served form, served, in place
+// of [start, end): quoted. served is charged; what is served is it quoted,
+// at least as long, charged instead before it is built.
+func (w *walker) quoted(served string, changed bool) (string, error) {
+	if changed {
+		w.budget.Give(len(served))
 	}
+	if err := w.budget.Take(validate.QuotedLen(served)); err != nil {
+		return "", err
+	}
+	return alloysyntax.QuoteString(served), nil
+}
+
+// gitSplice serves one checked import.git block as an import.string of its
+// cached module's served form.
+func (w *walker) gitSplice(b *ast.BlockStmt, gitDepth, depth int) ([]validate.Splice, error) {
 	ref, err := w.ref(b)
 	if err != nil {
 		return nil, err
 	}
 	at := moduleAt{ref: ref, gitDepth: gitDepth, depth: depth}
-	if w.collect {
-		if !slices.Contains(w.refs, ref) {
-			w.refs = append(w.refs, ref)
-		}
-		// A second visit at the same depths lists nothing new.
-		if w.visited[at] {
-			return nil, nil //nolint:nilnil // nothing to rewrite in collect mode
-		}
-		w.visited[at] = true
-		content, err := w.module(ref)
+	// A module built for an earlier instance is reused; each instance
+	// charges its copy below.
+	quoted, ok := w.built[at]
+	if !ok {
+		content := w.checked[at].content
+		served, err := w.build(content, gitDepth+1, depth+1)
 		if err != nil {
-			return nil, err
-		}
-		_, err = w.inline(content, gitDepth+1, depth+1)
-		return nil, err
-	}
-	m, ok := w.modules[at]
-	if ok {
-		if err := w.expand(m.instances); err != nil {
-			return nil, err
-		}
-	} else {
-		content, err := w.module(ref)
-		if err != nil {
-			return nil, err
-		}
-		before := w.instances
-		module, err := w.inline(content, gitDepth+1, depth+1)
-		if err != nil {
-			return nil, err
-		}
-		if module != content {
-			// Charged as inlined; what is served is the import.string below.
-			w.budget.Give(len(module))
+			return nil, fmt.Errorf("import.string %q: %w", b.Label, err)
 		}
 		// The quoted module is built once, here, and is part of the first
-		// instance's import.string: it must fit the budget before it is
-		// built (the instance charges it below).
-		quoted := validate.QuotedLen(module)
-		if err := w.take(quoted); err != nil {
-			return nil, err
+		// instance's import.string: it must fit before it is built (the
+		// instance charges it with the rest of the block below).
+		if quoted, err = w.quoted(served, served != content); err != nil {
+			return nil, fmt.Errorf("import.string %q: %w", b.Label, err)
 		}
-		w.budget.Give(quoted)
-		m = inlinedModule{quoted: alloysyntax.QuoteString(module), instances: w.instances - before}
-		w.modules[at] = m
+		w.budget.Give(len(quoted))
+		w.built[at] = quoted
 	}
 	start := ast.StartPos(b).Position()
 	columns := max(start.Column-1, 0)
 	const head, open, content, closing = "import.string ", " {\n", "  content = ", "\n"
-	n := len(head) + validate.QuotedLen(b.Label) + len(open) + columns + len(content) + len(m.quoted) +
+	n := len(head) + validate.QuotedLen(b.Label) + len(open) + columns + len(content) + len(quoted) +
 		len(closing) + columns + 1
-	if err := w.take(n); err != nil {
+	if err := w.budget.Take(n); err != nil {
 		return nil, err
 	}
 	indent := strings.Repeat(" ", columns)
 	var sb strings.Builder
 	sb.Grow(n)
-	for _, s := range []string{head, alloysyntax.QuoteString(b.Label), open, indent, content, m.quoted, closing, indent, "}"} {
+	for _, s := range []string{head, alloysyntax.QuoteString(b.Label), open, indent, content, quoted, closing, indent, "}"} {
 		sb.WriteString(s)
 	}
-	return &validate.Splice{
+	return []validate.Splice{{
 		Start: start.Offset,
 		End:   ast.EndPos(b).Position().Offset + 1,
 		Text:  sb.String(),
-	}, nil
+	}}, nil
+}
+
+// stringSplices serves one import.string block: each content attribute
+// that is a plain literal, up to the first that is not, is replaced by its
+// served form, re-quoted, when that differs — the first as a level of its
+// own (inlined and dropped), any later one with the drops only, as the drop
+// pass always treated them. Other content is left alone (the served form's
+// bound, validate.ServedFormProblem, refuses it in a strict org).
+func (w *walker) stringSplices(b *ast.BlockStmt, gitDepth, depth int) ([]validate.Splice, error) {
+	var splices []validate.Splice
+	first := true
+	for _, st := range b.Body {
+		a, ok := st.(*ast.AttributeStmt)
+		if !ok || a.Name.Name != "content" {
+			continue
+		}
+		content, ok := validate.PlainStringLiteral(a.Value)
+		if !ok {
+			break
+		}
+		var served string
+		var err error
+		if first {
+			served, err = w.build(content, gitDepth, depth+1)
+		} else {
+			served, err = validate.BuildServedLevel(content, depth+1, w.budget, nil)
+		}
+		first = false
+		if err != nil {
+			return nil, fmt.Errorf("import.string %q: %w", b.Label, err)
+		}
+		if served == content {
+			continue
+		}
+		quoted, err := w.quoted(served, true)
+		if err != nil {
+			return nil, fmt.Errorf("import.string %q: %w", b.Label, err)
+		}
+		splices = append(splices, validate.Splice{
+			Start: ast.StartPos(a.Value).Position().Offset,
+			End:   ast.EndPos(a.Value).Position().Offset + 1,
+			Text:  quoted,
+		})
+	}
+	return splices, nil
+}
+
+// collect is References' walk: every import.git reached through cached
+// modules and literal import.string contents, recorded in order; what
+// cannot be followed is skipped.
+func (w *walker) collect(text string, gitDepth, depth int) {
+	if depth > maxModuleDepth {
+		return
+	}
+	file, err := alloysyntax.ParseFile("<pipeline>", []byte(text))
+	if err != nil {
+		return
+	}
+	var blocks []*ast.BlockStmt
+	collectImports(file.Body, &blocks, 0)
+	for _, b := range blocks {
+		if strings.Join(b.Name, ".") != "import.git" {
+			if content, ok := firstContent(b); ok {
+				w.collect(content, gitDepth, depth+1)
+			}
+			continue
+		}
+		if gitDepth >= validate.MaxGitImportDepth {
+			continue
+		}
+		ref, err := w.ref(b)
+		if err != nil {
+			continue
+		}
+		if !slices.Contains(w.refs, ref) {
+			w.refs = append(w.refs, ref)
+		}
+		// A second visit at the same depths lists nothing new.
+		at := moduleAt{ref: ref, gitDepth: gitDepth, depth: depth}
+		if w.visited[at] {
+			continue
+		}
+		w.visited[at] = true
+		content, err := w.module(ref)
+		if err != nil {
+			continue
+		}
+		w.collect(content, gitDepth+1, depth+1)
+	}
 }
 
 // module is ref's cached text.
@@ -325,41 +431,6 @@ func (w *walker) module(ref Ref) (string, error) {
 		return "", fmt.Errorf("%w: module %s at %s (%s) is not cached", ErrNotInlinable, ref.Path, ref.Revision, ref.Key)
 	}
 	return row.Content, nil
-}
-
-// stringBlock rewrites the content of one import.string whose module text
-// holds an import.git (at any depth): only its content literal is replaced,
-// re-quoted. Content that is not a plain literal is left alone (the served
-// form's bound, validate.ServedFormProblem, refuses it in a strict org).
-func (w *walker) stringBlock(b *ast.BlockStmt, gitDepth, depth int) (*validate.Splice, error) {
-	for _, st := range b.Body {
-		a, ok := st.(*ast.AttributeStmt)
-		if !ok || a.Name.Name != "content" {
-			continue
-		}
-		content, ok := validate.PlainStringLiteral(a.Value)
-		if !ok {
-			return nil, nil //nolint:nilnil // nothing this walker can rewrite
-		}
-		inner, err := w.inline(content, gitDepth, depth+1)
-		if err != nil {
-			return nil, err
-		}
-		if inner == content {
-			return nil, nil //nolint:nilnil // unchanged: the bytes stay as written
-		}
-		// Charged as inlined; what is served is inner quoted.
-		w.budget.Give(len(inner))
-		if err := w.take(validate.QuotedLen(inner)); err != nil {
-			return nil, err
-		}
-		return &validate.Splice{
-			Start: ast.StartPos(a.Value).Position().Offset,
-			End:   ast.EndPos(a.Value).Position().Offset + 1,
-			Text:  alloysyntax.QuoteString(inner),
-		}, nil
-	}
-	return nil, nil //nolint:nilnil // no content attribute
 }
 
 // collectImports finds the import blocks Alloy loads — import.git and

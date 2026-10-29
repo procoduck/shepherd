@@ -2,6 +2,7 @@ package validate
 
 import (
 	"errors"
+	"fmt"
 	"math/rand"
 	"os"
 	"runtime"
@@ -99,7 +100,9 @@ func (g *dropGen) stmt(depth int, ind string) string {
 		}
 		inner := g.text(depth + 1)
 		var lit string
-		switch g.r.Intn(4) {
+		switch g.r.Intn(5) {
+		case 4: // escapes the encoder does not write: re-quoted shorter
+			lit = noncanonicalQuote(g.r, inner)
 		case 0: // raw tabs and control bytes kept as written
 			lit = `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\n", `\n`, "\r", `\r`).Replace(inner) + `"`
 		case 1:
@@ -198,12 +201,17 @@ func TestInsertTenantDropsMatchesReference(t *testing.T) {
 }
 
 // Near the cap: a text whose served form is within a few hundred bytes of
-// MaxContentBytes either side, the growth at the top level (a comment) or
+// MaxContentBytes either side, the growth at the top level (a comment),
 // inside nested import.string contents (raw tabs, re-escaped once per
-// level).
+// level), or in a content literal written with escapes the encoder does not
+// use, which the drops make it re-quote shorter. 45 texts by default;
+// SERVED_BUDGET_FULL=1 runs 400 (the same seed: the first 45 are the same).
 func TestInsertTenantDropsMatchesReferenceNearCap(t *testing.T) {
 	g := &dropGen{r: rand.New(rand.NewSource(4100))}
-	const n = 400
+	n := 45
+	if os.Getenv("SERVED_BUDGET_FULL") == "1" {
+		n = 400
+	}
 	under, over := 0, 0
 	for i := range n {
 		var base string
@@ -214,11 +222,17 @@ func TestInsertTenantDropsMatchesReferenceNearCap(t *testing.T) {
 			}
 		}
 		nested := 0
-		if i%2 == 1 {
+		if i%3 == 1 {
 			nested = 1 + g.r.Intn(3)
 		}
+		shrink := i%3 == 2
 		build := func(pad int) string {
 			filler := strings.Repeat("a", pad)
+			if shrink {
+				inner := `loki.relabel \"n\" {\n  forward_to = []\n  rule {\n    action = \"labelmap\"\n  }\n}\n` +
+					`x = \"` + strings.Repeat(`\u0061`, pad) + `\"\n`
+				return base + "import.string \"s\" {\n  content = \"" + inner + "\"\n}\n"
+			}
 			if nested == 0 {
 				return base + "// " + filler + "\n"
 			}
@@ -390,3 +404,48 @@ func allocated(fn func()) uint64 {
 
 // errSink keeps a result only measured for its allocations.
 var errSink error
+
+// noncanonicalQuote writes s as a string literal with escapes chosen at
+// random — \xHH, octal, \uXXXX, \UXXXXXXXX or the encoder's own — so the
+// literal decodes to s but is not what alloysyntax.QuoteString writes.
+func noncanonicalQuote(r *rand.Rand, s string) string {
+	var sb strings.Builder
+	sb.WriteByte('"')
+	for i := 0; i < len(s); {
+		c, w := utf8.DecodeRuneInString(s[i:])
+		canonical := strconv.Quote(s[i : i+w])
+		canonical = canonical[1 : len(canonical)-1]
+		switch k := r.Intn(6); {
+		case c == utf8.RuneError && w == 1:
+			fmt.Fprintf(&sb, `\x%02x`, s[i])
+		case k == 0 && w == 1:
+			fmt.Fprintf(&sb, `\x%02X`, s[i])
+		case k == 1 && w == 1:
+			fmt.Fprintf(&sb, `\%03o`, s[i])
+		case k == 2 && c < 0x10000:
+			fmt.Fprintf(&sb, `\u%04x`, c)
+		case k == 3:
+			fmt.Fprintf(&sb, `\U%08x`, c)
+		default:
+			sb.WriteString(canonical)
+		}
+		i += w
+	}
+	sb.WriteByte('"')
+	return sb.String()
+}
+
+func TestNoncanonicalQuoteDecodesBack(t *testing.T) {
+	rnd := rand.New(rand.NewSource(11))
+	for range 5000 {
+		b := make([]byte, rnd.Intn(30))
+		for i := range b {
+			b[i] = byte(rnd.Intn(256))
+		}
+		s := string(b) + "é😀\t\"\\"
+		lit := noncanonicalQuote(rnd, s)
+		if got, err := strconv.Unquote(lit); err != nil || got != s {
+			t.Fatalf("%s decodes to %q (%v), want %q", lit, got, err, s)
+		}
+	}
+}

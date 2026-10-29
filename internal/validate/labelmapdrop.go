@@ -210,10 +210,49 @@ func InsertTenantDrops(text string) (string, error) {
 // InsertTenantDropsWithin is InsertTenantDrops charging b (see
 // ServedBudget): when the text changes, b ends charged its length.
 func InsertTenantDropsWithin(text string, b *ServedBudget) (string, error) {
-	return insertTenantDrops(text, 0, b)
+	return insertTenantDrops(text, 0, b, nil)
 }
 
-func insertTenantDrops(text string, depth int, budget *ServedBudget) (string, error) {
+// ServedImports is what the caller of BuildServedLevel serves in place of
+// some of a level's import blocks (pinnedimport.Inline: the import.git and
+// literal import.string blocks it inlines).
+type ServedImports struct {
+	// Serve is called, in the drop pass's walk order, for every import.*
+	// block outside a relabel component. owned is whether the caller
+	// serves b: its splices (charged to the budget by the caller) replace
+	// what the drop pass would do with b.
+	Serve func(b *ast.BlockStmt) (splices []Splice, owned bool, err error)
+	// Replaced are the byte ranges [start, end) the caller replaces whole
+	// (an import.git block): the text's line ending is read outside them,
+	// as it is read in the text with them replaced.
+	Replaced [][2]int
+}
+
+// BuildServedLevel is the drop pass over one level of a served form at
+// module depth depth, with imports (made from the level's parse) serving
+// the import blocks it owns: the inliner's and the drop pass's rewrites of
+// one text applied at once, charged to b, so the served form is built
+// without first building the text the inliner alone would make (see
+// ServedBudget). imports nil is InsertTenantDrops at that depth.
+func BuildServedLevel(text string, depth int, b *ServedBudget, imports func(*ast.File) ServedImports) (string, error) {
+	return insertTenantDrops(text, depth, b, imports)
+}
+
+// crlfOutside reports whether text has a CR LF outside the ranges.
+func crlfOutside(text string, ranges [][2]int) bool {
+	sorted := slices.Clone(ranges)
+	slices.SortFunc(sorted, func(a, b [2]int) int { return a[0] - b[0] })
+	at := 0
+	for _, r := range sorted {
+		if r[0] > at && strings.Contains(text[at:r[0]], "\r\n") {
+			return true
+		}
+		at = max(at, r[1])
+	}
+	return strings.Contains(text[at:], "\r\n")
+}
+
+func insertTenantDrops(text string, depth int, budget *ServedBudget, imports func(*ast.File) ServedImports) (string, error) {
 	if depth > maxDepth {
 		return "", fmt.Errorf("%w: modules nest more than %d deep", ErrTenantDrop, maxDepth)
 	}
@@ -222,7 +261,12 @@ func insertTenantDrops(text string, depth int, budget *ServedBudget) (string, er
 		return "", fmt.Errorf("%w: the text does not parse: %w", ErrTenantDrop, err)
 	}
 	d := &dropper{text: text, depth: depth, newline: "\n", budget: budget}
-	if strings.Contains(text, "\r\n") {
+	var replaced [][2]int
+	if imports != nil {
+		si := imports(file)
+		d.serve, replaced = si.Serve, si.Replaced
+	}
+	if crlfOutside(text, replaced) {
 		d.newline = "\r\n"
 	}
 	if err := d.body(file.Body, "", "", 0); err != nil {
@@ -247,6 +291,7 @@ type dropper struct {
 	newline string
 	splices []Splice
 	budget  *ServedBudget
+	serve   func(b *ast.BlockStmt) ([]Splice, bool, error)
 }
 
 // splice records the rewrite of [start, end) by the text build makes,
@@ -272,6 +317,16 @@ func (d *dropper) body(stmts ast.Body, component, path string, nesting int) erro
 			continue
 		}
 		name := strings.Join(b.Name, ".")
+		if component == "" && d.serve != nil && strings.HasPrefix(name, "import.") {
+			splices, owned, err := d.serve(b)
+			if err != nil {
+				return err
+			}
+			if owned {
+				d.splices = append(d.splices, splices...)
+				continue
+			}
+		}
 		switch {
 		case component == "" && name == "import.string":
 			if err := d.importString(b); err != nil {
@@ -488,7 +543,7 @@ func (d *dropper) importString(b *ast.BlockStmt) error {
 		if !ok {
 			return nil
 		}
-		inner, err := insertTenantDrops(content, d.depth+1, d.budget)
+		inner, err := insertTenantDrops(content, d.depth+1, d.budget, nil)
 		if err != nil {
 			return fmt.Errorf("import.string %q: %w", b.Label, err)
 		}

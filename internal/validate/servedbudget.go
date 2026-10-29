@@ -16,29 +16,44 @@ var ErrServedFormTooLarge = errors.New("the pipeline as served (pinned modules i
 	" dropped after each labelmap) would be more than the " + fmt.Sprint(MaxContentBytes) +
 	" bytes a pipeline may be")
 
-// ServedBudget is the one byte budget of a strict org's served-form build:
-// the pinned-module inliner (pinnedimport.Inline) and the __tenant_id__ drop
-// pass (InsertTenantDropsWithin) charge it, before allocating, for every
-// piece of new text they build, so the build never holds much more than
-// MaxContentBytes of it, however many modules or drops a small text
-// expands to.
+// ServedBudget is the one byte budget of a strict org's served-form build
+// (pinnedimport.Inline, InsertTenantDrops): every piece of new text the
+// build makes is charged before it is allocated, so the build never holds
+// much more than MaxContentBytes of it, however many modules or drops a
+// small text expands to.
 //
-// What is charged is always at most the length the finished served form
-// will have, so the budget refuses exactly the builds whose result would be
-// too large, and never one that fits:
+// The build is one pass per level that makes the final served form
+// directly (BuildServedLevel: each level's modules inlined and drops
+// inserted at once), never an intermediate text. No intermediate is
+// charged, because one can be longer than the result: a content literal
+// written with escapes the encoder does not use (\x41, \u0061 for "a") is
+// re-quoted shorter, so text inlined before the drops are inserted may
+// pass the cap while the served form fits.
 //
-//   - a pass that returns its text unchanged charges nothing (it builds
-//     nothing);
-//   - a pass that rewrites a text charges each replacement text before
-//     building it, and the bytes it keeps (ApplySplices) when it joins them,
-//     so it ends having charged exactly the length of its result;
-//   - a pass that embeds a nested pass's changed result (a module text,
-//     re-quoted) gives that result's length back (Give) and charges the
-//     piece it embeds it in, which is at least as long.
+// Invariant: at every moment what is charged is at most the length of the
+// final served form F, and when the build finishes having changed the
+// text it is exactly len(F). So Take fails if and only if len(F) would
+// pass the cap (an unchanged text charges nothing; Inline checks its
+// length), and every served form that fits is built byte for byte. Proof,
+// by the rules every level follows:
 //
-// A nested result is inside its parent's result, re-quoted (never shorter),
-// and the parent's other pieces are disjoint from it, so the sum charged
-// along the way never exceeds the final length.
+//   - a level that returns its text unchanged charges nothing;
+//   - a level that rewrites its text charges each replacement before
+//     building it, and the bytes it keeps (ApplySplices, the text outside
+//     every replaced range) when it joins them: it ends charged exactly the
+//     length of its result R, and each piece it charged is a distinct part
+//     of R;
+//   - a level that embeds a nested level's changed result N gives back
+//     len(N) (Give) before charging the piece that holds N re-quoted,
+//     which is at least len(N)+2 (quoting never shortens), so while the
+//     nested level runs it holds at most len(N) — less than the piece it
+//     becomes.
+//
+// Each level's result appears in F inside its parent's piece, re-quoted
+// once per enclosing level (never shorter), and the pieces of different
+// levels are disjoint, so the sum charged never exceeds len(F). Literal
+// ranges that are replaced are never charged as kept bytes, so how they
+// were written does not matter.
 type ServedBudget struct {
 	left int
 }

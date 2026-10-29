@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -100,7 +101,8 @@ func (g *inlineGen) stmt(depth, imports int, ind string) string {
 		}
 		inner := g.text(depth+1, imports-1)
 		return ind + "import.string " + strconv.Quote(label) + " {\n" + ind + "  content = " +
-			g.pick(alloysyntax.QuoteString(inner), alloysyntax.QuoteString(inner), "local.file.f.content") + "\n" + ind + "}\n"
+			g.pick(alloysyntax.QuoteString(inner), noncanonicalQuote(g.r, inner), noncanonicalQuote(g.r, inner),
+				"local.file.f.content") + "\n" + ind + "}\n"
 	case 4:
 		if depth > 2 {
 			return ""
@@ -210,26 +212,36 @@ func TestInlineMatchesReference(t *testing.T) {
 
 // Near the cap: a module imported one to four times (directly, through an
 // import.string, or from another module) whose served form is within a few
-// hundred bytes of the cap either side.
+// hundred bytes of the cap either side; or, beside it, an import.string
+// whose content is written with a for "a" and holds a labelmap, so
+// the drops make it re-quote shorter: the text inlined before the drops are
+// inserted passes the cap while the served form may fit. 36 pipelines by
+// default; SERVED_BUDGET_FULL=1 runs 400 (the same seed: the first 36 are
+// the same).
 func TestInlineMatchesReferenceNearCap(t *testing.T) {
 	g := &inlineGen{r: rand.New(rand.NewSource(3900))}
 	repos := budgetRepos(t)
-	const n = 400
-	under, over := 0, 0
+	n := 36
+	if os.Getenv("SERVED_BUDGET_FULL") == "1" {
+		n = 400
+	}
+	under, over, shrunk := 0, 0, 0
 	// The served size is linear in the padding; its two coefficients
 	// depend only on the shape.
 	type shape struct {
-		copies, mix int
-		tabs        bool
+		copies, mix, kind int
 	}
 	linear := map[shape][2]float64{}
 	for i := range n {
 		copies := 1 + g.r.Intn(4)
-		tabs := i%2 == 1
+		kind := i % 3 // 0: "a" in the module, 1: tabs in it, 2: a literal that shrinks
 		build := func(pad int) (fakeModules, string) {
 			filler := strings.Repeat("a", pad)
-			if tabs {
+			switch kind {
+			case 1:
 				filler = strings.Repeat("\t", pad)
+			case 2:
+				filler = strings.Repeat("a", 600000/copies)
 			}
 			mods := fakeModules{
 				"m0.alloy": "prometheus.relabel \"r\" {\n  forward_to = []\n  rule {\n    action = \"labelmap\"\n  }\n}\n" +
@@ -249,6 +261,9 @@ func TestInlineMatchesReferenceNearCap(t *testing.T) {
 						alloysyntax.QuoteString(importGit("", "x", "m0.alloy")) + "\n}\n")
 				}
 			}
+			if kind == 2 {
+				sb.WriteString(shrinkingImport(pad))
+			}
 			return mods, sb.String()
 		}
 		size := func(pad int) int {
@@ -259,7 +274,7 @@ func TestInlineMatchesReferenceNearCap(t *testing.T) {
 			}
 			return len(out)
 		}
-		sh := shape{copies: copies, mix: i % 3, tabs: tabs}
+		sh := shape{copies: copies, mix: i % 3, kind: kind}
 		if _, ok := linear[sh]; !ok {
 			l0, l1 := size(0), size(1000)
 			linear[sh] = [2]float64{float64(l0), float64(l1-l0) / 1000}
@@ -268,16 +283,87 @@ func TestInlineMatchesReferenceNearCap(t *testing.T) {
 		target := validate.MaxContentBytes + g.r.Intn(601) - 300
 		pad := max(int((float64(target)-l0)/perPad), 0)
 		mods, contents := build(pad)
-		if checkInlineMatches(t, mods, repos, contents, false, false) {
+		served := checkInlineMatches(t, mods, repos, contents, false, false)
+		if served && kind == 2 && inlinedLen(t, mods, repos, contents) > validate.MaxContentBytes {
+			shrunk++
+		}
+		if served {
 			under++
 		} else {
 			over++
 		}
 	}
-	t.Logf("%d near-cap pipelines: %d served identically, %d refused alike", n, under, over)
-	if under < n/5 || over < n/5 {
-		t.Fatalf("the near-cap corpus does not straddle the cap: %d under, %d over", under, over)
+	t.Logf("%d near-cap pipelines: %d served identically (%d inlined past the cap before the drops shrank them), "+
+		"%d refused alike", n, under, shrunk, over)
+	if under < n/5 || over < n/5 || shrunk == 0 {
+		t.Fatalf("the near-cap corpus does not straddle the cap: %d under (%d shrunk), %d over", under, shrunk, over)
 	}
+}
+
+// shrinkingImport is an import.string holding a labelmap and a pad-long
+// string of "a", each written a: the drops make the content re-quote
+// five bytes shorter per "a".
+func shrinkingImport(pad int) string {
+	return "import.string \"s\" {\n  content = \"" +
+		`prometheus.relabel \"r\" {\n  forward_to = []\n  rule {\n    action = \"labelmap\"\n  }\n}\n` +
+		`y = \"` + strings.Repeat(`\u0061`, pad) + `\"\n` + "\"\n}\n"
+}
+
+// inlinedLen is how long the text the old Inline built before inserting
+// the drops was.
+func inlinedLen(t *testing.T, mods fakeModules, repos []sqlc.OrgImportRepository, contents string) int {
+	t.Helper()
+	out, err := newRefWalker(context.Background(), mods, pgtype.UUID{}, repos).inline(contents, 0, 0)
+	if err != nil {
+		t.Fatalf("inlining: %v", err)
+	}
+	return len(out)
+}
+
+// A pipeline the drops shrink back under the cap is served as before
+// (#450 review): the old Inline inlined it past the cap (the module plus
+// the import.string as written) and inserted the drops, which re-quote the
+// content's a escapes as "a"; the served form fits.
+func TestInlineServesWhatTheDropsShrinkUnderTheCap(t *testing.T) {
+	repos := budgetRepos(t)
+	mods := fakeModules{"m.alloy": "x = \"" + strings.Repeat("a", 600_000) + "\"\n"}
+	contents := importGit("", "a", "m.alloy") + shrinkingImport(90_000)
+	if inlinedLen(t, mods, repos, contents) <= validate.MaxContentBytes {
+		t.Fatal("the inlined text fits: not the shape under test")
+	}
+	if !checkInlineMatches(t, mods, repos, contents, true, true) {
+		t.Fatal("the old Inline refuses it: not the shape under test")
+	}
+}
+
+// noncanonicalQuote writes s as a string literal with escapes chosen at
+// random — \xHH, octal, \uXXXX, \UXXXXXXXX or the encoder's own — so the
+// literal decodes to s but is not what alloysyntax.QuoteString writes.
+func noncanonicalQuote(r *rand.Rand, s string) string {
+	var sb strings.Builder
+	sb.WriteByte('"')
+	for i := 0; i < len(s); {
+		c, w := utf8.DecodeRuneInString(s[i:])
+		canonical := strconv.Quote(s[i : i+w])
+		canonical = canonical[1 : len(canonical)-1]
+		switch k := r.Intn(6); {
+		case c == utf8.RuneError && w == 1:
+			fmt.Fprintf(&sb, `\x%02x`, s[i])
+		case k == 0 && w == 1:
+			fmt.Fprintf(&sb, `\x%02X`, s[i])
+		case k == 1 && w == 1:
+			fmt.Fprintf(&sb, `\%03o`, s[i])
+		case k == 2 && c < 0x10000:
+			fmt.Fprintf(&sb, `\u%04x`, c)
+		case k == 3:
+			fmt.Fprintf(&sb, `\U%08x`, c)
+		default:
+			sb.WriteString(canonical)
+		}
+		i += w
+	}
+	sb.WriteByte('"')
+	return sb.String()
 }
 
 // The import-instance cap counts every import expanded, repeats and nested
