@@ -200,12 +200,59 @@ func isRelabelRuleSchema(b schemaBlock) bool {
 // already followed by that rule gets no second one. Text without such a
 // labelmap is returned unchanged, byte for byte; otherwise only the
 // inserted ranges change. The result must parse. It is part of the served
-// form of a strict org's pipeline (pinnedimport.Inline).
+// form of a strict org's pipeline (pinnedimport.Inline), so it is built
+// within a ServedBudget of its own: a result that would be more than
+// MaxContentBytes is ErrServedFormTooLarge.
 func InsertTenantDrops(text string) (string, error) {
-	return insertTenantDrops(text, 0)
+	return InsertTenantDropsWithin(text, NewServedBudget())
 }
 
-func insertTenantDrops(text string, depth int) (string, error) {
+// InsertTenantDropsWithin is InsertTenantDrops charging b (see
+// ServedBudget): when the text changes, b ends charged its length.
+func InsertTenantDropsWithin(text string, b *ServedBudget) (string, error) {
+	return insertTenantDrops(text, 0, b, nil)
+}
+
+// ServedImports is what the caller of BuildServedLevel serves in place of
+// some of a level's import blocks (pinnedimport.Inline: the import.git and
+// literal import.string blocks it inlines).
+type ServedImports struct {
+	// Serve is called, in the drop pass's walk order, for every import.*
+	// block outside a relabel component. owned is whether the caller
+	// serves b: its splices (charged to the budget by the caller) replace
+	// what the drop pass would do with b.
+	Serve func(b *ast.BlockStmt) (splices []Splice, owned bool, err error)
+	// Replaced are the byte ranges [start, end) the caller replaces whole
+	// (an import.git block): the text's line ending is read outside them,
+	// as it is read in the text with them replaced.
+	Replaced [][2]int
+}
+
+// BuildServedLevel is the drop pass over one level of a served form at
+// module depth depth, with imports (made from the level's parse) serving
+// the import blocks it owns: the inliner's and the drop pass's rewrites of
+// one text applied at once, charged to b, so the served form is built
+// without first building the text the inliner alone would make (see
+// ServedBudget). imports nil is InsertTenantDrops at that depth.
+func BuildServedLevel(text string, depth int, b *ServedBudget, imports func(*ast.File) ServedImports) (string, error) {
+	return insertTenantDrops(text, depth, b, imports)
+}
+
+// crlfOutside reports whether text has a CR LF outside the ranges.
+func crlfOutside(text string, ranges [][2]int) bool {
+	sorted := slices.Clone(ranges)
+	slices.SortFunc(sorted, func(a, b [2]int) int { return a[0] - b[0] })
+	at := 0
+	for _, r := range sorted {
+		if r[0] > at && strings.Contains(text[at:r[0]], "\r\n") {
+			return true
+		}
+		at = max(at, r[1])
+	}
+	return strings.Contains(text[at:], "\r\n")
+}
+
+func insertTenantDrops(text string, depth int, budget *ServedBudget, imports func(*ast.File) ServedImports) (string, error) {
 	if depth > maxDepth {
 		return "", fmt.Errorf("%w: modules nest more than %d deep", ErrTenantDrop, maxDepth)
 	}
@@ -213,8 +260,13 @@ func insertTenantDrops(text string, depth int) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("%w: the text does not parse: %w", ErrTenantDrop, err)
 	}
-	d := &dropper{text: text, depth: depth, newline: "\n"}
-	if strings.Contains(text, "\r\n") {
+	d := &dropper{text: text, depth: depth, newline: "\n", budget: budget}
+	var replaced [][2]int
+	if imports != nil {
+		si := imports(file)
+		d.serve, replaced = si.Serve, si.Replaced
+	}
+	if crlfOutside(text, replaced) {
 		d.newline = "\r\n"
 	}
 	if err := d.body(file.Body, "", "", 0); err != nil {
@@ -223,11 +275,9 @@ func insertTenantDrops(text string, depth int) (string, error) {
 	if len(d.splices) == 0 {
 		return text, nil
 	}
-	// From the last offset back, so earlier offsets stay valid.
-	slices.SortStableFunc(d.splices, func(a, b dropSplice) int { return b.start - a.start })
-	out := text
-	for _, sp := range d.splices {
-		out = out[:sp.start] + sp.text + out[sp.end:]
+	out, err := ApplySplices(text, d.splices, budget)
+	if err != nil {
+		return "", err
 	}
 	if _, err := alloysyntax.ParseFile("<served>", []byte(out)); err != nil {
 		return "", fmt.Errorf("%w: the text with the drops inserted does not parse: %w", ErrTenantDrop, err)
@@ -235,16 +285,24 @@ func insertTenantDrops(text string, depth int) (string, error) {
 	return out, nil
 }
 
-type dropSplice struct {
-	start, end int
-	text       string
-}
-
 type dropper struct {
 	text    string
 	depth   int
 	newline string
-	splices []dropSplice
+	splices []Splice
+	budget  *ServedBudget
+	serve   func(b *ast.BlockStmt) ([]Splice, bool, error)
+}
+
+// splice records the rewrite of [start, end) by the text build makes,
+// charging the budget n bytes — the length that text will have — before it
+// is built.
+func (d *dropper) splice(start, end, n int, build func() string) error {
+	if err := d.budget.Take(n); err != nil {
+		return err
+	}
+	d.splices = append(d.splices, Splice{Start: start, End: end, Text: build()})
+	return nil
 }
 
 // body walks stmts. component is the relabel-rule component enclosing them
@@ -259,6 +317,16 @@ func (d *dropper) body(stmts ast.Body, component, path string, nesting int) erro
 			continue
 		}
 		name := strings.Join(b.Name, ".")
+		if component == "" && d.serve != nil && strings.HasPrefix(name, "import.") {
+			splices, owned, err := d.serve(b)
+			if err != nil {
+				return err
+			}
+			if owned {
+				d.splices = append(d.splices, splices...)
+				continue
+			}
+		}
 		switch {
 		case component == "" && name == "import.string":
 			if err := d.importString(b); err != nil {
@@ -296,7 +364,9 @@ func (d *dropper) body(stmts ast.Body, component, path string, nesting int) erro
 		}
 		if name == "rule" && rules[component][p] && isLiteralLabelmap(b) && needsTenantDrop(b) &&
 			!isTenantDrop(nextRule(stmts, i)) {
-			d.insertAfter(b)
+			if err := d.insertAfter(b); err != nil {
+				return err
+			}
 		}
 		if err := d.body(b.Body, component, p, nesting+1); err != nil {
 			return err
@@ -309,19 +379,26 @@ func (d *dropper) body(stmts ast.Body, component, path string, nesting int) erro
 // lines of its own, indented with the leading whitespace (spaces and tabs,
 // byte for byte) of the line b starts on — never a column count, which a tab
 // or a multi-byte character before b would throw off.
-func (d *dropper) insertAfter(b *ast.BlockStmt) {
+func (d *dropper) insertAfter(b *ast.BlockStmt) error {
 	start := ast.StartPos(b).Position().Offset
 	end := ast.EndPos(b).Position().Offset + 1
 	lineStart := strings.LastIndexByte(d.text[:start], '\n') + 1
 	line := d.text[lineStart:start]
 	indent := line[:len(line)-len(strings.TrimLeft(line, " \t"))]
-	var sb strings.Builder
+	n := 0
 	for _, line := range tenantDropRule {
-		sb.WriteString(d.newline)
-		sb.WriteString(indent)
-		sb.WriteString(line)
+		n += len(d.newline) + len(indent) + len(line)
 	}
-	d.splices = append(d.splices, dropSplice{start: end, end: end, text: sb.String()})
+	return d.splice(end, end, n, func() string {
+		var sb strings.Builder
+		sb.Grow(n)
+		for _, line := range tenantDropRule {
+			sb.WriteString(d.newline)
+			sb.WriteString(indent)
+			sb.WriteString(line)
+		}
+		return sb.String()
+	})
 }
 
 // exporterLoki is the component the strict served form routes through a
@@ -365,7 +442,10 @@ func (d *dropper) exporterLoki(b *ast.BlockStmt, stmts ast.Body) error {
 	vStart := ast.StartPos(fwd.Value).Position().Offset
 	vEnd := ast.EndPos(fwd.Value).Position().Offset + 1
 	original := d.text[vStart:vEnd]
-	d.splices = append(d.splices, dropSplice{start: vStart, end: vEnd, text: "[loki.process." + label + ".receiver]"})
+	receiver := "[loki.process." + label + ".receiver]"
+	if err := d.splice(vStart, vEnd, len(receiver), func() string { return receiver }); err != nil {
+		return err
+	}
 
 	start := ast.StartPos(b).Position().Offset
 	end := ast.EndPos(b).Position().Offset + 1
@@ -382,17 +462,26 @@ func (d *dropper) exporterLoki(b *ast.BlockStmt, stmts ast.Body) error {
 		"  }",
 		"}",
 	}
-	var sb strings.Builder
+	n := 0
 	for _, l := range lines {
-		sb.WriteString(d.newline)
+		n += len(d.newline)
 		if l != "" {
-			sb.WriteString(indent)
-			sb.WriteString(l)
+			n += len(indent) + len(l)
 		}
 	}
 	at := afterTrailingComment(d.text, end)
-	d.splices = append(d.splices, dropSplice{start: at, end: at, text: sb.String()})
-	return nil
+	return d.splice(at, at, n, func() string {
+		var sb strings.Builder
+		sb.Grow(n)
+		for _, l := range lines {
+			sb.WriteString(d.newline)
+			if l != "" {
+				sb.WriteString(indent)
+				sb.WriteString(l)
+			}
+		}
+		return sb.String()
+	})
 }
 
 // afterTrailingComment is the offset to insert after a block that closes at
@@ -454,16 +543,17 @@ func (d *dropper) importString(b *ast.BlockStmt) error {
 		if !ok {
 			return nil
 		}
-		inner, err := insertTenantDrops(content, d.depth+1)
+		inner, err := insertTenantDrops(content, d.depth+1, d.budget, nil)
 		if err != nil {
 			return fmt.Errorf("import.string %q: %w", b.Label, err)
 		}
 		if inner != content {
-			d.splices = append(d.splices, dropSplice{
-				start: ast.StartPos(a.Value).Position().Offset,
-				end:   ast.EndPos(a.Value).Position().Offset + 1,
-				text:  alloysyntax.QuoteString(inner),
-			})
+			// inner is charged; what is served is inner quoted.
+			d.budget.Give(len(inner))
+			if err := d.splice(ast.StartPos(a.Value).Position().Offset, ast.EndPos(a.Value).Position().Offset+1,
+				QuotedLen(inner), func() string { return alloysyntax.QuoteString(inner) }); err != nil {
+				return fmt.Errorf("import.string %q: %w", b.Label, err)
+			}
 		}
 	}
 	return nil

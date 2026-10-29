@@ -20,6 +20,15 @@ Categories used here:
   `pgx5://` included). A URL whose user name, password or database name holds an unencoded `/`
   or `@` that would split it in the wrong place is refused by both, with a message that names no
   part of it; percent-encode those characters (`%2F`, `%40`).
+- **Shipped — a strict org's served form stops at the 1 MiB limit while it is built.** Inlining
+  pinned modules and inserting the `__tenant_id__` drops now count every byte against the pipeline
+  limit as they go, so a pipeline that would expand past 1 MiB (one module imported many times,
+  nested imports, re-quoted module contents, many drops) is refused as too large when it reaches the
+  limit instead of after being built in full. A pipeline that expands more than 256 imports
+  (`import.git` and `import.string`, nested ones and repeats included) is refused as well. Every
+  pipeline whose served form fits is served byte for byte as before. A pipeline that is too large
+  and also has another problem (a module not fetched yet, an unpinned revision, nesting too deep)
+  may now be refused for its size first; fixing that shows the other problem.
 - **Shipped — group access is bound to the org that granted it.** A group assigned to a
   collector on its Access tab gives its members viewer access only while the collector's cluster
   stays in the org that made the assignment. Claiming a cluster into another org removes the
