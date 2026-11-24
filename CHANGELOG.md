@@ -17,6 +17,7 @@ Categories used here:
 
 - **Go 1.27.4** (GO-2026-6859, `net/http`). The `golang:1.27-alpine` image digest moves to the
   1.27.4 build in `deploy/versions.env`, the Dockerfile defaults and the e2e helper images.
+- **`klauspost/compress` 1.20.3** (from 1.20.1, through go-git): GO-2026-6865.
 - **`seroval` 1.7.2** (from 1.6.8, through `@tanstack/react-router`): GHSA-9wx9-5pv9-3349,
   GHSA-f86p-h4j2-7qgj. A lockfile refresh within the router's existing range.
 
