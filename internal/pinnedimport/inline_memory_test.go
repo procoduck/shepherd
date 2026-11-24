@@ -3,6 +3,7 @@ package pinnedimport
 import (
 	"context"
 	"runtime"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -27,8 +28,12 @@ func (c cloningModules) GetPinnedImportModule(ctx context.Context, a sqlc.GetPin
 }
 
 // peakHeap is how far the live heap rose above where it was while fn ran,
-// sampled every millisecond.
+// sampled every millisecond. HeapAlloc also counts garbage the collector has
+// not reached yet, and on a loaded runner it reaches it late: the 1 MiB
+// import.git case read up to +37 MiB against a +26 MiB live peak. GOGC=10
+// while fn runs keeps that garbage small, so the bound sees what is held.
 func peakHeap(fn func()) uint64 {
+	defer debug.SetGCPercent(debug.SetGCPercent(10))
 	runtime.GC()
 	var base runtime.MemStats
 	runtime.ReadMemStats(&base)
